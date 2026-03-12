@@ -31,7 +31,7 @@ trap _cleanup EXIT
   port=$(cat "$PORT_FILE" 2>/dev/null)
   [ -z "$port" ] && exit 0
   while curl -s -XPOST "http://localhost:${port}" -d 'reload-preview' 2>/dev/null; do
-    sleep 1
+    sleep 0.2
   done
 ) </dev/null >/dev/null 2>/dev/null &
 REFRESH_PID=$!
