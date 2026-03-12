@@ -88,11 +88,11 @@ if [ "$PANE_CMD" = "ssh" ] && [ "$SESSION_NAME" != "claude" ]; then
   if [ -f "/tmp/tmux-claude-mcp.port" ] && [ -f "/tmp/tmux-claude-mcp.token" ]; then
     MCP_PORT=$(cat /tmp/tmux-claude-mcp.port)
     MCP_TOKEN=$(cat /tmp/tmux-claude-mcp.token)
-    # base64-encode the JSON to avoid shell quoting issues
-    NOTIFY_B64=$(printf '{"port":%s,"token":"%s","window":"%s"}' "$MCP_PORT" "$MCP_TOKEN" "$WINDOW" | base64 | tr -d '\n')
+    # Create lock file on remote so Claude can discover the MCP server via tunnel
+    LOCK_B64=$(printf '{"pid":1,"workspaceFolders":[],"ideName":"tmux-claude","transport":"ws","authToken":"%s"}' "$MCP_TOKEN" | base64 | tr -d '\n')
     MCP_TUNNEL_FLAGS="-R ${MCP_PORT}:127.0.0.1:${MCP_PORT}"
-    MCP_NOTIFY_SETUP="echo ${NOTIFY_B64} | base64 -d > /tmp/tmux-claude-remote-notify.json && "
-    MCP_NOTIFY_CLEANUP="; rm -f /tmp/tmux-claude-remote-notify.json"
+    MCP_NOTIFY_SETUP="mkdir -p ~/.claude/ide && echo ${LOCK_B64} | base64 -d > ~/.claude/ide/${MCP_PORT}.lock && "
+    MCP_NOTIFY_CLEANUP="; rm -f ~/.claude/ide/${MCP_PORT}.lock"
   fi
 
   # Use login shell on remote so PATH (~/.profile, ~/.zprofile) is loaded
