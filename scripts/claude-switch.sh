@@ -63,7 +63,7 @@ SELECTED=$($TMUX_BIN list-windows -t claude -F "#{window_name}	#{pane_current_co
     --padding 1,2 \
     --header $'  Claude Sessions\n  Enter: open  1/2/3: send  ctrl-x: kill\n' \
     --header-first \
-    --preview "$TMUX_BIN capture-pane -t {1} -p -e -S - 2>/dev/null | tail -50" \
+    --preview "echo '[updated:' \$(date +%H:%M:%S) ']' && $TMUX_BIN capture-pane -t {1} -p -e -S - 2>/dev/null | tail -48" \
     --preview-window 'right:60%:wrap:border-left' \
     --bind "1:execute-silent($TMUX_BIN send-keys -t {1} '1' Enter)" \
     --bind "2:execute-silent($TMUX_BIN send-keys -t {1} '2' Enter)" \
