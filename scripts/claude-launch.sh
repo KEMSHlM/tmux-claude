@@ -46,6 +46,18 @@ _get_remote_dir() {
   fi
 }
 
+# Build env vars to connect Claude to the MCP server
+_mcp_env_prefix() {
+  local port_file="/tmp/tmux-claude-mcp.port"
+  [ -f "$port_file" ] || return
+  local port
+  port=$(cat "$port_file" 2>/dev/null)
+  [ -n "$port" ] || return
+  echo "CLAUDE_CODE_AUTO_CONNECT_IDE=true CLAUDE_CODE_SSE_PORT=$port CLAUDE_CODE_IDE_SKIP_VALID_CHECK=1"
+}
+
+MCP_ENV=$(_mcp_env_prefix)
+
 if [ "$PANE_CMD" = "ssh" ] && [ "$SESSION_NAME" != "claude" ]; then
   # --- Remote (SSH) case ---
   SSH_HOST=$(_get_ssh_host)
@@ -77,13 +89,13 @@ if [ "$PANE_CMD" = "ssh" ] && [ "$SESSION_NAME" != "claude" ]; then
   tmux display-popup -w80% -h80% -E "$SCRIPT_DIR/claude-popup.sh $WINDOW"
 
 else
-  # --- Local case (original behavior) ---
+  # --- Local case ---
   WINDOW="claude-$(echo "$LOCAL_PATH" | md5sum | cut -c1-8)"
 
   if [ "$SESSION_NAME" = "claude" ]; then
     tmux detach-client
   else
-    CLAUDE_CMD="zsh -lic 'cd \"$LOCAL_PATH\" && claude${FLAGS:+ $FLAGS}'"
+    CLAUDE_CMD="zsh -lic 'cd \"$LOCAL_PATH\" && ${MCP_ENV:+$MCP_ENV }claude${FLAGS:+ $FLAGS}'"
 
     if ! tmux has-session -t "claude" 2>/dev/null; then
       tmux new-session -d -s "claude" -n "$WINDOW" "$CLAUDE_CMD"
