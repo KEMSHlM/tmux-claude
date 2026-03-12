@@ -77,10 +77,11 @@ if [ "$PANE_CMD" = "ssh" ] && [ "$SESSION_NAME" != "claude" ]; then
   if [ -f "/tmp/tmux-claude-mcp.port" ] && [ -f "/tmp/tmux-claude-mcp.token" ]; then
     MCP_PORT=$(cat /tmp/tmux-claude-mcp.port)
     MCP_TOKEN=$(cat /tmp/tmux-claude-mcp.token)
-    NOTIFY_JSON="{\\\"port\\\":$MCP_PORT,\\\"token\\\":\\\"$MCP_TOKEN\\\",\\\"window\\\":\\\"$WINDOW\\\"}"
+    # base64-encode the JSON to avoid shell quoting issues
+    NOTIFY_B64=$(printf '{"port":%s,"token":"%s","window":"%s"}' "$MCP_PORT" "$MCP_TOKEN" "$WINDOW" | base64 | tr -d '\n')
     MCP_TUNNEL_FLAGS="-R ${MCP_PORT}:127.0.0.1:${MCP_PORT}"
-    MCP_NOTIFY_SETUP="echo \\\"$NOTIFY_JSON\\\" > /tmp/tmux-claude-remote-notify.json && "
-    MCP_NOTIFY_CLEANUP=" && rm -f /tmp/tmux-claude-remote-notify.json; rm -f /tmp/tmux-claude-remote-notify.json"
+    MCP_NOTIFY_SETUP="echo ${NOTIFY_B64} | base64 -d > /tmp/tmux-claude-remote-notify.json && "
+    MCP_NOTIFY_CLEANUP="; rm -f /tmp/tmux-claude-remote-notify.json"
   fi
 
   # Use login shell on remote so PATH (~/.profile, ~/.zprofile) is loaded
