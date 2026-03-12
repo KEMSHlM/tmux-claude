@@ -29,15 +29,14 @@ SELECTED=$($TMUX_BIN list-windows -t claude -F "#{window_name}	#{pane_current_co
   fzf \
     --delimiter='\t' \
     --with-nth=2 \
-    --border rounded \
     --padding 1,2 \
-    --header $'  Claude Sessions\n  Enter: open  1/2/3: send  ctrl-x: kill\n' \
+    --header $'  Claude Sessions\n  Enter: open  ctrl-y/u/i: send 1/2/3  ctrl-x: kill\n' \
     --header-first \
     --preview "while true; do $TMUX_BIN capture-pane -t {1} -p -e -S -40 2>/dev/null; sleep 0.2; done" \
-    --preview-window 'right:60%:wrap:border-left:follow' \
-    --bind "1:execute-silent($TMUX_BIN send-keys -t {1} '1' Enter)" \
-    --bind "2:execute-silent($TMUX_BIN send-keys -t {1} '2' Enter)" \
-    --bind "3:execute-silent($TMUX_BIN send-keys -t {1} '3' Enter)" \
+    --preview-window 'up:80%:wrap:border-bottom:follow' \
+    --bind "ctrl-y:execute-silent($TMUX_BIN send-keys -t {1} '1')" \
+    --bind "ctrl-u:execute-silent($TMUX_BIN send-keys -t {1} '2')" \
+    --bind "ctrl-i:execute-silent($TMUX_BIN send-keys -t {1} '3')" \
     --bind "ctrl-x:execute-silent($TMUX_BIN kill-window -t {1})+abort")
 
 [ -z "$SELECTED" ] && exit 0
