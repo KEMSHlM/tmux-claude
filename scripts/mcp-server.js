@@ -185,40 +185,12 @@ function triggerPopupForWindow(window) {
 }
 
 function triggerPopup(socket) {
-  // Check if running on remote with a tunnel back to local MCP server
-  let remoteConfig = null;
-  try {
-    remoteConfig = JSON.parse(fs.readFileSync('/tmp/tmux-claude-remote-notify.json', 'utf8'));
-  } catch { /* local mode */ }
-
-  if (remoteConfig?.port && remoteConfig?.token && remoteConfig?.window) {
-    const body = JSON.stringify({ window: remoteConfig.window });
-    const req = [
-      'POST /notify HTTP/1.1',
-      'Host: localhost',
-      `X-Claude-Code-IDE-Authorization: ${remoteConfig.token}`,
-      'Content-Type: application/json',
-      `Content-Length: ${Buffer.byteLength(body)}`,
-      '',
-      body,
-    ].join('\r\n');
-
-    const sock = net.createConnection(remoteConfig.port, '127.0.0.1', () => {
-      sock.write(req);
-      setTimeout(() => sock.destroy(), 2000);
-    });
-    sock.on('error', err => {
-      console.warn('[mcp] remote notify failed, falling back to local:', err.message);
-      const pid = socketState.get(socket)?.pid;
-      triggerPopupForWindow(pid ? findTmuxWindowForPid(pid)?.window ?? null : null);
-    });
-    console.log(`[mcp] remote notify → port=${remoteConfig.port} window=${remoteConfig.window}`);
-    return;
-  }
-
-  // Local popup
-  const pid = socketState.get(socket)?.pid;
-  triggerPopupForWindow(pid ? findTmuxWindowForPid(pid)?.window ?? null : null);
+  const state = socketState.get(socket);
+  const pid = state?.pid;
+  const localWindow = pid ? findTmuxWindowForPid(pid)?.window ?? null : null;
+  // state.window is set for remote connections (direct tunnel)
+  const window = localWindow ?? state?.window ?? null;
+  triggerPopupForWindow(window);
 }
 
 // --- MCP message handler ---
@@ -238,8 +210,14 @@ function handleMcpMessage(socket, msg) {
 
     case 'ide_connected':
       if (params?.pid) {
-        socketState.set(socket, { pid: params.pid });
-        console.log(`[mcp] ide_connected pid=${params.pid}`);
+        const pendingFile = '/tmp/tmux-claude-next-remote-window';
+        let remoteWindow = null;
+        try {
+          remoteWindow = fs.readFileSync(pendingFile, 'utf8').trim() || null;
+          if (remoteWindow) fs.unlinkSync(pendingFile);
+        } catch { /* no pending remote window */ }
+        socketState.set(socket, { pid: params.pid, window: remoteWindow });
+        console.log(`[mcp] ide_connected pid=${params.pid}${remoteWindow ? ` remote-window=${remoteWindow}` : ''}`);
       }
       break;
 
@@ -288,20 +266,6 @@ function handleConnection(socket) {
 
       if (headers['x-claude-code-ide-authorization'] !== AUTH_TOKEN) {
         sendHttpError(socket, 401, 'Unauthorized');
-        return;
-      }
-
-      const method = headerText.split('\r\n')[0].split(' ')[0];
-      if (method === 'POST') {
-        upgraded = true; // prevent re-entry
-        const contentLength = parseInt(headers['content-length'] || '0', 10);
-        // Body arrives with headers for small payloads (loopback)
-        const body = buf.slice(0, contentLength).toString('utf8');
-        let data = {};
-        try { data = JSON.parse(body); } catch { /* ok */ }
-        socket.end('HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n');
-        console.log(`[mcp] remote notify received → window=${data.window ?? '?'}`);
-        triggerPopupForWindow(data.window ?? null);
         return;
       }
 
