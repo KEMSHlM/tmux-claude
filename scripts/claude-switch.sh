@@ -27,7 +27,6 @@ SELECTED=$($TMUX_BIN list-windows -t claude -F "#{window_name}	#{pane_current_co
     printf "claude:=%s\t%s %s\n" "$name" "$marker" "$label"
   done | \
   fzf \
-    --disabled \
     --delimiter='\t' \
     --with-nth=2 \
     --border rounded \
