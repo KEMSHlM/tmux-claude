@@ -489,7 +489,10 @@ function deleteLockFile(port) {
 
 const server = net.createServer(handleConnection);
 
-server.listen(0, '127.0.0.1', () => {
+// 環境変数でポートを固定可能（再起動後も同じポートで起動し Claude Code が自動再接続できる）
+const LISTEN_PORT = parseInt(process.env.TMUX_CLAUDE_PORT || '0', 10);
+
+server.listen(LISTEN_PORT, '127.0.0.1', () => {
   const { port } = server.address();
   const lockPath = writeLockFile(port);
 
