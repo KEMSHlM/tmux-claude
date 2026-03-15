@@ -35,15 +35,23 @@ function captureDialogOptions(window) {
   if (!window) return [];
   const result = spawnSync('tmux', ['capture-pane', '-t', `claude:=${window}`, '-p'], { encoding: 'utf8' });
   const pane = result.stdout ?? '';
-  const options = [];
+
+  // Collect only the LAST consecutive block starting at 1 (= current dialog, not stale output)
+  let lastBlock = [];
+  let current = [];
   for (const line of pane.split('\n')) {
     const m = line.match(/^\s*(?:[❯➜>]\s+)?(\d+)[.)]\s+(.+)/);
-    if (m) {
-      const text = m[2].replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').trim();
-      options.push({ num: Number(m[1]), text });
-    }
+    if (!m) { if (current.length) { lastBlock = current; current = []; } continue; }
+    const num = Number(m[1]);
+    const text = m[2].replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').trim();
+    if (num === 1) current = [{ num, text }];
+    else if (current.length && num === current.length + 1) current.push({ num, text });
+    // else: non-sequential number — skip
   }
-  return options;
+  if (current.length) lastBlock = current;
+
+  // Cap at 3 options and truncate label to 40 chars
+  return lastBlock.slice(0, 3).map(o => ({ ...o, text: trunc(o.text, 40) }));
 }
 
 // Truncate a plain string to maxLen visible chars, appending '…' if cut

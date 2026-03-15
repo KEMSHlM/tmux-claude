@@ -27,10 +27,12 @@ const newContents = Buffer.from(process.env.TMUX_CLAUDE_NEW_CONTENTS ?? '', 'bas
 const tmpNew = `/tmp/tmux-claude-diff-${Date.now()}.tmp`;
 fs.writeFileSync(tmpNew, newContents);
 
-// Run git diff
+// Run git diff — use /dev/null as old path when creating a new file
+const oldPathExists = (() => { try { fs.accessSync(OLD_PATH); return true; } catch { return false; } })();
+const diffOldPath = oldPathExists ? OLD_PATH : '/dev/null';
 let diffOutput = '';
 try {
-  const r = spawnSync('git', ['diff', '--unified=3', '--no-index', '--', OLD_PATH, tmpNew], { encoding: 'utf8' });
+  const r = spawnSync('git', ['diff', '--unified=3', '--no-index', '--', diffOldPath, tmpNew], { encoding: 'utf8' });
   diffOutput = r.stdout ?? '';
 } catch { /* git not available */ }
 
