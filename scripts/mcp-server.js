@@ -289,16 +289,21 @@ function buildNewContents(toolName, toolInput) {
       const filePath = toolInput.file_path;
       if (!filePath) return { newContents: null, oldContent: null };
       if (!path.isAbsolute(filePath) || filePath.split(path.sep).includes('..')) return { newContents: null, oldContent: null };
-      const oldContent = fs.readFileSync(filePath, 'utf8');
       const oldStr = toolInput.old_string ?? '';
       const newStr = toolInput.new_string ?? '';
       if (!oldStr) return { newContents: null, oldContent: null };
-      const newContents = toolInput.replace_all
-        ? oldContent.replaceAll(oldStr, newStr)
-        : oldContent.replace(oldStr, newStr);
-      return { newContents, oldContent };
+      try {
+        const oldContent = fs.readFileSync(filePath, 'utf8');
+        const newContents = toolInput.replace_all
+          ? oldContent.replaceAll(oldStr, newStr)
+          : oldContent.replace(oldStr, newStr);
+        return { newContents, oldContent };
+      } catch {
+        // File not locally readable (remote SSH) — show old_string → new_string diff directly
+        return { newContents: newStr, oldContent: oldStr };
+      }
     }
-  } catch { /* unreadable */ }
+  } catch { /* fallthrough */ }
   return { newContents: null, oldContent: null };
 }
 
@@ -343,7 +348,18 @@ function triggerDiffPopupForWindow(window, toolName, toolInput, httpSocket) {
   }
 
   const diffScript = path.join(__dirname, 'claude-diff.js');
-  const encoded = Buffer.from(newContents, 'utf8').toString('base64');
+  const ts = Date.now();
+  const tmpNew = `/tmp/tmux-claude-diff-${ts}.tmp`;
+  fs.writeFileSync(tmpNew, newContents, 'utf8');
+
+  // For remote files (not locally accessible), write old content to a tmp file for diffing
+  const fileLocal = (() => { try { fs.accessSync(filePath); return true; } catch { return false; } })();
+  let tmpOld = null;
+  if (!fileLocal && oldContent) {
+    tmpOld = `/tmp/tmux-claude-diff-old-${ts}.tmp`;
+    fs.writeFileSync(tmpOld, oldContent, 'utf8');
+  }
+
   const safeWin = (window ?? '').replace(/[^a-zA-Z0-9_-]/g, '_');
   const choiceFile = `/tmp/tmux-claude-diff-choice-${safeWin}.txt`;
 
@@ -370,9 +386,11 @@ function triggerDiffPopupForWindow(window, toolName, toolInput, httpSocket) {
   // HTTP 200 を即返してから diff popup を非同期起動（hook timeout 対策）
   httpSocket.end('HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n');
 
+  const diffArgs = [shellQuote(filePath), shellQuote(window ?? ''), shellQuote(tmpNew)];
+  if (tmpOld) diffArgs.push(shellQuote(tmpOld));
   const proc = spawn('tmux', [
     'display-popup', '-c', client, `-w${wPct}%`, `-h${hPct}%`, '-E',
-    `TMUX_CLAUDE_NEW_CONTENTS=${shellQuote(encoded)} TOOL_CWD=${shellQuote(diffCwd)} node ${shellQuote(diffScript)} ${shellQuote(filePath)} ${shellQuote(window ?? '')}`,
+    `TOOL_CWD=${shellQuote(diffCwd)} node ${shellQuote(diffScript)} ${diffArgs.join(' ')}`,
   ], { detached: false });
   proc.stderr.on('data', d => console.warn(`[mcp] diff popup stderr: ${d.toString().trim()}`));
   proc.on('error', e => console.warn(`[mcp] diff popup error: ${e.message}`));
@@ -505,9 +523,11 @@ function handleMcpMessage(socket, msg) {
               const wPct = termW > 0 ? Math.min(95, Math.max(70, Math.round((maxLineLen + 12) / termW * 100))) : 90;
               const hPct = termH > 0 ? Math.min(95, Math.max(50, Math.round((diffLineCount + 8) / termH * 100))) : 80;
 
+              const tmpNewWs = `/tmp/tmux-claude-diff-${Date.now()}.tmp`;
+              fs.writeFileSync(tmpNewWs, newContents, 'utf8');
               spawnSync('tmux', [
                 'display-popup', '-c', client, `-w${wPct}%`, `-h${hPct}%`, '-E',
-                `TMUX_CLAUDE_NEW_CONTENTS=${shellQuote(encoded)} node ${shellQuote(diffScript)} ${shellQuote(oldPath)} ${shellQuote(window)}`,
+                `node ${shellQuote(diffScript)} ${shellQuote(oldPath)} ${shellQuote(window)} ${shellQuote(tmpNewWs)}`,
               ]);
             }
           } catch (e) {

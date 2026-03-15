@@ -3,8 +3,7 @@
 
 // claude-diff.js - Claude Code format diff viewer
 // Responsibility: CONTENT — diff data, line building, scroll interaction
-// Args: old_file_path window
-// new_file_contents passed via env: TMUX_CLAUDE_NEW_CONTENTS (base64)
+// Args: old_file_path window new_contents_file [old_contents_file]
 
 const fs = require('fs');
 const { spawnSync } = require('child_process');
@@ -18,18 +17,23 @@ const {
   readChoice,
 } = require('./popup-ui');
 
-const OLD_PATH  = process.argv[2];
-const WINDOW    = process.argv[3];
+const OLD_PATH          = process.argv[2];
+const WINDOW            = process.argv[3];
+const NEW_CONTENTS_FILE = process.argv[4] ?? null;  // tmp file with new contents
+const OLD_CONTENTS_FILE = process.argv[5] ?? null;  // optional tmp file for remote old contents
 const toolCwd   = resolveCwd();
-const newContents = Buffer.from(process.env.TMUX_CLAUDE_NEW_CONTENTS ?? '', 'base64').toString('utf8');
+const newContents = NEW_CONTENTS_FILE ? fs.readFileSync(NEW_CONTENTS_FILE, 'utf8') : '';
+const tmpNew = NEW_CONTENTS_FILE ?? (() => {
+  const p = `/tmp/tmux-claude-diff-${Date.now()}.tmp`;
+  fs.writeFileSync(p, newContents);
+  return p;
+})();
 
-// Write new contents to temp
-const tmpNew = `/tmp/tmux-claude-diff-${Date.now()}.tmp`;
-fs.writeFileSync(tmpNew, newContents);
-
-// Run git diff — use /dev/null as old path when creating a new file
-const oldPathExists = (() => { try { fs.accessSync(OLD_PATH); return true; } catch { return false; } })();
-const diffOldPath = oldPathExists ? OLD_PATH : '/dev/null';
+// Run git diff — use explicit old tmp (remote), local file, or /dev/null (new file)
+const oldPathExists = OLD_CONTENTS_FILE
+  ? true
+  : (() => { try { fs.accessSync(OLD_PATH); return true; } catch { return false; } })();
+const diffOldPath = OLD_CONTENTS_FILE ?? (oldPathExists ? OLD_PATH : '/dev/null');
 let diffOutput = '';
 try {
   const r = spawnSync('git', ['diff', '--unified=3', '--no-index', '--', diffOldPath, tmpNew], { encoding: 'utf8' });
@@ -210,9 +214,11 @@ function interactiveView(lines, cols, rows) {
 const COLS = process.stdout.columns || Number(process.env.COLUMNS) || 80;
 const ROWS = process.stdout.rows    || Number(process.env.LINES)   || 24;
 
-const oldHighlighted = getHighlightedLines(OLD_PATH, OLD_PATH);
+// For highlighting: read from diffOldPath but display as OLD_PATH for language detection
+const oldHighlighted = getHighlightedLines(diffOldPath, OLD_PATH);
 const newHighlighted = getHighlightedLines(tmpNew, OLD_PATH);
 try { fs.unlinkSync(tmpNew); } catch { /* ok */ }
+if (OLD_CONTENTS_FILE) { try { fs.unlinkSync(OLD_CONTENTS_FILE); } catch { /* ok */ } }
 
 const hunks = parseDiff(diffOutput);
 
