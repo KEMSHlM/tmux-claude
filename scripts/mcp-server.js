@@ -24,7 +24,7 @@ const path = require('node:path');
 const os = require('node:os');
 const { execSync, spawnSync } = require('node:child_process');
 
-// --- constants --- (diff test)
+// --- constants ---
 
 const LOCK_DIR = path.join(os.homedir(), '.claude', 'ide');
 const PID_FILE = '/tmp/tmux-claude-mcp.pid';
@@ -33,6 +33,14 @@ const TOKEN_FILE = '/tmp/tmux-claude-mcp.token';
 const WS_MAGIC = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 
 const AUTH_TOKEN = process.env.TMUX_CLAUDE_TOKEN || crypto.randomUUID();
+
+// シェルのシングルクォートエスケープ（-E オプション等でシェル経由で実行される文字列に使用）
+function shellQuote(s) {
+  return "'" + String(s).replace(/'/g, "'\\''") + "'";
+}
+
+// diff popup の選択を permission dialog の send-keys に渡すための一時保管
+const pendingDiffChoices = new Map(); // window → choice ('1'|'2'|'3')
 
 // --- WebSocket helpers ---
 
@@ -169,7 +177,7 @@ function triggerPopupForWindow(window) {
   if (!client) { console.warn('[mcp] no active client for popup'); return; }
 
   const popupScript = path.join(__dirname, 'claude-popup.sh');
-  const popupCmd = window ? `${popupScript} ${JSON.stringify(window)}` : popupScript;
+  const popupCmd = window ? `${shellQuote(popupScript)} ${shellQuote(window)}` : shellQuote(popupScript);
   const type = getNotifyType();
   console.log(`[mcp] popup type=${type} window=${window ?? '?'} client=${client}`);
 
@@ -177,7 +185,7 @@ function triggerPopupForWindow(window) {
     spawnSync('tmux', [
       'display-menu', '-c', client,
       '-T', 'Claude: permission required',
-      'Open Claude', 'o', `display-popup -c ${client} -w90% -h80% -E '${popupCmd}'`,
+      'Open Claude', 'o', `display-popup -c ${shellQuote(client)} -w90% -h80% -E ${popupCmd}`,
       'Dismiss',     'd', '',
     ]);
   } else {
@@ -193,7 +201,6 @@ function triggerPopup(socket) {
 // --- MCP message handler ---
 
 function handleMcpMessage(socket, msg) {
-  console.log('[mcp] <<', JSON.stringify(msg));
   const { id, method, params } = msg;
 
   switch (method) {
@@ -241,9 +248,27 @@ function handleMcpMessage(socket, msg) {
             const diffScript = path.join(__dirname, 'claude-diff.js');
             const encoded = Buffer.from(newContents, 'utf8').toString('base64');
             if (client) {
+              // ターミナルサイズを取得してポップアップサイズを動的に決定
+              const dimResult = spawnSync('tmux', [
+                'display-message', '-c', client, '-p', '#{client_width} #{client_height}',
+              ], { encoding: 'utf8' });
+              const [termW, termH] = (dimResult.stdout.trim().split(' ')).map(Number);
+
+              // diff の行数と最長行からサイズを推定
+              let oldLines = [];
+              try { oldLines = fs.readFileSync(oldPath, 'utf8').split('\n'); } catch (e) {
+                console.warn(`[mcp] cannot read old file for size estimate: ${e.message}`);
+              }
+              const newLines = newContents.split('\n');
+              const diffLineCount = Math.abs(newLines.length - oldLines.length) + Math.min(newLines.length, oldLines.length);
+              const maxLineLen = Math.max(...newLines.map(l => l.length), ...oldLines.map(l => l.length), 40);
+
+              const wPct = termW > 0 ? Math.min(95, Math.max(70, Math.round((maxLineLen + 12) / termW * 100))) : 90;
+              const hPct = termH > 0 ? Math.min(95, Math.max(50, Math.round((diffLineCount + 8) / termH * 100))) : 80;
+
               spawnSync('tmux', [
-                'display-popup', '-c', client, '-w90%', '-h80%', '-E',
-                `TMUX_CLAUDE_NEW_CONTENTS=${encoded} node ${JSON.stringify(diffScript)} ${JSON.stringify(oldPath)} ${JSON.stringify(window)}`,
+                'display-popup', '-c', client, `-w${wPct}%`, `-h${hPct}%`, '-E',
+                `TMUX_CLAUDE_NEW_CONTENTS=${encoded} node ${shellQuote(diffScript)} ${shellQuote(oldPath)} ${shellQuote(window)}`,
               ]);
             }
           } catch (e) {
@@ -251,11 +276,27 @@ function handleMcpMessage(socket, msg) {
             triggerPopup(socket);
           }
         } else {
-          console.log('[mcp] openDiff → triggering popup');
           triggerPopup(socket);
         }
       }
-      if (id != null) reply(socket, id, { content: [{ type: 'text', text: 'TAB_CLOSED' }] });
+      if (id != null) {
+        let diffReply = 'TAB_CLOSED';
+        const diffWindow = socketState.get(socket)?.window ?? null;
+        if (diffWindow && params?.name === 'openDiff') {
+          const safeWindow = diffWindow.replace(/[^a-zA-Z0-9_-]/g, '_');
+          const choiceFile = `/tmp/tmux-claude-diff-choice-${safeWindow}.txt`;
+          try {
+            const c = fs.readFileSync(choiceFile, 'utf8').trim();
+            fs.unlinkSync(choiceFile);
+            if (['1', '2', '3'].includes(c)) {
+              pendingDiffChoices.set(diffWindow, c);
+              if (c === '3') diffReply = 'REJECTED';
+              else if (c === '2') diffReply = 'ALWAYS_ALLOW';
+            }
+          } catch {}
+        }
+        reply(socket, id, { content: [{ type: 'text', text: diffReply }] });
+      }
       break;
 
     default:
@@ -290,7 +331,7 @@ function handleConnection(socket) {
       }
 
       if (headers['x-claude-code-ide-authorization'] !== AUTH_TOKEN) {
-        console.warn(`[mcp] auth failed: got="${headers['x-claude-code-ide-authorization']}" expected="${AUTH_TOKEN}"`);
+        console.warn('[mcp] auth failed: token mismatch');
         sendHttpError(socket, 401, 'Unauthorized');
         return;
       }
@@ -314,13 +355,27 @@ function handleConnection(socket) {
           readBody(body => {
             try {
               const data = JSON.parse(body.toString('utf8'));
-              if (data.pid) {
-                let current = Number(data.pid);
+              const rawPid = Number(data.pid);
+              if (Number.isInteger(rawPid) && rawPid > 0) {
+                let current = rawPid;
                 for (let i = 0; i < 15; i++) {
                   if (pidToWindow.has(current)) {
                     const window = pidToWindow.get(current);
                     console.log(`[mcp] /notify pid=${data.pid} matched=${current} window=${window ?? '?'}`);
-                    triggerPopupForWindow(window);
+                    const pendingChoice = pendingDiffChoices.get(window);
+                    if (pendingChoice) {
+                      pendingDiffChoices.delete(window);
+                      // HTTP 200 を先に送ってから send-keys（hook 完了後に Claude Code がキーを受け付ける）
+                      socket.end('HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n');
+                      setTimeout(() => {
+                        // 1=allow once, 2=allow always, 3=deny
+                        console.log(`[mcp] send-keys choice=${pendingChoice} to ${window}`);
+                        spawnSync('tmux', ['send-keys', '-t', `claude:=${window}`, pendingChoice]);
+                      }, 50);
+                      return;
+                    } else {
+                      triggerPopupForWindow(window);
+                    }
                     break;
                   }
                   try {

@@ -6,7 +6,7 @@
 // new_file_contents passed via env: TMUX_CLAUDE_NEW_CONTENTS (base64)
 
 const fs = require('fs');
-const { execSync, spawnSync } = require('child_process');
+const { spawnSync } = require('child_process');
 
 const OLD_PATH = process.argv[2];
 const WINDOW   = process.argv[3];
@@ -19,10 +19,9 @@ fs.writeFileSync(tmpNew, newContents);
 // Run git diff
 let diffOutput = '';
 try {
-  execSync(`git diff --unified=3 --no-index -- ${JSON.stringify(OLD_PATH)} ${JSON.stringify(tmpNew)}`, { encoding: 'utf8' });
-} catch (e) {
-  diffOutput = e.stdout ?? '';
-}
+  const r = spawnSync('git', ['diff', '--unified=3', '--no-index', '--', OLD_PATH, tmpNew], { encoding: 'utf8' });
+  diffOutput = r.stdout ?? '';
+} catch { /* git not available */ }
 
 // Get bat syntax-highlighted lines
 function getHighlightedLines(filePath, displayPath) {
@@ -188,9 +187,9 @@ function interactiveView(lines, COLS, ROWS) {
           const ch = buf[0];
           buf = buf.slice(1);
 
-          if      (ch === 'y' || ch === 'Y') { cleanup(); done(resolve, '1'); return; }
-          else if (ch === 'a' || ch === 'A') { cleanup(); done(resolve, '2'); return; }
-          else if (ch === 'n' || ch === 'N' || ch === '\x03') { cleanup(); done(resolve, '3'); return; }
+          if      (ch === 'y' || ch === 'Y' || ch === '1') { cleanup(); done(resolve, '1'); return; }
+          else if (ch === 'a' || ch === 'A' || ch === '2') { cleanup(); done(resolve, '2'); return; }
+          else if (ch === 'n' || ch === 'N' || ch === '3' || ch === '\x03') { cleanup(); done(resolve, '3'); return; }
           else if (ch === 'j' || ch === '\x0e') { scroll(1); lastKey = ch; }          // j / Ctrl+N
           else if (ch === 'k' || ch === '\x10') { scroll(-1); lastKey = ch; }          // k / Ctrl+P
           else if (ch === 'd' || ch === '\x04') { scroll(halfPage); lastKey = ch; }    // d / Ctrl+D
@@ -237,7 +236,9 @@ const hunks = parseDiff(diffOutput);
     choice = await new Promise(resolve =>
       process.stdin.once('data', key => {
         const ch = key.toString();
-        done(resolve, ch === 'y' || ch === 'Y' ? '1' : ch === 'a' || ch === 'A' ? '2' : '3');
+        if (ch === 'y' || ch === 'Y' || ch === '1') done(resolve, '1');
+        else if (ch === 'a' || ch === 'A' || ch === '2') done(resolve, '2');
+        else done(resolve, '3');
       })
     );
   } else {
@@ -245,6 +246,15 @@ const hunks = parseDiff(diffOutput);
     choice = await interactiveView(diffLines, COLS, ROWS);
   }
 
-  if (WINDOW) spawnSync('tmux', ['send-keys', '-t', `claude:=${WINDOW}`, choice, 'Enter']);
+  // CHOICE_FILE に書き込む（MCP server が openDiff reply に使う）
+  if (WINDOW) {
+    const safeWindow = WINDOW.replace(/[^a-zA-Z0-9_-]/g, '_');
+    try {
+      fs.writeFileSync(`/tmp/tmux-claude-diff-choice-${safeWindow}.txt`, choice);
+    } catch (e) {
+      process.stderr.write(`[claude-diff] failed to write choice: ${e.message}\n`);
+    }
+  }
   process.exit(0);
+
 })();

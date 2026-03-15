@@ -23,7 +23,7 @@ tmux bind-key "$launch_key" run-shell "${SCRIPTS_DIR}/claude-launch.sh \"#{pane_
 tmux bind-key "$resume_key" run-shell "${SCRIPTS_DIR}/claude-launch.sh \"#{pane_current_command}\" \"#{pane_pid}\" \"#{pane_current_path}\" \"#{pane_path}\" \"#{session_name}\" \"#{pane_tty}\" \"--resume\""
 tmux bind-key "$switch_key" if -F '#{==:#{session_name},claude}' \
   "detach-client" \
-  "display-popup -w80% -h70% -E '${SCRIPTS_DIR}/claude-switch.sh'"
+  "display-popup -w80% -h90% -E '${SCRIPTS_DIR}/claude-switch.sh'"
 
 # Suppress specified keys inside claude popup, preserving original binding elsewhere
 for key in $suppress_keys; do
