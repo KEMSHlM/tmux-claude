@@ -24,7 +24,7 @@ const path = require('node:path');
 const os = require('node:os');
 const { execSync, spawnSync } = require('node:child_process');
 
-// --- constants ---
+// --- constants --- (diff test)
 
 const LOCK_DIR = path.join(os.homedir(), '.claude', 'ide');
 const PID_FILE = '/tmp/tmux-claude-mcp.pid';
@@ -231,10 +231,31 @@ function handleMcpMessage(socket, msg) {
 
     case 'tools/call':
       if (params?.name === 'openDiff') {
-        console.log('[mcp] openDiff → triggering popup');
-        triggerPopup(socket);
+        const args = params.arguments ?? {};
+        const oldPath = args.old_file_path;
+        const newContents = args.new_file_contents;
+        const window = socketState.get(socket)?.window ?? null;
+        if (oldPath && newContents != null && window) {
+          try {
+            const client = findActiveClient();
+            const diffScript = path.join(__dirname, 'claude-diff.js');
+            const encoded = Buffer.from(newContents, 'utf8').toString('base64');
+            if (client) {
+              spawnSync('tmux', [
+                'display-popup', '-c', client, '-w90%', '-h80%', '-E',
+                `TMUX_CLAUDE_NEW_CONTENTS=${encoded} node ${JSON.stringify(diffScript)} ${JSON.stringify(oldPath)} ${JSON.stringify(window)}`,
+              ]);
+            }
+          } catch (e) {
+            console.warn('[mcp] diff popup error', e.message);
+            triggerPopup(socket);
+          }
+        } else {
+          console.log('[mcp] openDiff → triggering popup');
+          triggerPopup(socket);
+        }
       }
-      if (id != null) reply(socket, id, { content: [{ type: 'text', text: '{}' }] });
+      if (id != null) reply(socket, id, { content: [{ type: 'text', text: 'TAB_CLOSED' }] });
       break;
 
     default:
