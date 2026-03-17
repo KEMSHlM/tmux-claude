@@ -2,6 +2,8 @@ package session_test
 
 import (
 	"context"
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -163,6 +165,61 @@ func TestManager_Sync_WithTmux(t *testing.T) {
 	require.Len(t, all, 1)
 	assert.Equal(t, session.StatusRunning, all[0].Status)
 	assert.Equal(t, 5555, all[0].PID)
+}
+
+func TestManager_EnsureClaudeConfigured_SetsFlags(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	os.Setenv("HOME", tmp)
+	defer os.Unsetenv("HOME")
+
+	paths := config.TestPaths(tmp)
+	store := session.NewStore(filepath.Join(paths.DataDir, "state.json"))
+	mock := tmux.NewMockClient()
+	mgr := session.NewManager(store, mock, paths)
+
+	err := mgr.EnsureClaudeConfigured("/test/path")
+	require.NoError(t, err)
+
+	// Verify flags were set
+	data, err := os.ReadFile(filepath.Join(tmp, ".claude.json"))
+	require.NoError(t, err)
+
+	var cfg map[string]any
+	require.NoError(t, json.Unmarshal(data, &cfg))
+	assert.Equal(t, true, cfg["hasCompletedOnboarding"])
+	assert.Equal(t, float64(10), cfg["numStartups"])
+
+	projects, ok := cfg["projects"].(map[string]any)
+	require.True(t, ok)
+	_, hasRoot := projects["/"]
+	assert.True(t, hasRoot, "should have trust for /")
+}
+
+func TestManager_EnsureClaudeConfigured_SkipsIfAlreadyDone(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	os.Setenv("HOME", tmp)
+	defer os.Unsetenv("HOME")
+
+	// Write existing config with hasCompletedOnboarding=true
+	cfg := map[string]any{"hasCompletedOnboarding": true, "existing": "data"}
+	data, _ := json.Marshal(cfg)
+	os.WriteFile(filepath.Join(tmp, ".claude.json"), data, 0o600)
+
+	paths := config.TestPaths(tmp)
+	store := session.NewStore(filepath.Join(paths.DataDir, "state.json"))
+	mock := tmux.NewMockClient()
+	mgr := session.NewManager(store, mock, paths)
+
+	err := mgr.EnsureClaudeConfigured("/test")
+	require.NoError(t, err)
+
+	// Should not modify existing config
+	data2, _ := os.ReadFile(filepath.Join(tmp, ".claude.json"))
+	var cfg2 map[string]any
+	json.Unmarshal(data2, &cfg2)
+	assert.Equal(t, "data", cfg2["existing"])
 }
 
 func TestManager_Persistence(t *testing.T) {
