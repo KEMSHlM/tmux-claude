@@ -127,11 +127,8 @@ func (s *Server) State() *State {
 }
 
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
-	// Verify auth token
-	token := r.URL.Query().Get("token")
-	if token == "" {
-		token = r.Header.Get("X-Auth-Token")
-	}
+	// Verify auth token (header only — never accept via URL query to avoid log leakage)
+	token := r.Header.Get("X-Auth-Token")
 	if subtle.ConstantTimeCompare([]byte(token), []byte(s.config.Token)) != 1 {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -207,6 +204,7 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MB cap
 	var req notifyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)

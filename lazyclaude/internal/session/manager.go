@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/KEMSHlM/lazyclaude/internal/core/config"
@@ -135,9 +136,9 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 		return fmt.Errorf("session not found: %s", id)
 	}
 
-	// Kill tmux window if it exists
+	// Kill tmux window if it exists (best-effort, window may already be gone)
 	if sess.TmuxWindow != "" {
-		m.tmux.KillWindow(ctx, sess.TmuxWindow)
+		_ = m.tmux.KillWindow(ctx, sess.TmuxWindow)
 	}
 
 	m.store.Remove(id)
@@ -182,11 +183,18 @@ func (m *Manager) Sessions() []Session {
 func (m *Manager) buildClaudeCommand(sess Session) string {
 	cmd := "claude"
 	for _, f := range sess.Flags {
-		cmd += " " + f
+		cmd += " " + shellQuote(f)
 	}
 	absPath, err := filepath.Abs(sess.Path)
 	if err == nil {
-		cmd = fmt.Sprintf("cd %s && %s", absPath, cmd)
+		cmd = fmt.Sprintf("cd %s && %s", shellQuote(absPath), cmd)
 	}
 	return cmd
+}
+
+// shellQuote wraps a string in single quotes for safe shell interpolation.
+func shellQuote(s string) string {
+	// Replace single quotes with '\'' (end quote, escaped quote, start quote)
+	escaped := strings.ReplaceAll(s, "'", "'\\''")
+	return "'" + escaped + "'"
 }

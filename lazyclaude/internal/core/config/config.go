@@ -15,8 +15,12 @@ type Paths struct {
 }
 
 // DefaultPaths returns production paths.
+// Panics if home directory cannot be determined.
 func DefaultPaths() Paths {
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		panic(fmt.Sprintf("cannot determine home directory: %v", err))
+	}
 	return Paths{
 		IDEDir:     filepath.Join(home, ".claude", "ide"),
 		DataDir:    filepath.Join(home, ".local", "share", "lazyclaude"),

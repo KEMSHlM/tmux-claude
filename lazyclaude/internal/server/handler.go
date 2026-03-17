@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
-	"strings"
 
 	"github.com/KEMSHlM/lazyclaude/internal/core/tmux"
 )
@@ -132,9 +131,8 @@ func validateFilePath(path string) error {
 	if path == "" {
 		return fmt.Errorf("empty file path")
 	}
-	cleaned := filepath.Clean(path)
-	if strings.Contains(cleaned, "..") {
-		return fmt.Errorf("path traversal not allowed: %s", path)
+	if !filepath.IsAbs(path) {
+		return fmt.Errorf("path must be absolute: %s", path)
 	}
 	return nil
 }

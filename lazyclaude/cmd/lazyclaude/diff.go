@@ -121,26 +121,39 @@ func runDiffPopup(window, oldFile, newFile string) error {
 	}
 
 	// Keybindings
-	g.SetKeybinding("", 'y', gocui.ModNone, makeChoice(gui.ChoiceAccept))
-	g.SetKeybinding("", 'a', gocui.ModNone, makeChoice(gui.ChoiceAllow))
-	g.SetKeybinding("", 'n', gocui.ModNone, makeChoice(gui.ChoiceReject))
-	g.SetKeybinding("", gocui.KeyEsc, gocui.ModNone, makeChoice(gui.ChoiceCancel))
-	g.SetKeybinding("", gocui.KeyCtrlC, gocui.ModNone, makeChoice(gui.ChoiceCancel))
+	bind := func(key interface{}, handler func(*gocui.Gui, *gocui.View) error) {
+		switch k := key.(type) {
+		case rune:
+			if err := g.SetKeybinding("", k, gocui.ModNone, handler); err != nil {
+				panic(fmt.Sprintf("keybinding %c: %v", k, err))
+			}
+		case gocui.Key:
+			if err := g.SetKeybinding("", k, gocui.ModNone, handler); err != nil {
+				panic(fmt.Sprintf("keybinding %v: %v", k, err))
+			}
+		}
+	}
+
+	bind('y', makeChoice(gui.ChoiceAccept))
+	bind('a', makeChoice(gui.ChoiceAllow))
+	bind('n', makeChoice(gui.ChoiceReject))
+	bind(gocui.KeyEsc, makeChoice(gui.ChoiceCancel))
+	bind(gocui.KeyCtrlC, makeChoice(gui.ChoiceCancel))
 
 	// Scroll
-	g.SetKeybinding("", 'j', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+	bind('j', func(g *gocui.Gui, v *gocui.View) error {
 		if scrollY < len(formattedLines)-1 {
 			scrollY++
 		}
 		return nil
 	})
-	g.SetKeybinding("", 'k', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+	bind('k', func(g *gocui.Gui, v *gocui.View) error {
 		if scrollY > 0 {
 			scrollY--
 		}
 		return nil
 	})
-	g.SetKeybinding("", 'd', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+	bind('d', func(g *gocui.Gui, v *gocui.View) error {
 		_, maxY := g.Size()
 		scrollY += (maxY - 5) / 2
 		if scrollY > len(formattedLines)-1 {
@@ -148,7 +161,7 @@ func runDiffPopup(window, oldFile, newFile string) error {
 		}
 		return nil
 	})
-	g.SetKeybinding("", 'u', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+	bind('u', func(g *gocui.Gui, v *gocui.View) error {
 		_, maxY := g.Size()
 		scrollY -= (maxY - 5) / 2
 		if scrollY < 0 {
@@ -164,7 +177,9 @@ func runDiffPopup(window, oldFile, newFile string) error {
 	// Write choice file
 	if window != "" {
 		paths := config.DefaultPaths()
-		os.MkdirAll(paths.RuntimeDir, 0o755)
+		if err := os.MkdirAll(paths.RuntimeDir, 0o700); err != nil {
+			return fmt.Errorf("create runtime dir: %w", err)
+		}
 		if err := gui.WriteChoiceFile(paths, window, choice); err != nil {
 			return fmt.Errorf("write choice: %w", err)
 		}

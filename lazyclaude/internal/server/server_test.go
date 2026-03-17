@@ -78,7 +78,9 @@ func TestServer_WebSocket_Initialize(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	conn, _, err := websocket.Dial(ctx, fmt.Sprintf("ws://127.0.0.1:%d/?token=test-token", port), nil)
+	conn, _, err := websocket.Dial(ctx, fmt.Sprintf("ws://127.0.0.1:%d/", port), &websocket.DialOptions{
+		HTTPHeader: http.Header{"X-Auth-Token": []string{"test-token"}},
+	})
 	require.NoError(t, err)
 	defer conn.Close(websocket.StatusNormalClosure, "")
 
@@ -122,7 +124,9 @@ func TestServer_WebSocket_IDEConnected_Then_OpenDiff(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	conn, _, err := websocket.Dial(ctx, fmt.Sprintf("ws://127.0.0.1:%d/?token=test-token", port), nil)
+	conn, _, err := websocket.Dial(ctx, fmt.Sprintf("ws://127.0.0.1:%d/", port), &websocket.DialOptions{
+		HTTPHeader: http.Header{"X-Auth-Token": []string{"test-token"}},
+	})
 	require.NoError(t, err)
 	defer conn.Close(websocket.StatusNormalClosure, "")
 
@@ -144,7 +148,7 @@ func TestServer_WebSocket_IDEConnected_Then_OpenDiff(t *testing.T) {
 		"jsonrpc": "2.0",
 		"id":      2,
 		"method":  "openDiff",
-		"params":  map[string]any{"old_file_path": "main.go", "new_contents": "package main"},
+		"params":  map[string]any{"old_file_path": "/home/user/main.go", "new_contents": "package main"},
 	})
 	require.NoError(t, conn.Write(ctx, websocket.MessageText, diffReq))
 

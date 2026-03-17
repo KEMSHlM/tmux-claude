@@ -104,7 +104,7 @@ func (s *Store) Save() error {
 	defer s.mu.Unlock()
 
 	dir := filepath.Dir(s.path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create state dir: %w", err)
 	}
 

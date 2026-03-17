@@ -84,11 +84,24 @@ func runToolPopup(window, toolName, toolInput, toolCWD string) error {
 		}
 	}
 
-	g.SetKeybinding("", 'y', gocui.ModNone, makeChoice(gui.ChoiceAccept))
-	g.SetKeybinding("", 'a', gocui.ModNone, makeChoice(gui.ChoiceAllow))
-	g.SetKeybinding("", 'n', gocui.ModNone, makeChoice(gui.ChoiceReject))
-	g.SetKeybinding("", gocui.KeyEsc, gocui.ModNone, makeChoice(gui.ChoiceCancel))
-	g.SetKeybinding("", gocui.KeyCtrlC, gocui.ModNone, makeChoice(gui.ChoiceCancel))
+	bind := func(key interface{}, handler func(*gocui.Gui, *gocui.View) error) {
+		switch k := key.(type) {
+		case rune:
+			if err := g.SetKeybinding("", k, gocui.ModNone, handler); err != nil {
+				panic(fmt.Sprintf("keybinding %c: %v", k, err))
+			}
+		case gocui.Key:
+			if err := g.SetKeybinding("", k, gocui.ModNone, handler); err != nil {
+				panic(fmt.Sprintf("keybinding %v: %v", k, err))
+			}
+		}
+	}
+
+	bind('y', makeChoice(gui.ChoiceAccept))
+	bind('a', makeChoice(gui.ChoiceAllow))
+	bind('n', makeChoice(gui.ChoiceReject))
+	bind(gocui.KeyEsc, makeChoice(gui.ChoiceCancel))
+	bind(gocui.KeyCtrlC, makeChoice(gui.ChoiceCancel))
 
 	if err := g.MainLoop(); err != nil && !strings.Contains(err.Error(), "quit") {
 		return err
@@ -96,7 +109,9 @@ func runToolPopup(window, toolName, toolInput, toolCWD string) error {
 
 	if window != "" {
 		paths := config.DefaultPaths()
-		os.MkdirAll(paths.RuntimeDir, 0o755)
+		if err := os.MkdirAll(paths.RuntimeDir, 0o700); err != nil {
+			return fmt.Errorf("create runtime dir: %w", err)
+		}
 		if err := gui.WriteChoiceFile(paths, window, choice); err != nil {
 			return fmt.Errorf("write choice: %w", err)
 		}

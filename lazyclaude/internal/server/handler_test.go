@@ -145,7 +145,7 @@ func TestHandler_OpenDiff(t *testing.T) {
 		JSONRPC: "2.0",
 		ID:      json.RawMessage(`2`),
 		Method:  "openDiff",
-		Params:  json.RawMessage(`{"old_file_path":"src/main.go","new_contents":"package main"}`),
+		Params:  json.RawMessage(`{"old_file_path":"/home/user/src/main.go","new_contents":"package main"}`),
 	}
 
 	resp := h.HandleMessage(context.Background(), "conn-1", req)
@@ -155,7 +155,7 @@ func TestHandler_OpenDiff(t *testing.T) {
 	data, err := json.Marshal(resp.Result)
 	require.NoError(t, err)
 	assert.Contains(t, string(data), `"window":"@1"`)
-	assert.Contains(t, string(data), `"old_path":"src/main.go"`)
+	assert.Contains(t, string(data), `"old_path":"/home/user/src/main.go"`)
 }
 
 func TestHandler_OpenDiff_UnregisteredConnection(t *testing.T) {
@@ -166,7 +166,7 @@ func TestHandler_OpenDiff_UnregisteredConnection(t *testing.T) {
 		JSONRPC: "2.0",
 		ID:      json.RawMessage(`3`),
 		Method:  "openDiff",
-		Params:  json.RawMessage(`{"old_file_path":"test.go","new_contents":"x"}`),
+		Params:  json.RawMessage(`{"old_file_path":"/home/user/test.go","new_contents":"x"}`),
 	}
 
 	resp := h.HandleMessage(context.Background(), "conn-unknown", req)
