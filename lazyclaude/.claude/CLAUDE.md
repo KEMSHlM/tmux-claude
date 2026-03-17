@@ -11,6 +11,23 @@ cd lazyclaude/
 docker build -f Dockerfile.test -t lazyclaude-test .
 ```
 
+### Claude Code 認証 (サブスクリプション)
+
+Docker 内で Claude Code を使うには `.env` が必要:
+
+```bash
+# 1. トークン取得 (ホストで1回だけ実行、ブラウザ認証)
+claude setup-token
+
+# 2. .env に保存
+echo "CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-..." > .env
+
+# 3. 認証確認
+docker run --rm --env-file .env lazyclaude-test claude auth status
+```
+
+`.env` は `.gitignore` に登録済み。コミットされない。
+
 ### デフォルト: 全テスト実行
 
 ```bash
@@ -97,10 +114,31 @@ docker run --rm -p 7899:7899 lazyclaude-test bash -c '
 '
 ```
 
+### Claude Code を使う操作 (--env-file 必須)
+
+```bash
+# Claude Code の認証確認
+docker run --rm --env-file .env lazyclaude-test claude auth status
+
+# Claude Code を tmux 内で起動
+docker run --rm --env-file .env lazyclaude-test bash -c '
+  tmux -f /dev/null new-session -d -s ui -x 120 -y 40 \
+    "claude --print \"hello\" 2>&1; sleep 999"
+  sleep 5
+  tmux capture-pane -p -t ui
+  tmux kill-server 2>/dev/null
+'
+```
+
+`--env-file .env` を付けないと Claude Code は未認証で失敗する。
+
 ### 任意のコマンド実行
 
 ```bash
-# bash で入る
+# bash で入る (認証付き)
+docker run --rm -it --env-file .env lazyclaude-test bash
+
+# bash で入る (認証なし、lazyclaude のみ)
 docker run --rm -it lazyclaude-test bash
 
 # 特定テストだけ
