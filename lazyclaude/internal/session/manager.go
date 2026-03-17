@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/term"
+
 	"github.com/KEMSHlM/lazyclaude/internal/core/config"
 	"github.com/KEMSHlM/lazyclaude/internal/core/tmux"
 	"github.com/google/uuid"
@@ -157,25 +159,35 @@ func (m *Manager) Create(ctx context.Context, dirPath, host string) (*Session, e
 
 	claudeCmd := m.buildClaudeCommand(sess)
 	windowName := sess.WindowName()
-	m.log.Debug("create.tmux", "exists", exists, "window", windowName, "cmd", claudeCmd)
+	absPath, err := filepath.Abs(sess.Path)
+	if err != nil {
+		return nil, fmt.Errorf("resolve path %q: %w", sess.Path, err)
+	}
+	m.log.Debug("create.tmux", "exists", exists, "window", windowName, "cmd", claudeCmd, "dir", absPath)
 
 	env := claudeEnv()
+	width, height := termSize()
+	m.log.Debug("create.termSize", "width", width, "height", height)
 
 	if !exists {
 		err = m.tmux.NewSession(ctx, tmux.NewSessionOpts{
 			Name:         tmuxSessionName,
 			WindowName:   windowName,
 			Command:      claudeCmd,
+			StartDir:     absPath,
 			Detached:     true,
+			Width:        width,
+			Height:       height,
 			Env:          env,
 			PostCommands: cleanSessionCommands(),
 		})
 	} else {
 		err = m.tmux.NewWindow(ctx, tmux.NewWindowOpts{
-			Session: tmuxSessionName,
-			Name:    windowName,
-			Command: claudeCmd,
-			Env:     env,
+			Session:  tmuxSessionName,
+			Name:     windowName,
+			Command:  claudeCmd,
+			StartDir: absPath,
+			Env:      env,
 		})
 	}
 	if err != nil {
@@ -248,13 +260,9 @@ func (m *Manager) Sessions() []Session {
 }
 
 func (m *Manager) buildClaudeCommand(sess Session) string {
-	cmd := "claude"
+	cmd := "exec claude"
 	for _, f := range sess.Flags {
 		cmd += " " + shellQuote(f)
-	}
-	absPath, err := filepath.Abs(sess.Path)
-	if err == nil {
-		cmd = fmt.Sprintf("cd %s && %s", shellQuote(absPath), cmd)
 	}
 	return cmd
 }
@@ -292,6 +300,16 @@ func cleanSessionCommands() [][]string {
 		{"unbind-key", "-a", "-T", "root"},
 		{"unbind-key", "-a", "-T", "copy-mode"},
 	}
+}
+
+// termSize returns the current terminal width and height.
+// Returns 0, 0 if the terminal size cannot be determined.
+func termSize() (int, int) {
+	w, h, err := term.GetSize(int(os.Stdin.Fd()))
+	if err != nil {
+		return 0, 0
+	}
+	return w, h
 }
 
 // shellQuote wraps a string in single quotes for safe shell interpolation.

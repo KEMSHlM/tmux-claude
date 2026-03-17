@@ -32,6 +32,7 @@ type NewSessionOpts struct {
 	Name         string
 	WindowName   string
 	Command      string
+	StartDir     string     // -c flag (working directory)
 	Env          map[string]string
 	Detached     bool
 	Width        int        // -x flag (0 = tmux default)
@@ -41,7 +42,8 @@ type NewSessionOpts struct {
 
 // NewWindowOpts configures a new tmux window.
 type NewWindowOpts struct {
-	Session string
+	Session  string
+	StartDir string // -c flag
 	Name    string
 	Command string
 	Env     map[string]string

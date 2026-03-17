@@ -71,10 +71,11 @@ func (c *ExecClient) Socket() string {
 }
 
 func (c *ExecClient) prependSocket(args []string) []string {
+	prefix := []string{"-u"} // force UTF-8
 	if c.socket != "" {
-		return append([]string{"-L", c.socket}, args...)
+		prefix = append(prefix, "-L", c.socket)
 	}
-	return args
+	return append(prefix, args...)
 }
 
 func (c *ExecClient) run(ctx context.Context, args ...string) (string, error) {
@@ -151,8 +152,17 @@ func (c *ExecClient) NewSession(ctx context.Context, opts NewSessionOpts) error 
 	if opts.WindowName != "" {
 		args = append(args, "-n", opts.WindowName)
 	}
+	if opts.StartDir != "" {
+		args = append(args, "-c", opts.StartDir)
+	}
 	if opts.Detached {
 		args = append(args, "-d")
+	}
+	if opts.Width > 0 {
+		args = append(args, "-x", fmt.Sprintf("%d", opts.Width))
+	}
+	if opts.Height > 0 {
+		args = append(args, "-y", fmt.Sprintf("%d", opts.Height))
 	}
 	// Pass environment variables via tmux -e flag (reaches the shell inside tmux)
 	for k, v := range opts.Env {
@@ -202,6 +212,9 @@ func (c *ExecClient) NewWindow(ctx context.Context, opts NewWindowOpts) error {
 	args := []string{"new-window", "-t", opts.Session}
 	if opts.Name != "" {
 		args = append(args, "-n", opts.Name)
+	}
+	if opts.StartDir != "" {
+		args = append(args, "-c", opts.StartDir)
 	}
 	for k, v := range opts.Env {
 		args = append(args, "-e", fmt.Sprintf("%s=%s", k, v))

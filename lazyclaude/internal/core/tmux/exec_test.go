@@ -157,12 +157,12 @@ func TestPrependSocket(t *testing.T) {
 	t.Run("no socket", func(t *testing.T) {
 		c := NewExecClient()
 		args := c.prependSocket([]string{"list-sessions"})
-		assert.Equal(t, []string{"list-sessions"}, args)
+		assert.Equal(t, []string{"-u", "list-sessions"}, args)
 	})
 
 	t.Run("with socket", func(t *testing.T) {
 		c := NewExecClientWithSocket("lc")
 		args := c.prependSocket([]string{"list-sessions"})
-		assert.Equal(t, []string{"-L", "lc", "list-sessions"}, args)
+		assert.Equal(t, []string{"-u", "-L", "lc", "list-sessions"}, args)
 	})
 }

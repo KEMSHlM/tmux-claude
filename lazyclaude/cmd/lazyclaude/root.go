@@ -145,7 +145,7 @@ func (a *sessionAdapter) AttachCmd(id string) (*exec.Cmd, error) {
 	}
 	target := "lazyclaude:" + sess.WindowName()
 	// Build tmux attach command with the same socket
-	cmd := exec.Command("tmux", "-L", "lazyclaude", "attach-session", "-t", target)
+	cmd := exec.Command("tmux", "-u", "-L", "lazyclaude", "attach-session", "-t", target)
 	return cmd, nil
 }
 
