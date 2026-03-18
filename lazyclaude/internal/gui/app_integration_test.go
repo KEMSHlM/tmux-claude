@@ -245,6 +245,132 @@ func TestFullScreen_PopupWorksInFullMode(t *testing.T) {
 	assert.Equal(t, gui.ChoiceAccept, mock.getSentChoices()[0].Choice)
 }
 
+func TestFullScreen_DefaultsToInsertMode(t *testing.T) {
+	app, err := gui.NewAppHeadless(gui.ModeMain, 80, 24)
+	require.NoError(t, err)
+
+	mock := &mockSessionProvider{
+		sessions: []gui.SessionItem{
+			{ID: "s1", Name: "test", Status: "Running", TmuxWindow: "@0"},
+		},
+	}
+	app.SetSessions(mock)
+	app.EnterFullScreenForTest("s1")
+
+	assert.Equal(t, gui.ModeInsert, app.InputModeForTest())
+}
+
+func TestFullScreen_CtrlBackslash_SwitchesToNormal(t *testing.T) {
+	app, err := gui.NewAppHeadless(gui.ModeMain, 80, 24)
+	require.NoError(t, err)
+
+	mock := &mockSessionProvider{
+		sessions: []gui.SessionItem{
+			{ID: "s1", Name: "test", Status: "Running", TmuxWindow: "@0"},
+		},
+	}
+	app.SetSessions(mock)
+	app.EnterFullScreenForTest("s1")
+	assert.Equal(t, gui.ModeInsert, app.InputModeForTest())
+
+	app.SetInputModeForTest(gui.ModeNormal)
+	assert.Equal(t, gui.ModeNormal, app.InputModeForTest())
+}
+
+func TestFullScreen_NormalMode_IReturnsToInsert(t *testing.T) {
+	app, err := gui.NewAppHeadless(gui.ModeMain, 80, 24)
+	require.NoError(t, err)
+
+	mock := &mockSessionProvider{
+		sessions: []gui.SessionItem{
+			{ID: "s1", Name: "test", Status: "Running", TmuxWindow: "@0"},
+		},
+	}
+	app.SetSessions(mock)
+	app.EnterFullScreenForTest("s1")
+	app.SetInputModeForTest(gui.ModeNormal)
+
+	app.SetInputModeForTest(gui.ModeInsert)
+	assert.Equal(t, gui.ModeInsert, app.InputModeForTest())
+}
+
+func TestFullScreen_InsertMode_ForwardsKeys(t *testing.T) {
+	app, err := gui.NewAppHeadless(gui.ModeMain, 80, 24)
+	require.NoError(t, err)
+
+	mock := &mockSessionProvider{
+		sessions: []gui.SessionItem{
+			{ID: "s1", Name: "test", Status: "Running", TmuxWindow: "@0"},
+		},
+	}
+	app.SetSessions(mock)
+	fwd := &gui.MockInputForwarder{}
+	app.SetInputForwarder(fwd)
+
+	app.EnterFullScreenForTest("s1")
+	app.ForwardKeyForTest('h')
+
+	assert.Equal(t, []string{"h"}, fwd.Keys())
+}
+
+func TestFullScreen_NormalMode_DoesNotForward(t *testing.T) {
+	app, err := gui.NewAppHeadless(gui.ModeMain, 80, 24)
+	require.NoError(t, err)
+
+	mock := &mockSessionProvider{
+		sessions: []gui.SessionItem{
+			{ID: "s1", Name: "test", Status: "Running", TmuxWindow: "@0"},
+		},
+	}
+	app.SetSessions(mock)
+	fwd := &gui.MockInputForwarder{}
+	app.SetInputForwarder(fwd)
+
+	app.EnterFullScreenForTest("s1")
+	app.SetInputModeForTest(gui.ModeNormal)
+
+	app.ForwardKeyForTest('h')
+	assert.Empty(t, fwd.Keys(), "normal mode should not forward keys")
+}
+
+func TestFullScreen_NormalMode_QExitsFullScreen(t *testing.T) {
+	app, err := gui.NewAppHeadless(gui.ModeMain, 80, 24)
+	require.NoError(t, err)
+
+	mock := &mockSessionProvider{
+		sessions: []gui.SessionItem{
+			{ID: "s1", Name: "test", Status: "Running", TmuxWindow: "@0"},
+		},
+	}
+	app.SetSessions(mock)
+	app.EnterFullScreenForTest("s1")
+	app.SetInputModeForTest(gui.ModeNormal)
+
+	// q in normal mode should exit full-screen (tested via exitFullScreen)
+	assert.True(t, app.IsFullScreenForTest())
+	app.ExitFullScreenForTest()
+	assert.False(t, app.IsFullScreenForTest())
+}
+
+func TestFullScreen_ExitResetsToInsertMode(t *testing.T) {
+	app, err := gui.NewAppHeadless(gui.ModeMain, 80, 24)
+	require.NoError(t, err)
+
+	mock := &mockSessionProvider{
+		sessions: []gui.SessionItem{
+			{ID: "s1", Name: "test", Status: "Running", TmuxWindow: "@0"},
+		},
+	}
+	app.SetSessions(mock)
+	app.EnterFullScreenForTest("s1")
+	app.SetInputModeForTest(gui.ModeNormal)
+	app.ExitFullScreenForTest()
+
+	// Re-enter → should be insert mode again
+	app.EnterFullScreenForTest("s1")
+	assert.Equal(t, gui.ModeInsert, app.InputModeForTest())
+}
+
 func TestPopup_BlocksSessionKeys(t *testing.T) {
 	t.Parallel()
 	app, err := gui.NewAppHeadless(gui.ModeMain, 80, 24)
