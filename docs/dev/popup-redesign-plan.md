@@ -1,141 +1,121 @@
-# Implementation Plan: Popup System Redesign (gocui-Only Architecture)
+# Implementation Plan: Popup System Redesign (gocui-Only + Normal/Insert Mode)
 
 ## Overview
 
-Replace the dual-path popup system (gocui overlay for preview, tmux display-popup
-for full mode) with a single gocui-based rendering pipeline. Full mode renders
-Claude Code output into a full-screen gocui view using capture-pane. Tool/diff
-popups work identically in both modes as gocui overlays.
+Full-screen mode renders Claude Code output in a gocui view using capture-pane.
+Vim-like normal/insert mode controls whether keystrokes go to lazyclaude or
+Claude Code. Tool/diff popups work identically in both preview and full-screen
+modes as gocui overlays.
 
-## Requirements
+## Status — ALL PHASES COMPLETE
 
-- Full mode renders Claude Code pane content in a full-screen gocui view
-- User keyboard input in full mode forwarded to Claude Code pane via send-keys
-- Tool/diff popups overlay in full mode, identical to preview mode
-- Remove: tmux display-popup, tool-popup subcommand, triggerToolPopup, suspend/resume
-- Designated key combo exits full mode (Ctrl+D)
-- Testable via gocui headless mode
+- Phase 1: DONE (full-screen rendering)
+- Phase 2: DONE (InputForwarder)
+- Phase 3: DONE (normal/insert mode)
+- Phase 4: DONE (dead code removal)
+- Phase 5: DONE (dead code cleanup: Binding, theme, options)
+- Phase 6: DONE (control mode for event-driven refresh)
 
-## Phase 1: Full-Screen Rendering
+## Architecture Summary
 
-### 1.1 Add fullScreen state to App
-- Add `fullScreen bool`, `fullScreenTarget string` fields
-- Add `EnterFullScreen(sessionID)` / `ExitFullScreen()` methods
+### File Structure (internal/gui/)
 
-### 1.2 Create layoutFullScreen
-- Single borderless "main" view spanning entire terminal
-- Status bar: "Ctrl+D: exit full mode"
-- Reuse `CapturePreview` pipeline with full terminal dimensions
-- Delete "sessions", "server", "options" views when entering full mode
+| File | Lines | Purpose |
+|------|-------|---------|
+| app.go | ~230 | App struct, lifecycle, Run, accessors |
+| mode.go | ~120 | InputMode, enter/exit full-screen, forwardKey |
+| keymap.go | ~130 | KeyAction, KeyBinding, KeyMap, DefaultKeyMap |
+| keybindings.go | ~380 | setupGlobalKeybindings using KeyMap |
+| layout.go | ~320 | layoutMain, layoutFullScreen, layoutPopup, render* |
+| input_editor.go | ~120 | Editor catch-all for insert/normal mode key dispatch |
+| input_forwarder.go | ~65 | InputForwarder interface, TmuxInputForwarder, Mock |
+| popup.go | ~210 | gocui overlay for tool/diff popups |
 
-### 1.3 Increase refresh rate in full mode
-- Ticker: 100ms in full mode, 500ms in preview mode
-- ~10fps effective update rate (capture-pane ~2ms)
+### Key Design Decisions
 
-## Phase 2: Input Forwarding
+**Ctrl+\\ for mode switch** (not Esc or Ctrl+[):
+- Ctrl+[ = Esc at terminal level (same byte 0x1B), verified via gocui/tcell
+- Esc is used by Claude Code in 10+ contexts (chat:cancel, autocomplete, etc.)
+- Ctrl+\\ (KeyCtrlBackslash) is a distinct byte, not used by Claude Code
+- Source: https://code.claude.com/docs/en/keybindings
 
-### 2.1 Create InputForwarder interface
-```go
-type InputForwarder interface {
-    SendKey(ctx context.Context, target string, key string) error
-}
+**Editor catch-all** (not per-key registration):
+- gocui View.Editor.Edit() receives ALL unmatched keys when Editable=true
+- Only KeyMap action keys (~15) are registered as gocui keybindings
+- Editor forwards remaining keys to Claude Code (insert) or no-ops (normal)
+- Eliminates 100+ for-loop keybinding registrations
+
+**capture-pane limitation**:
+- capture-pane returns text content only, no cursor/highlight/overlay
+- tmux copy-mode cursor is invisible in capture-pane output
+- Normal mode navigation requires alternative approach (see issue)
+- Source: tmux issues #1949, #3787
+
+**Rate-limited refresh**:
+- triggerRefreshAfterInput: 50ms minimum between captures (insert mode)
+- Prevents capture-per-keystroke during fast typing
+- Control mode %output events for real-time updates when available
+
+### Input Dispatch Flow
+
 ```
-- `TmuxInputForwarder` wraps `tmux.Client.SendKeys`
-- `MockInputForwarder` records keys for test assertions
+Key press
+  ↓
+gocui dispatch:
+  1. View-specific bindings (popup view: y/a/n/1/2/3)
+  2. Editor.Edit() (Editable=true in full-screen)
+     - Insert mode: forward all to Claude Code
+     - Normal mode: q exits, i returns to insert, rest no-op
+  3. Global bindings (special keys: Ctrl+\, Ctrl+D, Ctrl+C, Esc, Enter, arrows)
+```
 
-### 2.2 Wire to App
-- `app.SetInputForwarder(forwarder)`
-- `sessionAdapter` in root.go creates `TmuxInputForwarder`
+## Current Normal Mode Capabilities
 
-## Phase 3: Full-Mode Keybindings
+| Key | Action |
+|-----|--------|
+| q | Exit full-screen, return to split panel |
+| i | Switch to insert mode |
+| Ctrl+D | Exit full-screen (same as q) |
+| Other keys | No-op (future: see issue-normal-mode-navigation.md) |
 
-### 3.1 Extract keybindings to separate file
-- Move `setupGlobalKeybindings()` to `keybindings.go`
-- Split into preview mode and full-screen mode bindings
+## Known Limitations
 
-### 3.2 Full-mode key forwarding
-- When full mode + no popup: forward all keys to Claude Code pane
-- Key mapping: rune -> literal, Enter -> "Enter", Tab -> "Tab", etc.
-- Reserve Ctrl+D to exit full mode
-- Use `g.SetUnhandledKeyHandler()` if available, else register ~120 individual bindings
+- Normal mode j/k/h/l navigation not implemented (capture-pane can't show cursor)
+- Mouse scroll only works in insert mode
+- Visual mode (V) planned but not started
+- See: `docs/dev/issue-normal-mode-navigation.md`
 
-### 3.3 Popup priority
-- When popup showing: y/a/n/Esc go to popup handler (existing)
-- When no popup: all keys forwarded to Claude Code pane
+## Testing
 
-## Phase 4: Wire Enter Key
+### Unit Tests (42 tests, headless gocui)
+- [x] EnterFullScreen / ExitFullScreen toggle
+- [x] layoutFullScreen creates correct views
+- [x] MockInputForwarder records keys
+- [x] forwardKey sends to correct target
+- [x] Popup blocks forwarding
+- [x] Default insert mode on enter
+- [x] Ctrl+\\ switches to normal mode
+- [x] i returns to insert mode
+- [x] q exits full-screen
+- [x] Mode preserved across popup show/dismiss
+- [x] Normal mode keys are no-op
+- [x] Insert mode blocks forwarding during popup
+- [x] Ctrl+D exits from normal mode
 
-### 4.1 Replace attachSelected
-- Enter keybinding -> `EnterFullScreen(item.ID)` instead of `attachSelected(g)`
-- Remove `attachSelected()`, `suspended atomic.Bool`
-- Remove `!a.suspended.Load()` guard from ticker
+### E2E Tests (4 tests, Docker + tmux)
+- [x] TUI startup: shows session panel and options bar
+- [x] Tool popup auto-display: notification file triggers popup overlay
+- [x] Full-screen mode: Enter enters, Ctrl+D exits, INSERT shown
+- [x] Normal mode: Ctrl+\\ switches to NORMAL, q exits to split panel
 
-## Phase 5: Remove Dead Code
+## Success Criteria — ALL MET
 
-- Delete `cmd/lazyclaude/tool_popup.go`
-- Remove `triggerToolPopup()` from server.go
-- Remove `PopupOpts.Internal` from types.go
-- Remove `Internal` bypass from exec.go DisplayPopup
-
-## Phase 6: Resize Optimization
-
-- Cache last-resized dimensions in CapturePreview
-- Skip ResizeWindow + 150ms sleep when dimensions unchanged
-- Critical for 100ms refresh interval in full mode
-
-## Key Design Details
-
-### Exit Full Mode: Ctrl+D
-- Esc conflicts with vim/Claude Code usage
-- Ctrl+D = "detach" convention (tmux)
-- Shown in full-mode status bar
-
-### Input Forwarding Latency
-- Each keystroke: `tmux send-keys` ~5ms subprocess
-- Normal typing (~100ms gap): imperceptible
-- Fast paste: batch keystrokes within 10ms window
-
-### Refresh and Flicker
-- Only redraw when capture-pane output changed (diff against cache)
-- Skip render if content identical to previous frame
-- ResizeWindow only on dimension change, not every frame
-
-## Risks
-
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| gocui has no catch-all key handler | HIGH | Register individual bindings for ~120 keys |
-| Refresh rate causes flicker/CPU | MED | Content-diff before render, skip if unchanged |
-| Input forwarding latency | LOW | Async send-keys, batch rapid keystrokes |
-| No tmux status bar in full mode | LOW | lazyclaude status bar replaces it |
-
-## Testing Strategy
-
-### Unit (headless gocui)
-- `EnterFullScreen`/`ExitFullScreen` toggle
-- `layoutFullScreen` creates correct views
-- Key-to-sendkeys mapping table
-- `MockInputForwarder` records keys
-
-### Integration
-- Full-mode entry/exit with mock SessionProvider
-- Popup overlay in full mode with mock notification
-- Input forwarding: type "hello", verify mock received `["h","e","l","l","o"]`
-- Popup interrupts forwarding: popup shown, y goes to popup handler
-
-### E2E (Docker)
-- Start lazyclaude, create session, Enter, verify full-screen via capture-pane
-- Trigger notification, verify popup appears
-- Press y, verify Claude Code receives "1"
-- Ctrl+D, verify return to split-panel
-
-## Success Criteria
-
-- [ ] Full mode renders Claude Code in full-screen gocui view
-- [ ] User can type into Claude Code prompt in full mode
-- [ ] Tool/diff popup identical in both modes
-- [ ] y/a/n sends correct key to Claude Code
-- [ ] Ctrl+D exits full mode
-- [ ] No tmux display-popup in codebase
-- [ ] No gocui Suspend/Resume in codebase
-- [ ] All tests pass, new tests for full-screen + input forwarding
+- [x] Full mode renders Claude Code in full-screen gocui view
+- [x] Insert mode: all keys reach Claude Code prompt
+- [x] Normal mode: q exits, i returns to insert
+- [x] Mode indicator visible in status bar (INSERT/NORMAL)
+- [x] Tool/diff popup identical in both modes
+- [x] No tmux display-popup in codebase
+- [x] No gocui Suspend/Resume in codebase
+- [x] All tests pass (42 unit + 4 E2E)
+- [x] Dead code removed (Binding, theme, options, copy-mode)
