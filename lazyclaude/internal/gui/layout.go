@@ -256,9 +256,11 @@ func (a *App) renderPreview(v *gocui.View, items []SessionItem, previewW, previe
 		go func() {
 			content, err := a.sessions.CapturePreview(id, previewW, previewH)
 			a.previewMu.Lock()
+			// Always update cursor to prevent needFetch loop when content is empty
+			// (Claude Code startup returns len=0 temporarily)
+			a.previewCursor = cursorSnapshot
 			if err == nil && strings.TrimSpace(content) != "" {
 				a.previewCache = content
-				a.previewCursor = cursorSnapshot
 			}
 			a.previewBusy = false
 			a.previewTime = time.Now()
