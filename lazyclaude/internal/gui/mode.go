@@ -57,15 +57,16 @@ func (a *App) forwardSpecialKey(tmuxKey string) {
 }
 
 // triggerRefreshAfterInput marks preview as stale after sending a key.
-// Only in insert mode — normal mode uses copy-mode rendering via capture-pane
-// which is triggered by outputNotify or the ticker, not per-keystroke.
+// Rate-limited: only marks stale if last capture was >50ms ago.
+// This prevents capture-per-keystroke during fast typing while still
+// providing responsive display updates.
 func (a *App) triggerRefreshAfterInput() {
 	if a.inputMode != ModeInsert {
 		return
 	}
 	a.fullScreenScrollY = 0
 	a.previewMu.Lock()
-	if !a.previewBusy {
+	if !a.previewBusy && time.Since(a.previewTime) > 50*time.Millisecond {
 		a.previewTime = time.Time{}
 	}
 	a.previewMu.Unlock()
