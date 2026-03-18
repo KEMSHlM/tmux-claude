@@ -359,11 +359,19 @@ func (a *App) setupGlobalKeybindings() error {
 			return nil
 		}
 		if a.fullScreen {
-			a.forwardKey('r')
+			if a.inputMode == ModeInsert {
+				a.forwardKey('r')
+			}
 			return nil
 		}
-		// TODO: pass --resume flag to the session
-		return a.attachSelected(g)
+		// r in preview mode: enter full-screen (same as Enter)
+		if a.mode == ModeMain && a.sessions != nil {
+			items := a.sessions.Sessions()
+			if a.cursor >= 0 && a.cursor < len(items) {
+				a.enterFullScreen(items[a.cursor].ID)
+			}
+		}
+		return nil
 	}); err != nil {
 		return err
 	}

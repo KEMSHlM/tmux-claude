@@ -2,8 +2,6 @@ package gui
 
 import (
 	"fmt"
-	"os"
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -37,7 +35,6 @@ type SessionProvider interface {
 	Rename(id, newName string) error
 	PurgeOrphans() (int, error)
 	CapturePreview(id string, width, height int) (string, error)
-	AttachCmd(id string) (*exec.Cmd, error)
 	PendingNotification() *notify.ToolNotification
 	SendChoice(window string, choice Choice) error
 }
@@ -198,46 +195,6 @@ func (a *App) SetInputForwarder(fwd InputForwarder) {
 // Gui returns the underlying gocui.Gui (for testing).
 func (a *App) Gui() *gocui.Gui {
 	return a.gui
-}
-
-func (a *App) attachSelected(g *gocui.Gui) error {
-	if a.mode != ModeMain || a.sessions == nil {
-		return nil
-	}
-	items := a.sessions.Sessions()
-	if a.cursor < 0 || a.cursor >= len(items) {
-		return nil
-	}
-	item := items[a.cursor]
-	if item.Status == "Orphan" {
-		a.setStatus(g, "Cannot attach: session is orphaned")
-		return nil
-	}
-
-	cmd, err := a.sessions.AttachCmd(item.ID)
-	if err != nil {
-		a.setStatus(g, fmt.Sprintf("Error: %v", err))
-		return nil
-	}
-
-	// Suspend gocui, run tmux attach, then resume
-	if err := g.Suspend(); err != nil {
-		a.setStatus(g, fmt.Sprintf("Suspend error: %v", err))
-		return nil
-	}
-
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Run() // blocks until user detaches
-
-	if err := g.Resume(); err != nil {
-		return err
-	}
-
-	// Clear preview cache to refresh after detach
-	a.previewCache = ""
-	return nil
 }
 
 func (a *App) setStatus(g *gocui.Gui, msg string) {

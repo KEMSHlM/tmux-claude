@@ -1,7 +1,6 @@
 package gui_test
 
 import (
-	"os/exec"
 	"sync"
 	"testing"
 	"time"
@@ -36,9 +35,6 @@ func (m *mockSessionProvider) Rename(_, _ string) error { return nil }
 func (m *mockSessionProvider) PurgeOrphans() (int, error) { return 0, nil }
 func (m *mockSessionProvider) CapturePreview(_ string, _, _ int) (string, error) {
 	return "preview content", nil
-}
-func (m *mockSessionProvider) AttachCmd(_ string) (*exec.Cmd, error) {
-	return nil, nil
 }
 
 func (m *mockSessionProvider) PendingNotification() *notify.ToolNotification {
