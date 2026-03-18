@@ -367,7 +367,7 @@ func TestFullScreen_ExitResetsToInsertMode(t *testing.T) {
 	assert.Equal(t, gui.ModeInsert, app.InputModeForTest())
 }
 
-func TestFullScreen_NormalMode_JKScrolls(t *testing.T) {
+func TestFullScreen_NormalMode_JKMovesCursor(t *testing.T) {
 	app, err := gui.NewAppHeadless(gui.ModeMain, 80, 24)
 	require.NoError(t, err)
 
@@ -380,19 +380,19 @@ func TestFullScreen_NormalMode_JKScrolls(t *testing.T) {
 	app.EnterFullScreenForTest("s1")
 	app.SetInputModeForTest(gui.ModeNormal)
 
-	assert.Equal(t, 0, app.FullScreenScrollYForTest())
+	assert.Equal(t, 0, app.FullScreenCursorYForTest())
 
-	app.ScrollDownForTest()
-	assert.Equal(t, 1, app.FullScreenScrollYForTest())
+	app.NormalCursorDownForTest()
+	assert.Equal(t, 1, app.FullScreenCursorYForTest())
 
-	app.ScrollDownForTest()
-	assert.Equal(t, 2, app.FullScreenScrollYForTest())
+	app.NormalCursorDownForTest()
+	assert.Equal(t, 2, app.FullScreenCursorYForTest())
 
-	app.ScrollUpForTest()
-	assert.Equal(t, 1, app.FullScreenScrollYForTest())
+	app.NormalCursorUpForTest()
+	assert.Equal(t, 1, app.FullScreenCursorYForTest())
 }
 
-func TestFullScreen_NormalMode_ScrollDoesNotGoBelowZero(t *testing.T) {
+func TestFullScreen_NormalMode_CursorDoesNotGoBelowZero(t *testing.T) {
 	app, err := gui.NewAppHeadless(gui.ModeMain, 80, 24)
 	require.NoError(t, err)
 
@@ -405,8 +405,8 @@ func TestFullScreen_NormalMode_ScrollDoesNotGoBelowZero(t *testing.T) {
 	app.EnterFullScreenForTest("s1")
 	app.SetInputModeForTest(gui.ModeNormal)
 
-	app.ScrollUpForTest()
-	assert.Equal(t, 0, app.FullScreenScrollYForTest())
+	app.NormalCursorUpForTest()
+	assert.Equal(t, 0, app.FullScreenCursorYForTest())
 }
 
 func TestPopup_BlocksSessionKeys(t *testing.T) {

@@ -65,19 +65,19 @@ func (a *App) ForwardSpecialKeyForTest(tmuxKey string) {
 	a.forwardSpecialKey(tmuxKey)
 }
 
-// FullScreenScrollYForTest returns the scroll offset.
-func (a *App) FullScreenScrollYForTest() int {
-	return a.fullScreenScrollY
+// FullScreenCursorYForTest returns the cursor Y position.
+func (a *App) FullScreenCursorYForTest() int {
+	return a.fullScreenCursorY
 }
 
-// ScrollDownForTest scrolls down one line.
-func (a *App) ScrollDownForTest() {
-	a.scrollDown()
+// NormalCursorDownForTest moves cursor down.
+func (a *App) NormalCursorDownForTest() {
+	a.normalCursorDown()
 }
 
-// ScrollUpForTest scrolls up one line.
-func (a *App) ScrollUpForTest() {
-	a.scrollUp()
+// NormalCursorUpForTest moves cursor up.
+func (a *App) NormalCursorUpForTest() {
+	a.normalCursorUp()
 }
 
 // PollNotificationForTest simulates what the ticker does: check for pending

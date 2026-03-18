@@ -75,7 +75,9 @@ type App struct {
 	inputForwarder   InputForwarder                // forwards keys to tmux pane in full-screen
 	keyMap             *KeyMap                       // configurable key bindings
 	outputNotify       chan struct{}                 // signals pane output (from control mode)
-	fullScreenScrollY  int                          // scroll offset in normal mode
+	fullScreenScrollY  int                          // view scroll offset in normal mode
+	fullScreenCursorX  int                          // cursor column in normal mode
+	fullScreenCursorY  int                          // cursor row in normal mode
 	onSessionCreated   func()                       // called after first session is created
 }
 

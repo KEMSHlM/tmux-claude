@@ -164,11 +164,14 @@ func (a *App) layoutFullScreen(g *gocui.Gui, maxX, maxY int) error {
 	previewH := maxY - 3
 	a.renderPreview(v, items, previewW, previewH)
 
-	// Apply scroll offset in normal mode
-	if a.inputMode == ModeNormal && a.fullScreenScrollY > 0 {
-		v.SetOrigin(0, a.fullScreenScrollY)
+	// Normal mode: show cursor and auto-scroll view to follow it
+	if a.inputMode == ModeNormal {
+		v.SetCursor(a.fullScreenCursorX, a.fullScreenCursorY)
+		v.Highlight = true
 	} else {
+		v.SetCursor(0, 0)
 		v.SetOrigin(0, 0)
+		v.Highlight = false
 	}
 
 	// Status bar

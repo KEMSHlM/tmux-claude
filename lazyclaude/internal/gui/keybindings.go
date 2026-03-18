@@ -144,11 +144,11 @@ func (a *App) setupGlobalKeybindings() error {
 						a.forwardKey(runeKey)
 					}
 				} else {
-					// Normal mode: j/k scroll preview history
+					// Normal mode: j/k move cursor
 					if isDown {
-						a.scrollDown()
+						a.normalCursorDown()
 					} else {
-						a.scrollUp()
+						a.normalCursorUp()
 					}
 				}
 				return nil
@@ -354,6 +354,24 @@ func (a *App) setupGlobalKeybindings() error {
 	if err := a.gui.SetKeybinding("", km.FirstRune(ActionInsertMode), gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
 		if a.fullScreen && a.inputMode == ModeNormal && !a.hasPopup() {
 			a.inputMode = ModeInsert
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	// h/l: cursor left/right in normal mode (forwarded in insert mode)
+	if err := a.gui.SetKeybinding("", 'h', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		if a.fullScreen && a.inputMode == ModeNormal {
+			a.normalCursorLeft()
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	if err := a.gui.SetKeybinding("", 'l', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		if a.fullScreen && a.inputMode == ModeNormal {
+			a.normalCursorRight()
 		}
 		return nil
 	}); err != nil {
