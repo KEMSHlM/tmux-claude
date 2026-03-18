@@ -138,7 +138,7 @@ func (a *App) layoutFullScreen(g *gocui.Gui, maxX, maxY int) error {
 	}
 	v.Wrap = false
 	// Always Editable — Editor handles both insert mode (forward to Claude Code)
-	// and normal mode (forward to tmux copy-mode, except q/i).
+	// and normal mode (q exits, i returns to insert, other keys are no-op).
 	v.Editable = true
 	v.Editor = &inputEditor{app: a}
 	v.Clear()

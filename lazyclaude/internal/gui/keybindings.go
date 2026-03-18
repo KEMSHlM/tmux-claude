@@ -200,7 +200,6 @@ func (a *App) setupGlobalKeybindings() error {
 			return nil
 		}
 		a.setStatus(g, "Session created")
-		a.NotifySessionCreated()
 		return nil
 	}); err != nil {
 		return err

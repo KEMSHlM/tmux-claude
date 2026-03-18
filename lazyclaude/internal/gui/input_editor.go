@@ -1,6 +1,8 @@
 package gui
 
-import "github.com/jesseduffield/gocui"
+import (
+	"github.com/jesseduffield/gocui"
+)
 
 // inputEditor implements gocui.Editor to forward unhandled keys
 // to the Claude Code pane in full-screen insert mode.
@@ -74,26 +76,24 @@ var specialKeyMap = map[gocui.Key]string{
 
 // Edit is called by gocui for every keypress when the view is Editable.
 // Handles both insert mode (forward to Claude Code) and normal mode
-// (forward to tmux copy-mode, except q/i which are intercepted).
+// (q exits full-screen, i returns to insert, other keys are no-op).
 func (e *inputEditor) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifier) bool {
 	if !e.app.fullScreen || e.app.hasPopup() {
 		return false
 	}
 
 	// Normal mode: q exits full-screen, i returns to insert.
-	// All other keys are forwarded to tmux copy-mode.
+	// All other keys are no-op (future implementation per issue).
 	if e.app.inputMode == ModeNormal {
 		switch ch {
 		case 'q':
-			e.app.setInputMode(ModeInsert) // exits copy-mode
 			e.app.exitFullScreen()
 			return true
 		case 'i':
-			e.app.setInputMode(ModeInsert) // exits copy-mode
+			e.app.setInputMode(ModeInsert)
 			return true
 		}
-		// Forward to copy-mode (j/k/h/l/search/etc. handled by tmux)
-		return e.forwardAny(key, ch, mod)
+		return true // consume key (no-op)
 	}
 
 	// Insert mode: forward all keys to Claude Code

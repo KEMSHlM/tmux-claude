@@ -50,7 +50,7 @@ func (a *App) InputModeForTest() InputMode {
 	return a.inputMode
 }
 
-// SetInputModeForTest sets the input mode with copy-mode side effects.
+// SetInputModeForTest sets the input mode for testing.
 func (a *App) SetInputModeForTest(mode InputMode) {
 	a.setInputMode(mode)
 }

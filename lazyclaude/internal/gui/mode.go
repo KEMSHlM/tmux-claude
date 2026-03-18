@@ -57,39 +57,33 @@ func (a *App) forwardSpecialKey(tmuxKey string) {
 }
 
 // triggerRefreshAfterInput marks preview as stale after sending a key.
-// Rate-limited: only marks stale if last capture was >50ms ago.
-// This prevents capture-per-keystroke during fast typing while still
-// providing responsive display updates.
+// Rate-limited to 50ms to prevent capture-per-keystroke during fast typing.
 func (a *App) triggerRefreshAfterInput() {
-	if a.inputMode != ModeInsert {
-		return
+	if a.inputMode == ModeInsert {
+		a.fullScreenScrollY = 0
 	}
-	a.fullScreenScrollY = 0
 	a.previewMu.Lock()
-	if !a.previewBusy && time.Since(a.previewTime) > 50*time.Millisecond {
-		a.previewTime = time.Time{}
+	// Normal mode: always refresh (infrequent keys, user expects immediate feedback)
+	// Insert mode: rate-limit to 50ms (fast typing, batch captures)
+	if a.inputMode == ModeNormal {
+		if !a.previewBusy {
+			a.previewTime = time.Time{}
+		}
+	} else {
+		if !a.previewBusy && time.Since(a.previewTime) > 50*time.Millisecond {
+			a.previewTime = time.Time{}
+		}
 	}
 	a.previewMu.Unlock()
 }
 
 
 // setInputMode switches between insert and normal mode.
-// Normal mode enters tmux copy-mode; insert mode exits it.
 func (a *App) setInputMode(mode InputMode) {
 	if a.inputMode == mode {
 		return
 	}
 	a.inputMode = mode
-
-	if a.sessions == nil || !a.fullScreen {
-		return
-	}
-	items := a.sessions.Sessions()
-	if a.cursor < 0 || a.cursor >= len(items) {
-		return
-	}
-	id := items[a.cursor].ID
-	_ = a.sessions.SetCopyMode(id, mode == ModeNormal) // best-effort
 }
 
 func (a *App) enterFullScreen(sessionID string) {
@@ -110,9 +104,7 @@ func (a *App) enterFullScreen(sessionID string) {
 }
 
 func (a *App) exitFullScreen() {
-	if a.inputMode == ModeNormal {
-		a.setInputMode(ModeInsert) // exits copy-mode
-	}
+	a.inputMode = ModeInsert
 	a.fullScreen = false
 	a.fullScreenTarget = ""
 	a.previewCache = ""

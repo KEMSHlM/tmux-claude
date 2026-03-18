@@ -37,7 +37,6 @@ type SessionProvider interface {
 	CapturePreview(id string, width, height int) (string, error)
 	PendingNotification() *notify.ToolNotification
 	SendChoice(window string, choice Choice) error
-	SetCopyMode(id string, enabled bool) error
 }
 
 // SessionItem is a read-only view of a session for display.
@@ -77,7 +76,6 @@ type App struct {
 	keyMap             *KeyMap                       // configurable key bindings
 	outputNotify       chan struct{}                 // signals pane output (from control mode)
 	fullScreenScrollY  int                          // mouse scroll offset
-	onSessionCreated   func()                       // called after first session is created
 }
 
 // NewApp creates a new App. Call Run() to start the event loop.
@@ -204,20 +202,6 @@ func (a *App) SetSessions(sp SessionProvider) {
 // SetInputForwarder sets the input forwarder for full-screen mode.
 func (a *App) SetInputForwarder(fwd InputForwarder) {
 	a.inputForwarder = fwd
-}
-
-// SetOnSessionCreated sets a callback for when the first session is created.
-func (a *App) SetOnSessionCreated(fn func()) {
-	a.onSessionCreated = fn
-}
-
-// NotifySessionCreated triggers the session-created callback once.
-func (a *App) NotifySessionCreated() {
-	if a.onSessionCreated != nil {
-		fn := a.onSessionCreated
-		a.onSessionCreated = nil // fire once
-		go fn()
-	}
 }
 
 // NotifyOutput signals that a pane has new output.

@@ -187,6 +187,11 @@ func (c *ControlClient) Close() error {
 
 func (c *ControlClient) readLoop() {
 	defer close(c.done)
+	defer func() {
+		c.mu.Lock()
+		c.closed = true
+		c.mu.Unlock()
+	}()
 	for c.scanner.Scan() {
 		line := c.scanner.Text()
 		ev := ParseControlLine(line)

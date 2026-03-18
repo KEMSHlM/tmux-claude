@@ -1,63 +1,77 @@
-# Issue: Normal Mode Navigation (hjkl cursor + scrollback)
+# Issue: Normal Mode Navigation (scrollback + cursor)
+
+## Fundamental Limitation: capture-pane Cannot Show Copy-Mode
+
+`capture-pane` returns only the text content of a pane. It does NOT include:
+- Copy-mode cursor position (highlighted character)
+- Copy-mode selection (visual highlight)
+- Copy-mode status line (`[0/100]`)
+- Scroll position within copy-mode
+
+These are all tmux overlays rendered by the terminal, not pane content.
+
+**Evidence:**
+- tmux man page: capture-pane "Capture the contents of a pane" — text only
+- [tmux Issue #1949](https://github.com/tmux/tmux/issues/1949): maintainer added
+  `copy_cursor_x`/`copy_cursor_y` format variables because capture-pane cannot
+  provide cursor position
+- [tmux Issue #3787](https://github.com/tmux/tmux/issues/3787): no way to
+  correlate capture-pane output with copy-mode cursor position
+- Verified in this project: capture-pane returns identical output before and
+  after j/k navigation in copy-mode
+
+## Failed Approach: tmux copy-mode Integration
+
+Attempted: enter `tmux copy-mode` on normal mode switch, forward j/k via
+`send-keys`, capture-pane to show updated view.
+
+Result: send-keys succeeds, pane is in copy-mode (`#{pane_in_mode}=1`),
+but capture-pane returns the same content regardless of cursor position.
+User sees no visual change.
+
+Also attempted: `capture-pane -S -` (full scrollback). Returns thousands of
+lines per frame, making gocui rendering extremely slow.
 
 ## Current State
 
-- Normal mode exists (Ctrl+\ to enter, i to return to insert)
-- q exits full-screen, popup y/a/n works
-- j/k are no-op in normal mode (keybinding fires but does nothing)
-- h/l are not bound in normal mode
-- Mouse scroll works in insert mode only (SetOrigin on captured content)
+- Normal mode exists (Ctrl+\ to enter, i/q to exit)
+- j/k/h/l are no-op in normal mode (keys forwarded but invisible)
+- Mouse scroll works in insert mode (SetOrigin on captured content)
+- copy-mode infrastructure exists but is visually non-functional
 
-## Problem: capture-pane Limitation
+## Proposed Solutions
 
-`capture-pane -ep` captures only the **visible pane content** (~70 lines).
-Adding `-S -` captures the full scrollback buffer, but:
-- Returns thousands of lines on long sessions
-- gocui re-renders the entire buffer every frame (Clear + Fprint)
-- Makes the TUI extremely slow (every capture + render processes all lines)
+### Option A: On-demand scrollback with self-rendered cursor (recommended)
 
-This makes vim-style hjkl cursor movement + scrollback viewing impractical
-with the current capture-pane approach.
+1. On normal mode entry: `capture-pane -S -1000` ONCE → cache full content
+2. Render in gocui with self-managed cursor (SetCursor + Highlight)
+3. j/k move our cursor within cached content (no tmux interaction)
+4. On normal mode exit: discard cache, return to live capture
+5. No per-frame subprocess calls in normal mode
 
-## Proposed Solution
+Advantage: completely decoupled from tmux copy-mode. Full control over
+cursor rendering. One-time capture cost.
 
-### Option A: On-demand scrollback (recommended)
+### Option B: `copy_cursor_y` format variable
 
-1. **Insert mode**: capture-pane without `-S` (visible only, fast)
-2. **Normal mode enter**: capture-pane with `-S -1000` ONCE, cache the full content
-3. **Normal mode hjkl**: move cursor/scroll within the cached content (no subprocess)
-4. **Normal mode exit (i)**: discard cached scrollback, return to fast capture
+1. Enter tmux copy-mode
+2. Forward j/k via send-keys
+3. Read `#{copy_cursor_y}` via `display-message -p`
+4. Use the cursor position to render our own highlight in gocui
+5. capture-pane for content + display-message for position = 2 calls per frame
 
-This separates the fast insert-mode path from the full-content normal-mode path.
-The cached scrollback is only fetched once on mode entry, not every frame.
-
-### Option B: tmux copy-mode integration
-
-Send tmux into copy-mode when entering normal mode:
-```
-tmux copy-mode -t lazyclaude:<window>
-```
-Then forward hjkl as tmux copy-mode navigation keys.
-tmux handles scrollback natively. Exit copy-mode on `i` or `q`.
-
-Downside: capture-pane of copy-mode output may differ from normal output.
+Advantage: uses tmux's copy-mode for actual navigation (search, etc.)
+Disadvantage: 2 subprocess calls per keypress, cursor-only (no selection highlight)
 
 ### Option C: Virtual terminal emulator
 
-Parse the raw pane output (via pipe-pane or control mode %output) through
-a Go terminal emulator library (e.g., go-vt10x). Maintain our own scrollback
-buffer in memory. No subprocess per render.
+Parse raw pane output through a Go VT100 library. Maintain our own
+scrollback buffer. No capture-pane needed.
 
-Downside: Complex implementation, must handle all ANSI escape sequences.
-
-## Scope
-
-- hjkl cursor movement with visible cursor
-- Scrollback viewing (past output)
-- Mouse scroll in normal mode
-- Future: V mode (visual selection + copy)
+Advantage: complete control, fastest rendering
+Disadvantage: complex implementation, must handle all ANSI sequences
 
 ## Related
 
-- `docs/dev/popup-redesign-plan.md` Phase 3.6
-- `memory/project_visual_mode.md`
+- `docs/dev/popup-redesign-plan.md`
+- `memory/project_visual_mode.md` (future V mode)
