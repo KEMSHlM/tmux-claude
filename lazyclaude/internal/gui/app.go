@@ -152,19 +152,10 @@ func (a *App) Run() error {
 			case <-done:
 				return
 			case <-a.outputNotify:
-				// Pane output detected — debounce: drain rapid events,
-				// then mark stale once. Prevents spawning capture-pane
-				// goroutines on every keystroke.
-				drainLoop:
-				for {
-					select {
-					case <-a.outputNotify:
-					default:
-						break drainLoop
-					}
-				}
+				// Pane output detected — mark stale to trigger re-capture.
+				// Channel is buffered(1), so rapid events are already coalesced.
 				a.previewMu.Lock()
-				a.previewTime = time.Time{} // zero time = stale
+				a.previewTime = time.Time{}
 				a.previewMu.Unlock()
 				a.gui.Update(func(g *gocui.Gui) error { return nil })
 			case <-ticker.C:

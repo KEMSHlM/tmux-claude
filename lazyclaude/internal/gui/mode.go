@@ -1,7 +1,5 @@
 package gui
 
-import "github.com/jesseduffield/gocui"
-
 // InputMode controls key handling in full-screen mode (vim-like).
 type InputMode int
 
@@ -38,15 +36,13 @@ func (a *App) resolveForwardTarget() string {
 }
 
 // forwardKey sends a rune key to the Claude Code pane.
-// Runs in a goroutine to avoid blocking gocui event loop on subprocess calls.
+// Synchronous — control mode stdin write is ~μs, subprocess fallback is ~5ms.
 func (a *App) forwardKey(ch rune) {
 	target := a.resolveForwardTarget()
 	if target == "" {
 		return
 	}
-	key := RuneToTmuxKey(ch)
-	fwd := a.inputForwarder
-	go fwd.ForwardKey(target, key)
+	a.inputForwarder.ForwardKey(target, RuneToTmuxKey(ch))
 }
 
 // forwardSpecialKey sends a named special key (Enter, Tab, Up, Down, etc.).
@@ -55,20 +51,7 @@ func (a *App) forwardSpecialKey(tmuxKey string) {
 	if target == "" {
 		return
 	}
-	fwd := a.inputForwarder
-	go fwd.ForwardKey(target, tmuxKey)
-}
-
-
-
-func (a *App) setStatusAsync(msg string) {
-	if a.gui == nil {
-		return
-	}
-	a.gui.Update(func(g *gocui.Gui) error {
-		a.setStatus(g, msg)
-		return nil
-	})
+	a.inputForwarder.ForwardKey(target, tmuxKey)
 }
 
 // scrollDown moves the full-screen scroll offset down by one line.

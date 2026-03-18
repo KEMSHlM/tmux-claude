@@ -306,9 +306,6 @@ func TestFullScreen_InsertMode_ForwardsKeys(t *testing.T) {
 	app.EnterFullScreenForTest("s1")
 	app.ForwardKeyForTest('h')
 
-	require.Eventually(t, func() bool {
-		return len(fwd.Keys()) == 1
-	}, time.Second, 5*time.Millisecond)
 	assert.Equal(t, []string{"h"}, fwd.Keys())
 }
 
