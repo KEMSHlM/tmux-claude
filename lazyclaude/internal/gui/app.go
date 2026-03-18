@@ -68,10 +68,12 @@ type App struct {
 	previewTime    time.Time // last fetch timestamp
 	lastWidth      int
 	lastHeight     int
-	pendingTool    *notify.ToolNotification          // active tool popup
-	popupScrollY   int                               // scroll position for diff popup
-	popupDiffCache []string                           // cached diff lines
-	popupDiffKinds []presentation.DiffLineKind            // cached diff line kinds
+	pendingTool      *notify.ToolNotification          // active tool popup
+	popupScrollY     int                               // scroll position for diff popup
+	popupDiffCache   []string                           // cached diff lines
+	popupDiffKinds   []presentation.DiffLineKind        // cached diff line kinds
+	fullScreen       bool                               // true when in full-screen mode
+	fullScreenTarget string                             // session ID for full-screen view
 }
 
 // NewApp creates a new App. Call Run() to start the event loop.
@@ -134,6 +136,51 @@ func (a *App) TestLayout(g *gocui.Gui) error {
 	return a.layout(g)
 }
 
+// ShowToolPopupForTest exposes showToolPopup for testing.
+func (a *App) ShowToolPopupForTest(n *notify.ToolNotification) {
+	a.showToolPopup(n)
+}
+
+// DismissPopupForTest exposes dismissPopup for testing.
+func (a *App) DismissPopupForTest(choice Choice) {
+	a.dismissPopup(choice)
+}
+
+// HasPopupForTest exposes hasPopup for testing.
+func (a *App) HasPopupForTest() bool {
+	return a.hasPopup()
+}
+
+// CursorForTest returns the current cursor position for testing.
+func (a *App) CursorForTest() int {
+	return a.cursor
+}
+
+// EnterFullScreenForTest enters full-screen mode for testing.
+func (a *App) EnterFullScreenForTest(sessionID string) {
+	a.enterFullScreen(sessionID)
+}
+
+// ExitFullScreenForTest exits full-screen mode for testing.
+func (a *App) ExitFullScreenForTest() {
+	a.exitFullScreen()
+}
+
+// IsFullScreenForTest returns full-screen state for testing.
+func (a *App) IsFullScreenForTest() bool {
+	return a.fullScreen
+}
+
+// PollNotificationForTest simulates what the ticker does: check for pending
+// notifications and show popup. For testing without running the event loop.
+func (a *App) PollNotificationForTest() {
+	if a.sessions != nil && !a.hasPopup() {
+		if n := a.sessions.PendingNotification(); n != nil {
+			a.showToolPopup(n)
+		}
+	}
+}
+
 // Run starts the main event loop. Blocks until quit.
 func (a *App) Run() error {
 	defer a.gui.Close()
@@ -193,6 +240,27 @@ func (a *App) Gui() *gocui.Gui {
 	return a.gui
 }
 
+func (a *App) enterFullScreen(sessionID string) {
+	a.fullScreen = true
+	a.fullScreenTarget = sessionID
+	a.previewCache = ""
+	// Set cursor to the target session once at entry (not in layout)
+	if a.sessions != nil {
+		for i, item := range a.sessions.Sessions() {
+			if item.ID == sessionID {
+				a.cursor = i
+				break
+			}
+		}
+	}
+}
+
+func (a *App) exitFullScreen() {
+	a.fullScreen = false
+	a.fullScreenTarget = ""
+	a.previewCache = ""
+}
+
 func (a *App) layout(g *gocui.Gui) error {
 	maxX, maxY := g.Size()
 
@@ -205,10 +273,15 @@ func (a *App) layout(g *gocui.Gui) error {
 
 	switch a.mode {
 	case ModeMain:
-		if err := a.layoutMain(g, maxX, maxY); err != nil {
-			return err
+		if a.fullScreen {
+			if err := a.layoutFullScreen(g, maxX, maxY); err != nil {
+				return err
+			}
+		} else {
+			if err := a.layoutMain(g, maxX, maxY); err != nil {
+				return err
+			}
 		}
-		// Tool popup overlay (on top of main layout)
 		return a.layoutToolPopup(g, maxX, maxY)
 	case ModeDiff, ModeTool:
 		return a.layoutPopup(g, maxX, maxY)
@@ -230,6 +303,8 @@ func (a *App) SetActiveTab(idx int) {
 }
 
 func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
+	g.DeleteView("fullscreen-bar") // clean up after full-screen mode
+
 	splitX := maxX / 3
 	if splitX < 20 {
 		splitX = 20
@@ -291,12 +366,62 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 	}
 	v4.Frame = false
 	if isUnknownView(err) {
-		fmt.Fprint(v4, " n: new  d: del  enter: attach  r: resume  R: rename  q: quit")
+		fmt.Fprint(v4, " n: new  d: del  enter: full  r: resume  R: rename  q: quit")
 	}
 
 	// Set focus to active tab's view
 	activeView := tabs[a.activeTabIdx].Name
 	if _, err := g.SetCurrentView(activeView); err != nil && !isUnknownView(err) {
+		return err
+	}
+	return nil
+}
+
+func (a *App) layoutFullScreen(g *gocui.Gui, maxX, maxY int) error {
+	// Remove split-panel views
+	g.DeleteView("sessions")
+	g.DeleteView("server")
+	g.DeleteView("options")
+
+	// Full-screen main view
+	v, err := g.SetView("main", 0, 0, maxX-1, maxY-2, 0)
+	if err != nil && !isUnknownView(err) {
+		return err
+	}
+	v.Wrap = false
+	v.Clear()
+
+	// Render preview content (same pipeline as split-panel mode)
+	var items []SessionItem
+	if a.sessions != nil {
+		items = a.sessions.Sessions()
+	}
+	// Find the full-screen target session
+	targetIdx := -1
+	for i, item := range items {
+		if item.ID == a.fullScreenTarget {
+			targetIdx = i
+			break
+		}
+	}
+	if targetIdx < 0 {
+		a.exitFullScreen()
+		return nil
+	}
+	previewW := maxX - 2
+	previewH := maxY - 3
+	a.renderPreview(v, items, previewW, previewH)
+
+	// Status bar
+	v2, err := g.SetView("fullscreen-bar", 0, maxY-2, maxX-1, maxY, 0)
+	if err != nil && !isUnknownView(err) {
+		return err
+	}
+	v2.Frame = false
+	v2.Clear()
+	fmt.Fprintf(v2, " %s | Ctrl+D: exit full mode  y/a/n: popup choices", items[targetIdx].Name)
+
+	if _, err := g.SetCurrentView("main"); err != nil && !isUnknownView(err) {
 		return err
 	}
 	return nil
@@ -630,19 +755,39 @@ func (a *App) setupGlobalKeybindings() error {
 		return err
 	}
 
-	// enter: attach to selected session (blocked during popup)
+	// enter: toggle full-screen view (blocked during popup)
 	if err := a.gui.SetKeybinding("", gocui.KeyEnter, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
 		if a.hasPopup() {
 			return nil
 		}
-		return a.attachSelected(g)
+		if a.fullScreen {
+			return nil // already in full screen
+		}
+		if a.mode != ModeMain || a.sessions == nil {
+			return nil
+		}
+		items := a.sessions.Sessions()
+		if a.cursor >= 0 && a.cursor < len(items) {
+			a.enterFullScreen(items[a.cursor].ID)
+		}
+		return nil
 	}); err != nil {
 		return err
 	}
 
-	// r: resume (blocked during popup)
+	// Ctrl+D: exit full-screen mode
+	if err := a.gui.SetKeybinding("", gocui.KeyCtrlD, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		if a.fullScreen {
+			a.exitFullScreen()
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	// r: resume (blocked during popup and full-screen)
 	if err := a.gui.SetKeybinding("", 'r', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
-		if a.hasPopup() {
+		if a.hasPopup() || a.fullScreen {
 			return nil
 		}
 		// TODO: pass --resume flag to the session
