@@ -360,9 +360,9 @@ func (a *App) setupGlobalKeybindings() error {
 		return err
 	}
 
-	// Mouse scroll in normal mode
+	// Mouse scroll in full-screen (both insert and normal modes)
 	if err := a.gui.SetKeybinding("", gocui.MouseWheelUp, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
-		if a.fullScreen && a.inputMode == ModeNormal {
+		if a.fullScreen {
 			if a.fullScreenScrollY > 0 {
 				a.fullScreenScrollY--
 			}
@@ -372,7 +372,7 @@ func (a *App) setupGlobalKeybindings() error {
 		return err
 	}
 	if err := a.gui.SetKeybinding("", gocui.MouseWheelDown, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
-		if a.fullScreen && a.inputMode == ModeNormal {
+		if a.fullScreen {
 			a.fullScreenScrollY++
 		}
 		return nil

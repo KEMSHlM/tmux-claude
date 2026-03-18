@@ -57,9 +57,9 @@ func (a *App) forwardSpecialKey(tmuxKey string) {
 }
 
 // triggerRefreshAfterInput marks preview as stale after sending a key.
-// When control mode is connected, %output events handle this.
-// Without control mode, this ensures immediate display updates.
+// Also resets scroll to bottom so the user sees the latest output.
 func (a *App) triggerRefreshAfterInput() {
+	a.fullScreenScrollY = 0
 	a.previewMu.Lock()
 	if !a.previewBusy {
 		a.previewTime = time.Time{}
