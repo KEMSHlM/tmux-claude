@@ -74,6 +74,7 @@ type App struct {
 	popupDiffKinds   []presentation.DiffLineKind        // cached diff line kinds
 	fullScreen       bool                               // true when in full-screen mode
 	fullScreenTarget string                             // session ID for full-screen view
+	inputForwarder   InputForwarder                     // forwards keys to tmux pane in full-screen
 }
 
 // NewApp creates a new App. Call Run() to start the event loop.
@@ -171,6 +172,11 @@ func (a *App) IsFullScreenForTest() bool {
 	return a.fullScreen
 }
 
+// ForwardKeyForTest simulates forwarding a key in full-screen mode.
+func (a *App) ForwardKeyForTest(ch rune) {
+	a.forwardKey(ch)
+}
+
 // PollNotificationForTest simulates what the ticker does: check for pending
 // notifications and show popup. For testing without running the event loop.
 func (a *App) PollNotificationForTest() {
@@ -235,9 +241,48 @@ func (a *App) SetSessions(sp SessionProvider) {
 	a.sessions = sp
 }
 
+// SetInputForwarder sets the input forwarder for full-screen mode.
+func (a *App) SetInputForwarder(fwd InputForwarder) {
+	a.inputForwarder = fwd
+}
+
 // Gui returns the underlying gocui.Gui (for testing).
 func (a *App) Gui() *gocui.Gui {
 	return a.gui
+}
+
+// forwardKey sends a key to the Claude Code pane in full-screen mode.
+// Called synchronously from gocui event loop — tmux send-keys is fast (~5ms).
+// Does nothing if not in full-screen, no forwarder, or popup is showing.
+func (a *App) forwardKey(ch rune) {
+	if !a.fullScreen || a.inputForwarder == nil || a.hasPopup() {
+		return
+	}
+	if a.sessions == nil {
+		return
+	}
+	items := a.sessions.Sessions()
+	if a.cursor < 0 || a.cursor >= len(items) {
+		return
+	}
+	target := items[a.cursor].TmuxWindow
+	if target == "" {
+		return
+	}
+	key := RuneToTmuxKey(ch)
+	if err := a.inputForwarder.ForwardKey("lazyclaude:"+target, key); err != nil {
+		a.setStatusAsync(fmt.Sprintf("forward key: %v", err))
+	}
+}
+
+func (a *App) setStatusAsync(msg string) {
+	if a.gui == nil {
+		return
+	}
+	a.gui.Update(func(g *gocui.Gui) error {
+		a.setStatus(g, msg)
+		return nil
+	})
 }
 
 func (a *App) enterFullScreen(sessionID string) {
