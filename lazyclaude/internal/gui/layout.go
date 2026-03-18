@@ -255,6 +255,8 @@ func (a *App) renderPreview(v *gocui.View, items []SessionItem, previewW, previe
 			a.previewBusy = false
 			a.previewTime = time.Now()
 			a.previewMu.Unlock()
+			// Trigger immediate re-render with new cache (don't wait for 500ms ticker)
+			a.gui.Update(func(g *gocui.Gui) error { return nil })
 		}()
 	}
 
