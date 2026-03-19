@@ -37,12 +37,15 @@ func (m *mockSessionProvider) CapturePreview(_ string, _, _ int) (string, error)
 	return "preview content", nil
 }
 
-func (m *mockSessionProvider) PendingNotification() *notify.ToolNotification {
+func (m *mockSessionProvider) PendingNotifications() []*notify.ToolNotification {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.pending == nil {
+		return nil
+	}
 	n := m.pending
 	m.pending = nil
-	return n
+	return []*notify.ToolNotification{n}
 }
 
 func (m *mockSessionProvider) SendChoice(window string, choice gui.Choice) error {

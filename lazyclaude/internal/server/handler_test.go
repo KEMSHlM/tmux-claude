@@ -213,10 +213,11 @@ func TestHandler_OpenDiff_WritesNotification(t *testing.T) {
 	require.NotNil(t, resp)
 	assert.Nil(t, resp.Error)
 
-	// Verify notification file was written with diff info
-	n, err := notify.Read(tmpDir)
+	// Verify notification was enqueued with diff info
+	notifications, err := notify.ReadAll(tmpDir)
 	require.NoError(t, err)
-	require.NotNil(t, n, "openDiff should write notification file")
+	require.Len(t, notifications, 1, "openDiff should enqueue notification")
+	n := notifications[0]
 	assert.Equal(t, "Diff", n.ToolName)
 	assert.Equal(t, "/home/user/main.go", n.OldFilePath)
 	assert.Equal(t, "package main\n", n.NewContents)

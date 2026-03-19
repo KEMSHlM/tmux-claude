@@ -227,12 +227,12 @@ func (a *sessionAdapter) PurgeOrphans() (int, error) {
 	return a.mgr.PurgeOrphans()
 }
 
-func (a *sessionAdapter) PendingNotification() *notify.ToolNotification {
-	n, err := notify.Read(a.paths.RuntimeDir)
-	if err != nil || n == nil {
+func (a *sessionAdapter) PendingNotifications() []*notify.ToolNotification {
+	notifications, err := notify.ReadAll(a.paths.RuntimeDir)
+	if err != nil || len(notifications) == 0 {
 		return nil
 	}
-	return n
+	return notifications
 }
 
 // choiceToKey maps a GUI choice to the key Claude Code expects.

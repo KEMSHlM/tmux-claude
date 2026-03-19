@@ -205,14 +205,14 @@ func TestServer_Notify_WritesNotificationFile(t *testing.T) {
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
-	// Verify notification file was written
-	n, err := notify.Read(srv.RuntimeDir())
+	// Verify notification was enqueued
+	ns, err := notify.ReadAll(srv.RuntimeDir())
 	require.NoError(t, err)
-	require.NotNil(t, n, "notification file should be written")
-	assert.Equal(t, "Bash", n.ToolName)
-	assert.Equal(t, `{"command":"ls"}`, n.Input)
-	assert.Equal(t, "/home/user", n.CWD)
-	assert.Equal(t, "@5", n.Window)
+	require.Len(t, ns, 1, "notification should be enqueued")
+	assert.Equal(t, "Bash", ns[0].ToolName)
+	assert.Equal(t, `{"command":"ls"}`, ns[0].Input)
+	assert.Equal(t, "/home/user", ns[0].CWD)
+	assert.Equal(t, "@5", ns[0].Window)
 }
 
 func TestServer_Notify_TwoPhase_ToolInfoThenPermission(t *testing.T) {
@@ -231,10 +231,10 @@ func TestServer_Notify_TwoPhase_ToolInfoThenPermission(t *testing.T) {
 	resp1.Body.Close()
 	require.Equal(t, http.StatusOK, resp1.StatusCode)
 
-	// Verify no notification file yet
-	n, err := notify.Read(srv.RuntimeDir())
+	// Verify no notification yet
+	ns, err := notify.ReadAll(srv.RuntimeDir())
 	require.NoError(t, err)
-	assert.Nil(t, n, "tool_info should not write notification file")
+	assert.Empty(t, ns, "tool_info should not enqueue notification")
 
 	// Phase 2: Notification hook sends permission_prompt — should trigger popup
 	body2, _ := json.Marshal(map[string]any{
@@ -245,13 +245,13 @@ func TestServer_Notify_TwoPhase_ToolInfoThenPermission(t *testing.T) {
 	resp2.Body.Close()
 	require.Equal(t, http.StatusOK, resp2.StatusCode)
 
-	// Verify notification file written with stored tool info
-	n, err = notify.Read(srv.RuntimeDir())
+	// Verify notification enqueued with stored tool info
+	ns, err = notify.ReadAll(srv.RuntimeDir())
 	require.NoError(t, err)
-	require.NotNil(t, n, "permission_prompt should write notification file")
-	assert.Equal(t, "Write", n.ToolName)
-	assert.Contains(t, n.Input, "hello.txt")
-	assert.Equal(t, "@7", n.Window)
+	require.Len(t, ns, 1, "permission_prompt should enqueue notification")
+	assert.Equal(t, "Write", ns[0].ToolName)
+	assert.Contains(t, ns[0].Input, "hello.txt")
+	assert.Equal(t, "@7", ns[0].Window)
 }
 
 func TestServer_Notify_AcceptsBothAuthHeaders(t *testing.T) {

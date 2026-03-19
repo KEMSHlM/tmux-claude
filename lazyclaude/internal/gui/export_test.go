@@ -86,8 +86,8 @@ func (a *App) drainKeyQueue() {
 // PollNotificationForTest simulates what the ticker does: check for pending
 // notifications and show popup. For testing without running the event loop.
 func (a *App) PollNotificationForTest() {
-	if a.sessions != nil && !a.hasPopup() {
-		if n := a.sessions.PendingNotification(); n != nil {
+	if a.sessions != nil {
+		for _, n := range a.sessions.PendingNotifications() {
 			a.showToolPopup(n)
 		}
 	}

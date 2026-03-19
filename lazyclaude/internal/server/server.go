@@ -293,7 +293,7 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 				Timestamp: time.Now(),
 			}
 			// Write notification file for TUI to pick up via gocui overlay
-			if err := notify.Write(s.config.RuntimeDir, n); err != nil {
+			if err := notify.Enqueue(s.config.RuntimeDir, n); err != nil {
 				s.log.Printf("notify: write notification: %v", err)
 			}
 		}

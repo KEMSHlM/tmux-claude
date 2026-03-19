@@ -35,7 +35,7 @@ type SessionProvider interface {
 	Rename(id, newName string) error
 	PurgeOrphans() (int, error)
 	CapturePreview(id string, width, height int) (string, error)
-	PendingNotification() *notify.ToolNotification
+	PendingNotifications() []*notify.ToolNotification
 	SendChoice(window string, choice Choice) error
 }
 
@@ -170,10 +170,10 @@ func (a *App) Run() error {
 				if a.onTick != nil {
 					a.onTick()
 				}
-				// Fallback: poll for tool notifications
+				// Poll for tool notifications (supports multiple queued)
 				a.gui.Update(func(g *gocui.Gui) error {
-					if a.sessions != nil && !a.hasPopup() {
-						if n := a.sessions.PendingNotification(); n != nil {
+					if a.sessions != nil {
+						for _, n := range a.sessions.PendingNotifications() {
 							a.showToolPopup(n)
 						}
 					}

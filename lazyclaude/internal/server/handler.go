@@ -174,7 +174,7 @@ func (h *Handler) handleOpenDiff(ctx context.Context, connID string, req *Reques
 			Window:      cs.Window,
 			Timestamp:   time.Now(),
 		}
-		if err := notify.Write(h.runtimeDir, n); err != nil {
+		if err := notify.Enqueue(h.runtimeDir, n); err != nil {
 			h.log.Printf("openDiff: write notification: %v", err)
 		}
 	}
