@@ -2,6 +2,7 @@ package gui
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -52,6 +53,7 @@ func (a *App) layout(g *gocui.Gui) error {
 func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 	g.DeleteView("fullscreen-bar") // clean up after full-screen mode
 	g.Cursor = false
+	fmt.Fprint(os.Stdout, "\033[0 q") // restore default cursor
 
 	splitX := maxX / 3
 	if splitX < 20 {
@@ -142,6 +144,7 @@ func (a *App) layoutFullScreen(g *gocui.Gui, maxX, maxY int) error {
 	v.Editor = &inputEditor{app: a}
 	v.Clear()
 	g.Cursor = true
+	fmt.Fprint(os.Stdout, "\033[2 q") // steady block cursor (no blink)
 
 	// Render preview content (same pipeline as split-panel mode)
 	var items []SessionItem
