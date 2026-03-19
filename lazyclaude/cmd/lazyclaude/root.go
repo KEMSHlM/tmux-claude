@@ -32,7 +32,11 @@ func newRootCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var logger *slog.Logger
 			paths := config.DefaultPaths()
-			tmuxClient := tmux.NewExecClientWithSocket("lazyclaude")
+			tmuxSocket := "lazyclaude"
+			if s := os.Getenv("LAZYCLAUDE_TMUX_SOCKET"); s != "" {
+				tmuxSocket = s
+			}
+			tmuxClient := tmux.NewExecClientWithSocket(tmuxSocket)
 
 			if debug {
 				dest := logFile

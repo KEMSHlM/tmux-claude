@@ -4,11 +4,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tmux curl nodejs expect \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Claude Code (standalone binary)
-RUN curl -sL https://claude.ai/install.sh | bash
+# Install Claude Code standalone binary from GCS (bypasses Cloudflare)
+ARG CLAUDE_VERSION=2.1.79
+RUN ARCH=$(uname -m) && \
+    case "$ARCH" in aarch64|arm64) PLATFORM="linux-arm64" ;; *) PLATFORM="linux-x64" ;; esac && \
+    curl -fsSL "https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/${CLAUDE_VERSION}/${PLATFORM}/claude" \
+    -o /usr/local/bin/claude && chmod +x /usr/local/bin/claude
 
 ENV TERM=xterm-256color
-ENV PATH="/root/.local/bin:${PATH}"
 
 WORKDIR /app
 COPY go.mod go.sum ./

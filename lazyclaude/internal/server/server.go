@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/KEMSHlM/lazyclaude/internal/core/tmux"
+	"github.com/KEMSHlM/lazyclaude/internal/gui/choice"
 	"github.com/KEMSHlM/lazyclaude/internal/notify"
 	"nhooyr.io/websocket"
 )
@@ -321,6 +322,13 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if toolName != "" {
+			// Detect max option from Claude's permission dialog.
+			// Use bare window ID (e.g., "@1") — tmux resolves it across sessions.
+			maxOpt := 3
+			if content, capErr := s.tmux.CapturePaneANSI(r.Context(), window); capErr == nil {
+				maxOpt = choice.DetectMaxOption(content)
+			}
+
 			// Write notification file for TUI overlay fallback
 			n := notify.ToolNotification{
 				ToolName:  toolName,
@@ -328,6 +336,7 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 				CWD:       cwd,
 				Window:    window,
 				Timestamp: time.Now(),
+				MaxOption: maxOpt,
 			}
 			if err := notify.Enqueue(s.config.RuntimeDir, n); err != nil {
 				s.log.Printf("notify: write notification: %v", err)

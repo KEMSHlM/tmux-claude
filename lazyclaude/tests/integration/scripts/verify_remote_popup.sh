@@ -145,8 +145,8 @@ tmux send-keys -t claude-e2e \
 # Wait for Claude to initialize
 sleep 10
 
-# Send a prompt that triggers Write tool (not auto-approved unlike echo)
-tmux send-keys -t claude-e2e "Create a new file called hello.txt containing hello world" Enter
+# Send a prompt with a Bash command (2-option dialog: Yes/No, no "allow always")
+tmux send-keys -t claude-e2e 'Run this exact bash command: for i in $(seq 1 10); do echo "line $i"; done && ls /tmp && ps aux | head -5 && echo "done"' Enter
 
 # Debug: show what Claude is doing
 sleep 15
@@ -175,9 +175,21 @@ if [ $R -eq 0 ]; then
     capture >&2
     echo "--- end ---" >&2
 
-    # --- 7. Action bar ---
-    R=0; capture | grep -q "y/a/n" || R=1
-    check "popup action bar visible" $R
+    # --- 7. Verify action bar adapts to dialog option count ---
+    # Claude may show 2 or 3 options depending on the command.
+    # Check that the popup action bar is present and matches.
+    C=$(capture)
+    if echo "$C" | grep -q "allow always"; then
+        # 3-option: should show y/a/n
+        R=0; echo "$C" | grep -q "y/a/n" || R=1
+        check "3-option dialog: action bar shows y/a/n" $R
+    else
+        # 2-option: should show y/n (NOT y/a/n)
+        R=0; echo "$C" | grep -q "y/a/n" && R=1
+        check "2-option dialog: action bar does NOT show y/a/n" $R
+        R=0; echo "$C" | grep -qE "y.*n|yes.*no" || R=1
+        check "2-option dialog: action bar shows y/n" $R
+    fi
 fi
 
 echo "" >&2
