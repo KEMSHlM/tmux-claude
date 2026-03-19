@@ -56,13 +56,30 @@ func (a *App) SetInputModeForTest(mode InputMode) {
 }
 
 // ForwardKeyForTest simulates forwarding a key in full-screen mode.
+// Drains the key queue synchronously so the test can assert immediately.
 func (a *App) ForwardKeyForTest(ch rune) {
 	a.forwardKey(ch)
+	a.drainKeyQueue()
 }
 
 // ForwardSpecialKeyForTest simulates forwarding a special key in full-screen mode.
 func (a *App) ForwardSpecialKeyForTest(tmuxKey string) {
 	a.forwardSpecialKey(tmuxKey)
+	a.drainKeyQueue()
+}
+
+// drainKeyQueue processes all pending keys synchronously (for testing).
+func (a *App) drainKeyQueue() {
+	for {
+		select {
+		case cmd := <-a.keyQueue:
+			if a.inputForwarder != nil {
+				a.inputForwarder.ForwardKey(cmd.target, cmd.key)
+			}
+		default:
+			return
+		}
+	}
 }
 
 

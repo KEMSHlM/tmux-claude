@@ -102,6 +102,31 @@ func TestFullScreen_ExistingKeysForwardInFullMode(t *testing.T) {
 	assert.Equal(t, []string{"j"}, fwd.Keys())
 }
 
+func TestFullScreen_KeyOrderPreserved(t *testing.T) {
+	app, err := gui.NewAppHeadless(gui.ModeMain, 80, 24)
+	require.NoError(t, err)
+
+	mock := &mockSessionProvider{
+		sessions: []gui.SessionItem{
+			{ID: "s1", Name: "test", Status: "Running", TmuxWindow: "@0"},
+		},
+	}
+	app.SetSessions(mock)
+
+	fwd := &gui.MockInputForwarder{}
+	app.SetInputForwarder(fwd)
+	app.EnterFullScreenForTest("s1")
+
+	// Simulate rapid IME-like input: あいうえお mapped to keys a,i,u,e,o
+	keys := []rune{'a', 'i', 'u', 'e', 'o'}
+	for _, ch := range keys {
+		app.ForwardKeyForTest(ch)
+	}
+
+	expected := []string{"a", "i", "u", "e", "o"}
+	assert.Equal(t, expected, fwd.Keys(), "keys must arrive in order (IME input)")
+}
+
 func TestFullScreen_PopupBlocksForwarding(t *testing.T) {
 	app, err := gui.NewAppHeadless(gui.ModeMain, 80, 24)
 	require.NoError(t, err)

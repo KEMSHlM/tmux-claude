@@ -38,15 +38,14 @@ func (a *App) resolveForwardTarget() string {
 }
 
 // forwardKey sends a rune key to the Claude Code pane.
-// Async to avoid blocking gocui event loop (~5ms subprocess per key).
+// Keys are queued and sent serially in order by a background goroutine
+// to avoid blocking gocui while preserving keystroke order (critical for IME input).
 func (a *App) forwardKey(ch rune) {
 	target := a.resolveForwardTarget()
 	if target == "" {
 		return
 	}
-	fwd := a.inputForwarder
-	key := RuneToTmuxKey(ch)
-	go fwd.ForwardKey(target, key)
+	a.enqueueKey(target, RuneToTmuxKey(ch))
 	a.triggerRefreshAfterInput()
 }
 
@@ -55,8 +54,7 @@ func (a *App) forwardSpecialKey(tmuxKey string) {
 	if target == "" {
 		return
 	}
-	fwd := a.inputForwarder
-	go fwd.ForwardKey(target, tmuxKey)
+	a.enqueueKey(target, tmuxKey)
 	a.triggerRefreshAfterInput()
 }
 
