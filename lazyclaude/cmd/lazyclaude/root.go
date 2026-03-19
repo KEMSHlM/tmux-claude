@@ -13,6 +13,7 @@ import (
 	"github.com/KEMSHlM/lazyclaude/internal/core/config"
 	"github.com/KEMSHlM/lazyclaude/internal/core/tmux"
 	"github.com/KEMSHlM/lazyclaude/internal/gui"
+	"github.com/KEMSHlM/lazyclaude/internal/gui/choice"
 	"github.com/KEMSHlM/lazyclaude/internal/notify"
 	"github.com/KEMSHlM/lazyclaude/internal/server"
 	"github.com/KEMSHlM/lazyclaude/internal/session"
@@ -246,28 +247,8 @@ func (a *sessionAdapter) PendingNotifications() []*notify.ToolNotification {
 	return notifications
 }
 
-// choiceToKey maps a GUI choice to the key Claude Code expects.
-// Claude Code's permission dialog shows numbered options (1=Yes, 2=Allow, 3=No).
-// Single-key press selects immediately (no Enter needed).
-var choiceToKey = map[gui.Choice]string{
-	gui.ChoiceAccept: "1",
-	gui.ChoiceAllow:  "2",
-	gui.ChoiceReject: "3",
-	gui.ChoiceCancel: "Escape",
-}
-
-func (a *sessionAdapter) SendChoice(window string, choice gui.Choice) error {
-	key, ok := choiceToKey[choice]
-	if !ok {
-		key = "Escape"
-	}
-	// window is a bare tmux window ID (e.g., "@3") from State.WindowForPID.
-	// Prepend session name only if not already present.
-	target := window
-	if !strings.Contains(window, ":") {
-		target = "lazyclaude:" + window
-	}
-	return a.tmux.SendKeys(context.Background(), target, key)
+func (a *sessionAdapter) SendChoice(window string, c gui.Choice) error {
+	return choice.SendToPane(context.Background(), a.tmux, window, c)
 }
 
 // controlManager handles control mode connection lifecycle.
