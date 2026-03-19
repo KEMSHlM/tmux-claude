@@ -110,6 +110,28 @@ func TestPopupStack_DismissOnEmpty(t *testing.T) {
 	assert.Equal(t, 0, app.popupCount())
 }
 
+func TestPopupStack_CascadeViewNames(t *testing.T) {
+	t.Parallel()
+	app := &App{}
+	app.pushPopup(makeNotif("Bash", "@0"))
+	app.pushPopup(makeNotif("Write", "@1"))
+	app.pushPopup(makeNotif("Edit", "@2"))
+
+	names := app.popupViewNames()
+	assert.Equal(t, []string{"tool-popup-0", "tool-popup-1", "tool-popup-2"}, names)
+}
+
+func TestPopupStack_CascadeOffset(t *testing.T) {
+	t.Parallel()
+	// Each popup should be offset from the previous
+	x0, y0 := 10, 5
+	for i := 0; i < 3; i++ {
+		cx, cy := popupCascadeOffset(x0, y0, i)
+		assert.Equal(t, x0+i*2, cx)
+		assert.Equal(t, y0+i, cy)
+	}
+}
+
 func TestPopupStack_ActiveEntry(t *testing.T) {
 	t.Parallel()
 	app := &App{}

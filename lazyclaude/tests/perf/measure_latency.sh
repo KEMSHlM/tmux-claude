@@ -18,6 +18,8 @@ UI_SOCKET="perf-ui"
 cleanup() {
     tmux -L "$UI_SOCKET" kill-server 2>/dev/null || true
     tmux -L lazyclaude kill-server 2>/dev/null || true
+    rm -f /tmp/lazyclaude-mcp.port
+    rm -f "$HOME/.local/share/lazyclaude/state.json"
 }
 trap cleanup EXIT
 
@@ -68,7 +70,7 @@ run_measurement() {
     echo "=== $label launch ===" >&2
 
     # Start lazyclaude in outer tmux
-    tmux -L "$UI_SOCKET" new-session -d -s perf -x 120 -y 40 "$BINARY"
+    tmux -L "$UI_SOCKET" new-session -d -s perf -x 60 -y 25 "$BINARY"
     sleep 2
 
     if capture | grep -q "> "; then
@@ -106,6 +108,9 @@ run_measurement() {
     local avg=$((total / SAMPLES))
     echo "  Measurements: ${measurements[*]}" >&2
     echo "  Average: ${avg}ms" >&2
+    echo "  --- render ---" >&2
+    capture >&2
+    echo "" >&2
 
     # Send Escape to cancel any partial input, then exit
     tmux -L "$UI_SOCKET" send-keys -t perf "Escape"

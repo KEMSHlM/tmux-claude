@@ -69,13 +69,23 @@ func (a *App) setupGlobalKeybindings() error {
 	makeCursorHandler := func(runeKey rune, tmuxSpecial string, isDown bool) func(*gocui.Gui, *gocui.View) error {
 		return func(g *gocui.Gui, v *gocui.View) error {
 			if a.hasPopup() {
-				entry := a.activeEntry()
-				if entry != nil && entry.notification.IsDiff() {
-					if isDown && entry.diffCache != nil && entry.scrollY < len(entry.diffCache)-1 {
-						entry.scrollY++
+				if tmuxSpecial != "" {
+					// Arrow keys: switch popup focus
+					if isDown {
+						a.popupFocusNext()
+					} else {
+						a.popupFocusPrev()
 					}
-					if !isDown && entry.scrollY > 0 {
-						entry.scrollY--
+				} else {
+					// j/k: scroll diff
+					entry := a.activeEntry()
+					if entry != nil && entry.notification.IsDiff() {
+						if isDown && entry.diffCache != nil && entry.scrollY < len(entry.diffCache)-1 {
+							entry.scrollY++
+						}
+						if !isDown && entry.scrollY > 0 {
+							entry.scrollY--
+						}
 					}
 				}
 				return nil
@@ -187,6 +197,20 @@ func (a *App) setupGlobalKeybindings() error {
 			a.dismissPopup(ChoiceReject)
 		}
 		return nil
+	}
+
+	// Y (uppercase): accept ALL popups at once
+	popupAcceptAll := func(g *gocui.Gui, v *gocui.View) error {
+		if a.hasPopup() {
+			a.dismissAllPopups(ChoiceAccept)
+		}
+		return nil
+	}
+	if err := a.gui.SetKeybinding("", 'Y', gocui.ModNone, popupAcceptAll); err != nil {
+		return err
+	}
+	if err := a.gui.SetKeybinding(popupViewName, 'Y', gocui.ModNone, popupAcceptAll); err != nil {
+		return err
 	}
 
 	// y: accept

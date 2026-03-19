@@ -25,13 +25,28 @@ func (a *App) showToolPopup(n *notify.ToolNotification) {
 	a.pushPopup(n)
 }
 
-// dismissPopup sends the choice to all popups and clears the stack.
+// dismissPopup sends the choice to the focused popup and removes it from the stack.
 func (a *App) dismissPopup(choice Choice) {
+	active := a.activePopup()
+	if active == nil {
+		return
+	}
+	window := active.Window
+	a.dismissActivePopup()
+
+	if a.sessions != nil {
+		go func() {
+			// Ignore errors (window may have been closed)
+			a.sessions.SendChoice(window, choice)
+		}()
+	}
+}
+
+// dismissAllPopups sends the choice to all popups and clears the stack.
+func (a *App) dismissAllPopups(choice Choice) {
 	if len(a.popupStack) == 0 {
 		return
 	}
-
-	// Collect all windows to respond to
 	entries := make([]popupEntry, len(a.popupStack))
 	copy(entries, a.popupStack)
 	a.popupStack = nil
@@ -40,28 +55,23 @@ func (a *App) dismissPopup(choice Choice) {
 	if a.sessions != nil {
 		go func() {
 			for _, e := range entries {
-				if err := a.sessions.SendChoice(e.notification.Window, choice); err != nil {
-					a.gui.Update(func(g *gocui.Gui) error {
-						a.setStatus(g, fmt.Sprintf("send choice: %v", err))
-						return nil
-					})
-				}
+				a.sessions.SendChoice(e.notification.Window, choice)
 			}
 		}()
 	}
 }
 
-// layoutToolPopup renders the active popup overlay centered on screen.
+// layoutToolPopup renders all visible popups as cascaded overlays.
 func (a *App) layoutToolPopup(g *gocui.Gui, maxX, maxY int) error {
-	entry := a.activeEntry()
-	if entry == nil {
-		g.DeleteView(popupViewName)
+	// Clean up old popup views
+	a.cleanupPopupViews(g)
+
+	if !a.hasPopup() {
 		g.DeleteView(popupActionsViewName)
 		return nil
 	}
-	n := entry.notification
 
-	// Popup dimensions: 70% width, 60% height, centered
+	// Base popup dimensions: 70% width, 60% height, centered
 	popW := maxX * 7 / 10
 	popH := maxY * 6 / 10
 	if popW < 40 {
@@ -70,49 +80,107 @@ func (a *App) layoutToolPopup(g *gocui.Gui, maxX, maxY int) error {
 	if popH < 10 {
 		popH = maxY - 4
 	}
-	x0 := (maxX - popW) / 2
-	y0 := (maxY - popH) / 2
-	x1 := x0 + popW
-	y1 := y0 + popH - 2
+	baseX := (maxX - popW) / 2
+	baseY := (maxY - popH) / 2
 
-	v, err := g.SetView(popupViewName, x0, y0, x1, y1, 0)
-	if err != nil && !isUnknownView(err) {
-		return err
+	// Render each visible popup with cascade offset
+	var activeViewName string
+	visibleIdx := 0
+	for i := range a.popupStack {
+		e := &a.popupStack[i]
+		if e.suspended {
+			continue
+		}
+
+		viewName := fmt.Sprintf("tool-popup-%d", i)
+		cx, cy := popupCascadeOffset(baseX, baseY, visibleIdx)
+		x1 := cx + popW
+		y1 := cy + popH - 2
+
+		// Clamp to screen
+		if x1 >= maxX {
+			x1 = maxX - 1
+		}
+		if y1 >= maxY-2 {
+			y1 = maxY - 3
+		}
+
+		v, err := g.SetView(viewName, cx, cy, x1, y1, 0)
+		if err != nil && !isUnknownView(err) {
+			return err
+		}
+		v.Clear()
+
+		if e.notification.IsDiff() {
+			a.renderDiffPopup(v, e)
+		} else {
+			a.renderToolPopup(v, e.notification)
+		}
+
+		if i == a.popupFocusIdx {
+			activeViewName = viewName
+		}
+		visibleIdx++
 	}
-	v.Clear()
 
-	if n.IsDiff() {
-		a.renderDiffPopup(v, entry)
-	} else {
-		a.renderToolPopup(v, n)
+	// Bring focused popup to front
+	if activeViewName != "" {
+		g.SetViewOnTop(activeViewName)
 	}
 
-	// Actions bar below popup
-	v2, err := g.SetView(popupActionsViewName, x0, y1+1, x1, y1+3, 0)
-	if err != nil && !isUnknownView(err) {
-		return err
-	}
-	v2.Frame = false
-	v2.Clear()
+	// Actions bar for focused popup
+	focusedEntry := a.activeEntry()
+	if focusedEntry != nil {
+		// Position actions bar below the focused popup
+		cx, cy := popupCascadeOffset(baseX, baseY, a.visibleIndexOf(a.popupFocusIdx))
+		ay0 := cy + popH - 1
+		ay1 := ay0 + 2
+		if ay1 >= maxY {
+			ay1 = maxY - 1
+		}
+		ax1 := cx + popW
+		if ax1 >= maxX {
+			ax1 = maxX - 1
+		}
 
-	// Show stack indicator if multiple popups
-	stackInfo := ""
-	visible := a.visiblePopupCount()
-	if visible > 1 {
-		stackInfo = fmt.Sprintf(" [%d/%d]", a.popupFocusIdx+1, visible)
-	}
+		v2, err := g.SetView(popupActionsViewName, cx, ay0, ax1, ay1, 0)
+		if err != nil && !isUnknownView(err) {
+			return err
+		}
+		v2.Frame = false
+		v2.Clear()
+		g.SetViewOnTop(popupActionsViewName)
 
-	if n.IsDiff() {
-		fmt.Fprintf(v2, " y: yes  a: allow  n: no  j/k: scroll  Esc: suspend%s", stackInfo)
-	} else {
-		fmt.Fprintf(v2, " y: yes  a: allow  n: no  Esc: suspend%s", stackInfo)
-	}
+		visible := a.visiblePopupCount()
+		n := focusedEntry.notification
 
-	if _, err := g.SetCurrentView(popupViewName); err != nil && !isUnknownView(err) {
-		return err
+		base := " y/a/n"
+		if n.IsDiff() {
+			base += " j/k:scroll"
+		}
+		base += " Esc:hide"
+		if visible > 1 {
+			base += fmt.Sprintf(" Y:all [%d/%d]", a.visibleIndexOf(a.popupFocusIdx)+1, visible)
+		}
+		fmt.Fprint(v2, base)
+
+		if _, err := g.SetCurrentView(activeViewName); err != nil && !isUnknownView(err) {
+			return err
+		}
 	}
 
 	return nil
+}
+
+// cleanupPopupViews deletes all tool-popup-N views that are no longer needed.
+func (a *App) cleanupPopupViews(g *gocui.Gui) {
+	for i := 0; i < 20; i++ {
+		name := fmt.Sprintf("tool-popup-%d", i)
+		if i < len(a.popupStack) && !a.popupStack[i].suspended {
+			continue
+		}
+		g.DeleteView(name)
+	}
 }
 
 func (a *App) renderToolPopup(v *gocui.View, n *notify.ToolNotification) {

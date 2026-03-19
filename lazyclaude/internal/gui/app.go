@@ -81,7 +81,7 @@ type App struct {
 func NewApp(mode AppMode) (*App, error) {
 	g, err := gocui.NewGui(gocui.NewGuiOpts{
 		OutputMode:      gocui.OutputTrue,
-		SupportOverlaps: false,
+		SupportOverlaps: true,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("init gocui: %w", err)

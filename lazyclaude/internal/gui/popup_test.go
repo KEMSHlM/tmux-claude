@@ -20,7 +20,7 @@ func TestApp_HasPopup(t *testing.T) {
 	assert.True(t, app.hasPopup())
 }
 
-func TestApp_DismissPopup_ClearsAll(t *testing.T) {
+func TestApp_DismissPopup_RemovesFocusedOnly(t *testing.T) {
 	t.Parallel()
 	app := &App{}
 	app.showToolPopup(&notify.ToolNotification{
@@ -34,7 +34,14 @@ func TestApp_DismissPopup_ClearsAll(t *testing.T) {
 		Timestamp: time.Now(),
 	})
 
+	// Dismiss focused (Write), Bash should remain
 	app.dismissPopup(ChoiceAccept)
+	assert.True(t, app.hasPopup())
+	assert.Equal(t, 1, app.popupCount())
+	assert.Equal(t, "Bash", app.activePopup().ToolName)
+
+	// Dismiss remaining (Bash)
+	app.dismissPopup(ChoiceReject)
 	assert.False(t, app.hasPopup())
 	assert.Equal(t, 0, app.popupCount())
 }

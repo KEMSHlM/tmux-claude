@@ -1,6 +1,8 @@
 package gui
 
 import (
+	"fmt"
+
 	"github.com/KEMSHlM/lazyclaude/internal/gui/presentation"
 	"github.com/KEMSHlM/lazyclaude/internal/notify"
 )
@@ -116,6 +118,31 @@ func (a *App) suspendAllPopups() {
 	for i := range a.popupStack {
 		a.popupStack[i].suspended = true
 	}
+}
+
+// visibleIndexOf returns the visible-only index for a stack index.
+func (a *App) visibleIndexOf(stackIdx int) int {
+	idx := 0
+	for i := 0; i < stackIdx && i < len(a.popupStack); i++ {
+		if !a.popupStack[i].suspended {
+			idx++
+		}
+	}
+	return idx
+}
+
+// popupViewNames returns the view names for each popup in the stack.
+func (a *App) popupViewNames() []string {
+	names := make([]string, len(a.popupStack))
+	for i := range a.popupStack {
+		names[i] = fmt.Sprintf("tool-popup-%d", i)
+	}
+	return names
+}
+
+// popupCascadeOffset returns the top-left position for a cascaded popup.
+func popupCascadeOffset(baseX, baseY, index int) (int, int) {
+	return baseX + index*2, baseY + index
 }
 
 // unsuspendAll makes all suspended popups visible again.
