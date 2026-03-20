@@ -127,7 +127,7 @@ func (a *App) layout(g *gocui.Gui) error {
 
 	// Detect terminal resize -> clear preview cache
 	if maxX != a.lastWidth || maxY != a.lastHeight {
-		a.previewCache = ""
+		a.preview.Invalidate()
 		a.lastWidth = maxX
 		a.lastHeight = maxY
 	}
@@ -355,34 +355,31 @@ func (a *App) renderPreview(v *gocui.View, items []SessionItem, previewW, previe
 	}
 
 	// Async preview: launch capture in background, render from cache
-	a.previewMu.Lock()
-	cache := a.previewCache
-	cachedCursor := a.previewCursor
-	stale := time.Since(a.previewTime) > 500*time.Millisecond
+	a.preview.Lock()
+	cache := a.preview.Content()
+	cachedCursor := a.preview.Cursor()
+	stale := a.preview.Stale(500 * time.Millisecond)
 	// Only fetch if: not busy, AND (cursor changed OR cache is stale).
-	// Do NOT use previewCache=="" as a trigger — empty capture results
+	// Do NOT use cache=="" as a trigger — empty capture results
 	// (Claude Code starting up) would cause a tight fetch loop.
-	needFetch := !a.previewBusy && (a.previewCursor != a.cursor || stale)
+	needFetch := !a.preview.Busy() && (a.preview.Cursor() != a.cursor || stale)
 	if needFetch {
-		a.previewBusy = true
+		a.preview.SetBusy(true)
 	}
-	a.previewMu.Unlock()
+	a.preview.Unlock()
 
 	if needFetch {
 		id := item.ID
 		cursorSnapshot := a.cursor
 		go func() {
 			result, err := a.sessions.CapturePreview(id, previewW, previewH)
-			a.previewMu.Lock()
-			a.previewCursor = cursorSnapshot
+			a.preview.Lock()
 			if err == nil && strings.TrimSpace(result.Content) != "" {
-				a.previewCache = result.Content
-				a.paneCursorX = result.CursorX
-				a.paneCursorY = result.CursorY
+				a.preview.Update(result.Content, cursorSnapshot, result.CursorX, result.CursorY)
+			} else {
+				a.preview.MarkFetched()
 			}
-			a.previewBusy = false
-			a.previewTime = time.Now()
-			a.previewMu.Unlock()
+			a.preview.Unlock()
 			a.gui.Update(func(g *gocui.Gui) error { return nil })
 		}()
 	}
@@ -390,7 +387,9 @@ func (a *App) renderPreview(v *gocui.View, items []SessionItem, previewW, previe
 	if cache != "" && cachedCursor == a.cursor {
 		fmt.Fprint(v, cache)
 		if a.state.IsFullScreen() {
-			v.SetCursor(a.paneCursorX, a.paneCursorY)
+			a.preview.Lock()
+			v.SetCursor(a.preview.CursorX(), a.preview.CursorY())
+			a.preview.Unlock()
 		}
 		return
 	}

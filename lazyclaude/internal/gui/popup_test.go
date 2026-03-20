@@ -14,7 +14,7 @@ func makeNotif(tool, window string) *notify.ToolNotification {
 }
 
 func newTestApp() *App {
-	return &App{popups: NewPopupController(nil)}
+	return &App{popups: NewPopupController()}
 }
 
 // --- App-level popup tests ---

@@ -4,15 +4,10 @@ import (
 	"github.com/KEMSHlM/lazyclaude/internal/notify"
 )
 
-// ChoiceSender is called when a popup is dismissed to deliver the user's choice.
-// Nil means no delivery (testing).
-type ChoiceSender func(window string, choice Choice)
-
 // PopupController manages the popup stack independently from App.
 type PopupController struct {
 	stack    []popupEntry
 	focusIdx int
-	sendFn   ChoiceSender
 }
 
 // popupEntry represents a single popup in the stack.
@@ -21,9 +16,9 @@ type popupEntry struct {
 	suspended bool
 }
 
-// NewPopupController creates a popup controller with an optional choice sender.
-func NewPopupController(sendFn ChoiceSender) *PopupController {
-	return &PopupController{sendFn: sendFn}
+// NewPopupController creates a popup controller.
+func NewPopupController() *PopupController {
+	return &PopupController{}
 }
 
 // Push adds a notification to the popup stack and focuses it.
@@ -90,10 +85,11 @@ func (pc *PopupController) ActivePopup() Popup {
 	return e.popup
 }
 
-// DismissActive removes the focused popup and sends the choice.
-func (pc *PopupController) DismissActive(choice Choice) {
+// DismissActive removes the focused popup from the stack.
+// Returns the window ID so the caller can send the choice.
+func (pc *PopupController) DismissActive(choice Choice) string {
 	if len(pc.stack) == 0 || pc.focusIdx < 0 || pc.focusIdx >= len(pc.stack) {
-		return
+		return ""
 	}
 	window := pc.stack[pc.focusIdx].popup.Window()
 	pc.stack = append(pc.stack[:pc.focusIdx], pc.stack[pc.focusIdx+1:]...)
@@ -103,22 +99,21 @@ func (pc *PopupController) DismissActive(choice Choice) {
 	if len(pc.stack) > 0 && pc.focusIdx >= 0 && pc.stack[pc.focusIdx].suspended {
 		pc.FocusNext()
 	}
-	if pc.sendFn != nil {
-		pc.sendFn(window, choice)
-	}
+	return window
 }
 
-// DismissAll sends the choice to all popups and clears the stack.
-func (pc *PopupController) DismissAll(choice Choice) {
+// DismissAll removes all popups from the stack.
+// Returns the windows so the caller can send choices.
+func (pc *PopupController) DismissAll(choice Choice) []string {
 	entries := make([]popupEntry, len(pc.stack))
 	copy(entries, pc.stack)
 	pc.stack = nil
 	pc.focusIdx = 0
-	if pc.sendFn != nil {
-		for _, e := range entries {
-			pc.sendFn(e.popup.Window(), choice)
-		}
+	windows := make([]string, len(entries))
+	for i, e := range entries {
+		windows[i] = e.popup.Window()
 	}
+	return windows
 }
 
 // SuspendAll hides all popups without dismissing.

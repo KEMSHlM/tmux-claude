@@ -15,6 +15,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/KEMSHlM/lazyclaude/internal/core/config"
+	"github.com/KEMSHlM/lazyclaude/internal/core/shell"
 	"github.com/KEMSHlM/lazyclaude/internal/core/tmux"
 	"github.com/google/uuid"
 )
@@ -304,7 +305,7 @@ func (m *Manager) readMCPInfo() (int, string, error) {
 func (m *Manager) buildClaudeCommand(sess Session) string {
 	cmd := "exec claude"
 	for _, f := range sess.Flags {
-		cmd += " " + shellQuote(f)
+		cmd += " " + shell.Quote(f)
 	}
 	return cmd
 }
@@ -358,9 +359,3 @@ func termSize() (int, int) {
 	return w, h
 }
 
-// shellQuote wraps a string in single quotes for safe shell interpolation.
-func shellQuote(s string) string {
-	// Replace single quotes with '\'' (end quote, escaped quote, start quote)
-	escaped := strings.ReplaceAll(s, "'", "'\\''")
-	return "'" + escaped + "'"
-}

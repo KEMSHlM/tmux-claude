@@ -415,7 +415,7 @@ func TestDiffPopup_SetScrollY_MultipleUpdates(t *testing.T) {
 
 func TestPopupController_PushPopup_ToolPopup(t *testing.T) {
 	t.Parallel()
-	pc := NewPopupController(nil)
+	pc := NewPopupController()
 	n := &notify.ToolNotification{ToolName: "Bash", Window: "@0"}
 	p := NewToolPopup(n)
 	pc.PushPopup(p)
@@ -428,7 +428,7 @@ func TestPopupController_PushPopup_ToolPopup(t *testing.T) {
 
 func TestPopupController_PushPopup_DiffPopup(t *testing.T) {
 	t.Parallel()
-	pc := NewPopupController(nil)
+	pc := NewPopupController()
 	n := &notify.ToolNotification{
 		ToolName:    "Write",
 		Window:      "@5",
@@ -444,7 +444,7 @@ func TestPopupController_PushPopup_DiffPopup(t *testing.T) {
 
 func TestPopupController_PushPopup_FocusesNewEntry(t *testing.T) {
 	t.Parallel()
-	pc := NewPopupController(nil)
+	pc := NewPopupController()
 	pc.PushPopup(NewToolPopup(&notify.ToolNotification{ToolName: "A", Window: "@0"}))
 	pc.PushPopup(NewToolPopup(&notify.ToolNotification{ToolName: "B", Window: "@1"}))
 	active := pc.ActivePopup()
@@ -454,7 +454,7 @@ func TestPopupController_PushPopup_FocusesNewEntry(t *testing.T) {
 
 func TestPopupController_FocusIndex(t *testing.T) {
 	t.Parallel()
-	pc := NewPopupController(nil)
+	pc := NewPopupController()
 	pc.Push(makeTestNotif("A", "@0"))
 	pc.Push(makeTestNotif("B", "@1"))
 	assert.Equal(t, 1, pc.FocusIndex())
@@ -462,7 +462,7 @@ func TestPopupController_FocusIndex(t *testing.T) {
 
 func TestPopupController_VisibleIndexOf(t *testing.T) {
 	t.Parallel()
-	pc := NewPopupController(nil)
+	pc := NewPopupController()
 	pc.Push(makeTestNotif("A", "@0"))
 	pc.Push(makeTestNotif("B", "@1"))
 	pc.Push(makeTestNotif("C", "@2"))
@@ -473,7 +473,7 @@ func TestPopupController_VisibleIndexOf(t *testing.T) {
 
 func TestPopupController_VisibleIndexOf_WithSuspended(t *testing.T) {
 	t.Parallel()
-	pc := NewPopupController(nil)
+	pc := NewPopupController()
 	pc.Push(makeTestNotif("A", "@0"))
 	pc.Push(makeTestNotif("B", "@1"))
 	pc.Push(makeTestNotif("C", "@2"))

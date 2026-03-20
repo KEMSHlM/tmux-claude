@@ -20,15 +20,12 @@ func (a *App) showToolPopup(n *notify.ToolNotification) {
 	a.popups.Push(n)
 }
 
-// dismissPopup sends the choice to the focused popup and removes it from the stack.
+// dismissPopup removes the focused popup from the stack and sends the choice to the session.
 func (a *App) dismissPopup(choice Choice) {
-	active := a.popups.ActivePopup()
-	if active == nil {
+	window := a.popups.DismissActive(choice)
+	if window == "" {
 		return
 	}
-	window := active.Window()
-	a.popups.DismissActive(choice)
-
 	if a.sessions != nil {
 		go func() {
 			_ = a.sessions.SendChoice(window, choice)
@@ -36,20 +33,16 @@ func (a *App) dismissPopup(choice Choice) {
 	}
 }
 
-// dismissAllPopups sends the choice to all popups and clears the stack.
+// dismissAllPopups clears the stack and sends the choice to all sessions.
 func (a *App) dismissAllPopups(choice Choice) {
-	stack := a.popups.Stack()
-	if len(stack) == 0 {
+	windows := a.popups.DismissAll(choice)
+	if len(windows) == 0 {
 		return
 	}
-	entries := make([]popupEntry, len(stack))
-	copy(entries, stack)
-	a.popups.DismissAll(choice)
-
 	if a.sessions != nil {
 		go func() {
-			for _, e := range entries {
-				_ = a.sessions.SendChoice(e.popup.Window(), choice)
+			for _, w := range windows {
+				_ = a.sessions.SendChoice(w, choice)
 			}
 		}()
 	}

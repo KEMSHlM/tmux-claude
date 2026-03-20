@@ -52,8 +52,4 @@ func StyledKey(key, desc string) string {
 	return Bold + key + Reset + Dim + ":" + desc + Reset
 }
 
-// StyledLabel renders a label with color.
-func StyledLabel(color, text string) string {
-	return color + text + Reset
-}
 

@@ -3,18 +3,23 @@ package presentation
 import (
 	"fmt"
 	"strings"
-
-	"github.com/KEMSHlM/lazyclaude/internal/session"
 )
 
 // FormatSessionLine renders a single session line for the list view.
+// Accepts primitive fields to avoid a dependency on the session package.
 // Format: "name          status_indicator flags"
-func FormatSessionLine(s session.Session, maxWidth int) string {
-	status := statusIndicator(s.Status)
-	flags := formatFlags(s.Flags)
+func FormatSessionLine(name, status, host string, flags []string, maxWidth int) string {
+	icon := statusIndicator(status)
+	flagStr := formatFlags(flags)
 
 	// Build right-side indicators
-	right := strings.TrimSpace(status + " " + flags)
+	right := strings.TrimSpace(icon + " " + flagStr)
+
+	// Prepend host if present
+	displayName := name
+	if host != "" {
+		displayName = host + ":" + name
+	}
 
 	// Calculate padding
 	nameWidth := maxWidth - len(right) - 2 // 2 for spacing
@@ -22,44 +27,52 @@ func FormatSessionLine(s session.Session, maxWidth int) string {
 		nameWidth = 5
 	}
 
-	name := s.Name
-	if s.Host != "" {
-		name = s.Host + ":" + name
-	}
-
 	// Truncate name if needed
-	if len(name) > nameWidth {
-		name = name[:nameWidth-1] + "~"
+	if len(displayName) > nameWidth {
+		displayName = displayName[:nameWidth-1] + "~"
 	}
 
 	if right == "" {
-		return name
+		return displayName
 	}
-	padding := nameWidth - len(name)
+	padding := nameWidth - len(displayName)
 	if padding < 1 {
 		padding = 1
 	}
-	return name + strings.Repeat(" ", padding) + right
+	return displayName + strings.Repeat(" ", padding) + right
 }
 
 // FormatSessionLines renders all sessions for the list view.
-func FormatSessionLines(sessions []session.Session, maxWidth int) []string {
-	lines := make([]string, len(sessions))
-	for i, s := range sessions {
-		lines[i] = FormatSessionLine(s, maxWidth)
+// Each session is described by parallel slices of names, statuses, hosts, and flags.
+func FormatSessionLines(names, statuses, hosts []string, flags [][]string, maxWidth int) []string {
+	lines := make([]string, len(names))
+	for i, name := range names {
+		var f []string
+		if i < len(flags) {
+			f = flags[i]
+		}
+		var host string
+		if i < len(hosts) {
+			host = hosts[i]
+		}
+		var status string
+		if i < len(statuses) {
+			status = statuses[i]
+		}
+		lines[i] = FormatSessionLine(name, status, host, f, maxWidth)
 	}
 	return lines
 }
 
-func statusIndicator(s session.Status) string {
-	switch s {
-	case session.StatusRunning:
+func statusIndicator(status string) string {
+	switch status {
+	case "Running":
 		return IconRunning
-	case session.StatusDead:
+	case "Dead":
 		return IconDead
-	case session.StatusOrphan:
+	case "Orphan":
 		return IconOrphan
-	case session.StatusDetached:
+	case "Detached":
 		return IconDetached
 	default:
 		return IconUnknown

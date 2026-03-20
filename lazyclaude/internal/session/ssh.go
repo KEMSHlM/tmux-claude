@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/KEMSHlM/lazyclaude/internal/core/shell"
 )
 
 // buildSSHCommand constructs an SSH command string for remote Claude sessions.
@@ -29,11 +31,11 @@ func buildSSHCommand(sess Session, mcpPort int, token string) string {
 	// Reverse tunnel: remote:mcpPort → local:mcpPort
 	args = append(args, "-R", fmt.Sprintf("%d:127.0.0.1:%d", mcpPort, mcpPort))
 
-	args = append(args, shellQuote(host))
+	args = append(args, shell.Quote(host))
 
 	// Remote command: setup lock file + start claude
 	remoteCmd := buildRemoteCommand(sess, mcpPort, token)
-	args = append(args, "--", "bash", "-c", shellQuote(remoteCmd))
+	args = append(args, "--", "bash", "-c", shell.Quote(remoteCmd))
 
 	return strings.Join(args, " ")
 }
@@ -55,7 +57,7 @@ func buildRemoteCommand(sess Session, mcpPort int, token string) string {
 	lockJSON, _ := json.Marshal(lockContent)
 
 	parts = append(parts, fmt.Sprintf("mkdir -p %s", lockDir))
-	parts = append(parts, fmt.Sprintf("printf '%%s' %s > %s", shellQuote(string(lockJSON)), lockFile))
+	parts = append(parts, fmt.Sprintf("printf '%%s' %s > %s", shell.Quote(string(lockJSON)), lockFile))
 
 	// Cleanup lock file on exit
 	parts = append(parts, fmt.Sprintf("trap 'rm -f %s' EXIT", lockFile))
@@ -63,7 +65,7 @@ func buildRemoteCommand(sess Session, mcpPort int, token string) string {
 	// Build claude command with flags
 	claudeCmd := "CLAUDE_CODE_AUTO_CONNECT_IDE=true exec claude"
 	for _, f := range sess.Flags {
-		claudeCmd += " " + shellQuote(f)
+		claudeCmd += " " + shell.Quote(f)
 	}
 	parts = append(parts, claudeCmd)
 

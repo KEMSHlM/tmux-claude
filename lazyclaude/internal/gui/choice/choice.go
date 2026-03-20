@@ -1,43 +1,41 @@
+// Package choice has moved to internal/core/choice.
+// This file re-exports everything for backward compatibility during migration.
 package choice
 
 import (
-	"fmt"
-	"os"
+	"context"
 
+	corechoice "github.com/KEMSHlM/lazyclaude/internal/core/choice"
 	"github.com/KEMSHlM/lazyclaude/internal/core/config"
+	"github.com/KEMSHlM/lazyclaude/internal/core/tmux"
 )
 
-// Choice represents a user's selection in a diff/tool popup.
-type Choice int
+// Choice re-exported from core/choice.
+type Choice = corechoice.Choice
 
 const (
-	Accept Choice = 1 // y — accept
-	Allow  Choice = 2 // a — allow always
-	Reject Choice = 3 // n — reject
-	Cancel Choice = 0 // Esc — cancel
+	Accept = corechoice.Accept
+	Allow  = corechoice.Allow
+	Reject = corechoice.Reject
+	Cancel = corechoice.Cancel
 )
 
-// WriteFile writes the choice to a file for the MCP server to read.
+// WriteFile delegates to core/choice.WriteFile.
 func WriteFile(paths config.Paths, window string, c Choice) error {
-	path := paths.ChoiceFile(window)
-	return os.WriteFile(path, []byte(fmt.Sprintf("%d\n", c)), 0o600)
+	return corechoice.WriteFile(paths, window, c)
 }
 
-// ReadFile reads and removes the choice file.
+// ReadFile delegates to core/choice.ReadFile.
 func ReadFile(paths config.Paths, window string) (Choice, error) {
-	path := paths.ChoiceFile(window)
+	return corechoice.ReadFile(paths, window)
+}
 
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return Cancel, err
-	}
+// DetectMaxOption delegates to core/choice.DetectMaxOption.
+func DetectMaxOption(paneContent string) int {
+	return corechoice.DetectMaxOption(paneContent)
+}
 
-	_ = os.Remove(path) // best-effort cleanup
-
-	var val int
-	if _, err := fmt.Sscanf(string(data), "%d", &val); err != nil {
-		return Cancel, fmt.Errorf("parse choice: %w", err)
-	}
-
-	return Choice(val), nil
+// SendToPane delegates to core/choice.SendToPane.
+func SendToPane(ctx context.Context, client tmux.Client, window string, c Choice) error {
+	return corechoice.SendToPane(ctx, client, window, c)
 }

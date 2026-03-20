@@ -3,7 +3,6 @@ package gui
 import (
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/KEMSHlM/lazyclaude/internal/core/config"
@@ -64,13 +63,7 @@ type App struct {
 	activeTabIdx     int
 	sessions         SessionProvider
 	cursor           int // selected session index
-	previewMu        sync.Mutex
-	previewCache     string    // cached preview content
-	previewCursor    int       // cursor position when cache was taken
-	paneCursorX      int       // tmux pane cursor X
-	paneCursorY      int       // tmux pane cursor Y
-	previewBusy      bool      // async capture in progress
-	previewTime      time.Time // last fetch timestamp
+	preview          *PreviewCache
 	lastWidth        int
 	lastHeight       int
 	popups           *PopupController              // popup stack management
@@ -105,7 +98,8 @@ func NewApp(mode AppMode) (*App, error) {
 	app := &App{
 		gui:          g,
 		mode:         mode,
-		popups:       NewPopupController(nil),
+		popups:       NewPopupController(),
+		preview:      &PreviewCache{},
 		keyRegistry:  DefaultKeyRegistry(),
 		outputNotify: make(chan struct{}, 1),
 		keyQueue:     make(chan keyCmd, 64),
@@ -137,7 +131,8 @@ func NewAppHeadless(mode AppMode, width, height int) (*App, error) {
 	app := &App{
 		gui:          g,
 		mode:         mode,
-		popups:       NewPopupController(nil),
+		popups:       NewPopupController(),
+		preview:      &PreviewCache{},
 		keyRegistry:  DefaultKeyRegistry(),
 		outputNotify: make(chan struct{}, 1),
 		keyQueue:     make(chan keyCmd, 64),
@@ -186,12 +181,11 @@ func (a *App) Run() error {
 				}
 				return
 			case <-a.outputNotify:
-				a.previewMu.Lock()
-				busy := a.previewBusy
-				if !busy {
-					a.previewTime = time.Time{}
+				a.preview.Lock()
+				if !a.preview.Busy() {
+					a.preview.InvalidateTimestamp()
 				}
-				a.previewMu.Unlock()
+				a.preview.Unlock()
 				a.gui.Update(func(g *gocui.Gui) error { return nil })
 			case ev, ok := <-brokerCh:
 				if !ok {

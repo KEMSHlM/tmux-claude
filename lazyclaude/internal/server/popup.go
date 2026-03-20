@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
@@ -208,11 +207,3 @@ func EstimatePopupSize(toolName, toolInput string, termW, termH int) (wPct, hPct
 	return wPct, hPct
 }
 
-// isDiffTool returns true if the tool produces diffs (Edit, Write, MultiEdit, NotebookEdit).
-func isDiffTool(toolName string) bool {
-	switch strings.ToLower(toolName) {
-	case "edit", "write", "multiedit", "notebookedit":
-		return true
-	}
-	return false
-}

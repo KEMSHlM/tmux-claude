@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/KEMSHlM/lazyclaude/internal/core/shell"
 )
 
 const defaultTimeout = 5 * time.Second
@@ -287,11 +289,6 @@ func (c *ExecClient) SendKeys(ctx context.Context, target string, keys ...string
 	return err
 }
 
-// shellQuote wraps a string in single quotes for safe shell interpolation.
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
-}
-
 func (c *ExecClient) DisplayPopup(ctx context.Context, opts PopupOpts) error {
 	// Validate and build env prefix before composing command
 	var prefix string
@@ -299,7 +296,7 @@ func (c *ExecClient) DisplayPopup(ctx context.Context, opts PopupOpts) error {
 		if err := validateEnvKey(k); err != nil {
 			return err
 		}
-		prefix += fmt.Sprintf("%s=%s ", k, shellQuote(v))
+		prefix += fmt.Sprintf("%s=%s ", k, shell.Quote(v))
 	}
 
 	if err := validateShellSafe(opts.Cmd, "popup command"); err != nil {
