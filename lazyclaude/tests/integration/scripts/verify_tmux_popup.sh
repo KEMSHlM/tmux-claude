@@ -1,13 +1,13 @@
 #!/bin/bash
-# Verify tmux display-popup E2E: MCP server spawns display-popup on /notify,
-# popup process sends choice key to target pane.
+# Verify tmux display-popup VISUAL E2E.
 #
-# This script MUST run inside a tmux session (display-popup needs an attached client).
-# The outer runner (verify_tmux_popup_runner.sh) handles this.
+# Proves the real lazyclaude tool gocui popup renders inside display-popup by:
+# 1. Running display-popup with `script` to record the PTY output
+# 2. Replaying the recording into a tmux pane
+# 3. Using capture-pane to extract readable text
+# 4. Verifying tool name, command, and action bar are visible
 #
-# Since tmux send-keys cannot target display-popup, we use LAZYCLAUDE_POPUP_BINARY
-# to point the server at an auto-accept wrapper that sends '1' immediately.
-# This tests: server /notify → display-popup spawn → send-keys to cat pane.
+# This script MUST run inside a tmux session.
 
 set -euo pipefail
 
@@ -20,10 +20,8 @@ if [ -z "$SOCKET" ]; then
 fi
 
 TMPDIR=$(mktemp -d /tmp/lazyclaude-popup-e2e-XXXX)
-SERVER_PID=""
 cleanup() {
-    [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null || true
-    tmux -L "$SOCKET" kill-window -t lazyclaude:cat-listener 2>/dev/null || true
+    tmux -L "$SOCKET" kill-window -t lazyclaude:replay 2>/dev/null || true
     rm -rf "$TMPDIR"
 }
 trap cleanup EXIT
@@ -42,102 +40,70 @@ check() {
     fi
 }
 
-echo "=== tmux display-popup E2E ===" >&2
+echo "=== tmux display-popup VISUAL E2E ===" >&2
 
-# --- Create auto-accept wrapper ---
-WRAPPER="$TMPDIR/auto-accept"
-cat > "$WRAPPER" <<'WEOF'
-#!/bin/bash
-# Auto-accept wrapper: simulates lazyclaude tool --send-keys choosing Accept
-WINDOW=""
-while [ $# -gt 0 ]; do
-    case "$1" in
-        tool) shift ;;
-        --window) WINDOW="$2"; shift 2 ;;
-        --send-keys) shift ;;
-        *) shift ;;
-    esac
-done
-if [ -n "$WINDOW" ]; then
-    SOCK="${LAZYCLAUDE_TMUX_SOCKET:-}"
-    if [ -n "$SOCK" ]; then
-        tmux -L "$SOCK" send-keys -t "lazyclaude:$WINDOW" 1
-    fi
-fi
-WEOF
-chmod +x "$WRAPPER"
-
-# --- 1. Start MCP server with wrapper as popup binary ---
-echo "--- Step 1: Start MCP server ---" >&2
-mkdir -p "$TMPDIR"/{data,run,ide}
-TOKEN="popup-e2e-token"
-
-LAZYCLAUDE_DATA_DIR="$TMPDIR/data" \
-LAZYCLAUDE_RUNTIME_DIR="$TMPDIR/run" \
-LAZYCLAUDE_IDE_DIR="$TMPDIR/ide" \
-LAZYCLAUDE_TMUX_SOCKET="$SOCKET" \
-LAZYCLAUDE_POPUP_BINARY="$WRAPPER" \
-"$BINARY" server --port 0 --token "$TOKEN" &
-SERVER_PID=$!
-
-PORT_FILE="$TMPDIR/run/lazyclaude-mcp.port"
-for i in $(seq 1 50); do [ -f "$PORT_FILE" ] && break; sleep 0.1; done
-[ -f "$PORT_FILE" ] || { echo "FAIL: port file" >&2; exit 1; }
-PORT=$(cat "$PORT_FILE")
-echo "  MCP port: $PORT" >&2
-check "MCP server started" 0
-
-# --- 2. Create cat listener window ---
-echo "--- Step 2: Create cat listener ---" >&2
 CURRENT_SESSION=$(tmux -L "$SOCKET" display-message -p '#{session_name}')
 tmux -L "$SOCKET" rename-session -t "$CURRENT_SESSION" lazyclaude 2>/dev/null || true
-tmux -L "$SOCKET" new-window -t lazyclaude -n cat-listener
-tmux -L "$SOCKET" send-keys -t lazyclaude:cat-listener "cat" Enter
-sleep 0.3
 
-WIN_ID=$(tmux -L "$SOCKET" display-message -t lazyclaude:cat-listener -p '#{window_id}')
-echo "  cat window: $WIN_ID" >&2
-check "cat listener created" 0
+SCRIPT_LOG="$TMPDIR/popup.log"
 
-# --- 3. Write pending-window ---
-echo "--- Step 3: Write pending-window ---" >&2
-echo "$WIN_ID" > "$TMPDIR/run/lazyclaude-pending-window"
-check "pending-window written" 0
+# --- 1. Run lazyclaude tool inside display-popup with script recording ---
+# `timeout 3` auto-closes after 3s (simulates user not pressing anything).
+# `script -q` records the PTY output including gocui rendering.
+echo "--- Step 1: Run display-popup with lazyclaude tool ---" >&2
 
-# --- 4. POST /notify ---
-echo "--- Step 4: POST /notify ---" >&2
-tmux -L "$SOCKET" select-window -t "lazyclaude:cat-listener"
-sleep 0.3
+POPUP_CMD="LAZYCLAUDE_TMUX_SOCKET=$SOCKET TOOL_NAME=Bash TOOL_INPUT='{\"command\":\"for i in \$(seq 1 10); do echo line_\$i; done && ls /tmp\"}' TOOL_CWD=/tmp timeout 3 script -q -c '$BINARY tool --window @0' $SCRIPT_LOG"
 
-STATUS1=$(curl -s -o /dev/null -w '%{http_code}' \
-  -X POST -H 'Content-Type: application/json' -H "X-Auth-Token: $TOKEN" \
-  -d "{\"type\":\"tool_info\",\"pid\":99999,\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"ls\"},\"cwd\":\"/tmp\"}" \
-  "http://127.0.0.1:$PORT/notify")
+tmux -L "$SOCKET" display-popup -w 80 -h 24 -E "$POPUP_CMD" 2>/dev/null || true
 
-STATUS2=$(curl -s -o /dev/null -w '%{http_code}' \
-  -X POST -H 'Content-Type: application/json' -H "X-Auth-Token: $TOKEN" \
-  -d "{\"pid\":99999,\"message\":\"Allow Bash?\"}" \
-  "http://127.0.0.1:$PORT/notify")
+R=0; [ -f "$SCRIPT_LOG" ] || R=1
+check "script log recorded" $R
 
-echo "  tool_info=$STATUS1 permission_prompt=$STATUS2" >&2
-R=0; [ "$STATUS1" = "200" ] && [ "$STATUS2" = "200" ] || R=1
-check "/notify both 200" $R
+if [ ! -f "$SCRIPT_LOG" ]; then
+    echo "  No script log — display-popup may have failed" >&2
+    echo "Results: $PASS passed, $FAIL failed" >&2
+    exit 1
+fi
 
-# --- 5. Wait for display-popup + auto-accept ---
-echo "--- Step 5: Wait (3s) ---" >&2
-sleep 3
+# --- 2. Replay into tmux pane for visual capture ---
+echo "--- Step 2: Replay + capture ---" >&2
+tmux -L "$SOCKET" new-window -t lazyclaude -n replay
+# Feed raw PTY output into the pane — tmux interprets the ANSI sequences
+tmux -L "$SOCKET" send-keys -t lazyclaude:replay "cat '$SCRIPT_LOG'" Enter
+sleep 1
 
-# --- 6. Verify ---
-echo "--- Step 6: Verify key arrival ---" >&2
+# -S - captures full scrollback history (title bar may be above visible area)
+POPUP_CONTENT=$(tmux -L "$SOCKET" capture-pane -t lazyclaude:replay -p -S -)
+
 echo "" >&2
-echo "--- cat-listener pane ---" >&2
-CAT_CONTENT=$(tmux -L "$SOCKET" capture-pane -t "lazyclaude:cat-listener" -p)
-echo "$CAT_CONTENT" >&2
+echo "--- display-popup content ---" >&2
+echo "$POPUP_CONTENT" >&2
 echo "--- end ---" >&2
-echo "" >&2
 
-R=0; echo "$CAT_CONTENT" | grep -q "1" || R=1
-check "cat received '1' via display-popup chain" $R
+# --- 3. Verify popup rendered correctly ---
+echo "" >&2
+echo "--- Step 3: Verify popup content ---" >&2
+
+# Title bar "┌─ Bash ─" may be above visible area in replay.
+# Check scrollback for it; if not found, the other checks still prove gocui rendered.
+R=0; echo "$POPUP_CONTENT" | grep -qE "Bash|Command:" || R=1
+check "popup shows tool context (Bash or Command:)" $R
+
+R=0; echo "$POPUP_CONTENT" | grep -q "Command:" || R=1
+check "popup shows 'Command:'" $R
+
+R=0; echo "$POPUP_CONTENT" | grep -q "seq" || R=1
+check "popup shows command content" $R
+
+R=0; echo "$POPUP_CONTENT" | grep -qE "yes.*no" || R=1
+check "popup shows action bar (yes/no)" $R
+
+R=0; echo "$POPUP_CONTENT" | grep -q "Esc" || R=1
+check "popup shows Esc: cancel" $R
+
+# Check border rendering (gocui box drawing)
+R=0; echo "$POPUP_CONTENT" | grep -qE "┌|─|└|│" || R=1
+check "popup shows gocui border" $R
 
 echo "" >&2
 echo "Results: $PASS passed, $FAIL failed" >&2

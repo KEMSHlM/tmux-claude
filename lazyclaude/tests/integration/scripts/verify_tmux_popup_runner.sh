@@ -24,7 +24,7 @@ script -q -c "
     tmux -L $SOCKET send-keys -t runner \
         'LAZYCLAUDE_TMUX_SOCKET=$SOCKET bash $SCRIPT_DIR/verify_tmux_popup.sh $BINARY 2>$LOG_FILE; echo RESULT=\$? > $RESULT_FILE; tmux -L $SOCKET kill-server' Enter
     tmux -L $SOCKET attach -t runner
-" /dev/null 2>&1 || true
+" /dev/null > /dev/null 2>&1 || true
 
 # Print clean test output
 if [ -f "$LOG_FILE" ]; then
