@@ -30,9 +30,12 @@ suppress_keys=$(tmux show-option -gqv @claude-suppress-keys 2>/dev/null)
 launch_key="${launch_key:-space}"
 
 # Register keybindings
-# Use new-window with -c to inherit the current pane's working directory.
-# This ensures 'n' (new session) creates Claude Code sessions in the right CWD.
-tmux bind-key "$launch_key" new-window -n lazyclaude -c "#{pane_current_path}" "$BINARY"
+# Use display-popup so lazyclaude runs as an overlay without creating a window
+# in the user's tmux session. -c passes the current pane's CWD so 'n' (new session)
+# creates Claude Code sessions in the right directory. -E closes the popup on exit.
+# env -u TMUX prevents tmux nesting guard from blocking lazyclaude's
+# commands on the separate lazyclaude socket (-L lazyclaude).
+tmux bind-key "$launch_key" display-popup -w 90% -h 80% -d "#{pane_current_path}" -E "env -u TMUX $BINARY"
 
 # Suppress specified keys inside lazyclaude session
 for key in $suppress_keys; do

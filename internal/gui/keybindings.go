@@ -264,10 +264,17 @@ func (a *App) setupGlobalKeybindings() error {
 		return err
 	}
 
-	// Ctrl+\: exit full-screen mode (no popup when popup is showing)
+	// Ctrl+\: exit full-screen or quit from preview mode
 	if err := a.gui.SetKeybinding("", gocui.KeyCtrlBackslash, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
-		if a.state.IsFullScreen() && !a.hasPopup() {
+		if a.hasPopup() {
+			return nil
+		}
+		if a.state.IsFullScreen() {
 			a.exitFullScreen()
+			return nil
+		}
+		if a.mode == ModeMain {
+			return gocui.ErrQuit
 		}
 		return nil
 	}); err != nil {
