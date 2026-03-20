@@ -5,8 +5,6 @@
 ### ユニットテスト (ホストで実行可能)
 
 ```bash
-cd lazyclaude/
-
 # 全パッケージ
 go test ./internal/... -count=1
 

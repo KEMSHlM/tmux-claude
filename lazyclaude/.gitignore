@@ -1,6 +1,0 @@
-bin/
-/lazyclaude
-/mock-claude-client
-.env
-tests/integration/tapes/outputs/
-integration.test
