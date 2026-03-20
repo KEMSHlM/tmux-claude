@@ -12,6 +12,7 @@ import (
 
 	"github.com/KEMSHlM/lazyclaude/internal/core/choice"
 	"github.com/KEMSHlM/lazyclaude/internal/core/config"
+	"github.com/KEMSHlM/lazyclaude/internal/core/model"
 	"github.com/KEMSHlM/lazyclaude/internal/core/tmux"
 	"github.com/KEMSHlM/lazyclaude/internal/notify"
 )
@@ -222,7 +223,7 @@ func (h *Handler) handleOpenDiff(ctx context.Context, connID string, req *Reques
 	} else {
 		// Fallback: write notification file for TUI overlay
 		if h.runtimeDir != "" {
-			n := notify.ToolNotification{
+			n := model.ToolNotification{
 				ToolName:    "Diff",
 				OldFilePath: params.OldFilePath,
 				NewContents: params.NewContents,

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/KEMSHlM/lazyclaude/internal/core/model"
 	"github.com/KEMSHlM/lazyclaude/internal/gui/presentation"
-	"github.com/KEMSHlM/lazyclaude/internal/notify"
 )
 
 // Popup represents a displayable popup in the stack.
@@ -34,12 +34,12 @@ type Popup interface {
 
 // ToolPopup implements Popup for non-diff tool notifications.
 type ToolPopup struct {
-	notification *notify.ToolNotification
+	notification *model.ToolNotification
 	scrollY      int
 }
 
 // NewToolPopup creates a ToolPopup from a ToolNotification.
-func NewToolPopup(n *notify.ToolNotification) *ToolPopup {
+func NewToolPopup(n *model.ToolNotification) *ToolPopup {
 	return &ToolPopup{notification: n}
 }
 
@@ -103,13 +103,13 @@ func (p *ToolPopup) MaxScroll(viewportHeight int) int {
 
 // Notification returns the underlying ToolNotification.
 // Used for backward compatibility with App-level code.
-func (p *ToolPopup) Notification() *notify.ToolNotification {
+func (p *ToolPopup) Notification() *model.ToolNotification {
 	return p.notification
 }
 
 // DiffPopup implements Popup for diff (Write/Edit) notifications.
 type DiffPopup struct {
-	notification *notify.ToolNotification
+	notification *model.ToolNotification
 	scrollY      int
 	lines        []string
 	kinds        []presentation.DiffLineKind
@@ -117,7 +117,7 @@ type DiffPopup struct {
 
 // NewDiffPopup creates a DiffPopup from a ToolNotification.
 // The notification must have IsDiff() == true.
-func NewDiffPopup(n *notify.ToolNotification) *DiffPopup {
+func NewDiffPopup(n *model.ToolNotification) *DiffPopup {
 	return &DiffPopup{notification: n}
 }
 
@@ -180,7 +180,7 @@ func (p *DiffPopup) MaxScroll(viewportHeight int) int {
 }
 
 // Notification returns the underlying ToolNotification.
-func (p *DiffPopup) Notification() *notify.ToolNotification {
+func (p *DiffPopup) Notification() *model.ToolNotification {
 	return p.notification
 }
 
@@ -213,7 +213,7 @@ func maxScrollFor(lineCount, viewportHeight int) int {
 }
 
 // newPopupFromNotification constructs the appropriate Popup type from a notification.
-func newPopupFromNotification(n *notify.ToolNotification) Popup {
+func newPopupFromNotification(n *model.ToolNotification) Popup {
 	if n.IsDiff() {
 		return NewDiffPopup(n)
 	}

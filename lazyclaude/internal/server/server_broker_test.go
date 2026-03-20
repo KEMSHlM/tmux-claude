@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/KEMSHlM/lazyclaude/internal/core/event"
+	"github.com/KEMSHlM/lazyclaude/internal/core/model"
 	"github.com/KEMSHlM/lazyclaude/internal/notify"
 	"github.com/KEMSHlM/lazyclaude/internal/server"
 	"github.com/stretchr/testify/assert"
@@ -23,7 +24,7 @@ func TestServer_NotifyBroker_Getter(t *testing.T) {
 }
 
 // TestServer_NotifyBroker_PublishesOnPermissionPrompt verifies that handleNotify publishes
-// a notify.Event to the broker when a permission_prompt (default type) is received
+// a model.Event to the broker when a permission_prompt (default type) is received
 // and a tool_name is present.
 func TestServer_NotifyBroker_PublishesOnPermissionPrompt(t *testing.T) {
 	t.Parallel()
@@ -156,7 +157,7 @@ func TestServer_NotifyBroker_MultipleSubscribers(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	// Both subscribers must receive the event.
-	for i, sub := range []*event.Subscription[notify.Event]{sub1, sub2} {
+	for i, sub := range []*event.Subscription[model.Event]{sub1, sub2} {
 		select {
 		case ev := <-sub.Ch():
 			require.NotNil(t, ev.Notification, "subscriber %d notification must not be nil", i+1)

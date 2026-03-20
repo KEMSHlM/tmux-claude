@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/KEMSHlM/lazyclaude/internal/core/model"
 	"github.com/KEMSHlM/lazyclaude/internal/gui/presentation"
-	"github.com/KEMSHlM/lazyclaude/internal/notify"
 	"github.com/jesseduffield/gocui"
 )
 
@@ -16,8 +16,8 @@ const popupViewName = "tool-popup"
 const popupActionsViewName = "tool-popup-actions"
 
 // showToolPopup pushes a notification onto the popup stack.
-func (a *App) showToolPopup(n *notify.ToolNotification) {
-	a.popups.Push(n)
+func (a *App) showToolPopup(n *model.ToolNotification) {
+	a.popups.PushPopup(newPopupFromNotification(n))
 }
 
 // dismissPopup removes the focused popup from the stack and sends the choice to the session.
@@ -255,18 +255,18 @@ func generateDiffFromContents(oldFilePath, newContents string) string {
 
 // --- App delegation to PopupController ---
 
-func (a *App) hasPopup() bool                          { return a.popups.HasVisible() }
-func (a *App) popupCount() int                         { return a.popups.Count() }
-func (a *App) visiblePopupCount() int                  { return a.popups.VisibleCount() }
-func (a *App) activePopup() *notify.ToolNotification   { return a.popups.ActiveNotification() }
-func (a *App) activeEntry() *popupEntry                { return a.popups.ActiveEntry() }
-func (a *App) pushPopup(n *notify.ToolNotification)    { a.popups.Push(n) }
-func (a *App) dismissActivePopup()                     { a.popups.DismissActive(ChoiceCancel) }
-func (a *App) popupFocusNext()                         { a.popups.FocusNext() }
-func (a *App) popupFocusPrev()                         { a.popups.FocusPrev() }
-func (a *App) suspendAllPopups()                       { a.popups.SuspendAll() }
-func (a *App) unsuspendAll()                           { a.popups.UnsuspendAll() }
-func (a *App) visibleIndexOf(stackIdx int) int         { return a.popups.VisibleIndexOf(stackIdx) }
+func (a *App) hasPopup() bool                              { return a.popups.HasVisible() }
+func (a *App) popupCount() int                             { return a.popups.Count() }
+func (a *App) visiblePopupCount() int                      { return a.popups.VisibleCount() }
+func (a *App) activePopup() *model.ToolNotification        { return a.popups.ActiveNotification() }
+func (a *App) activeEntry() *popupEntry                    { return a.popups.ActiveEntry() }
+func (a *App) pushPopup(n *model.ToolNotification)         { a.popups.PushPopup(newPopupFromNotification(n)) }
+func (a *App) dismissActivePopup()                         { a.popups.DismissActive(ChoiceCancel) }
+func (a *App) popupFocusNext()                             { a.popups.FocusNext() }
+func (a *App) popupFocusPrev()                             { a.popups.FocusPrev() }
+func (a *App) suspendAllPopups()                           { a.popups.SuspendAll() }
+func (a *App) unsuspendAll()                               { a.popups.UnsuspendAll() }
+func (a *App) visibleIndexOf(stackIdx int) int             { return a.popups.VisibleIndexOf(stackIdx) }
 
 func popupCascadeOffset(baseX, baseY, index int) (int, int) {
 	return baseX + index*2, baseY + index

@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/KEMSHlM/lazyclaude/internal/core/model"
 	"github.com/KEMSHlM/lazyclaude/internal/gui"
-	"github.com/KEMSHlM/lazyclaude/internal/notify"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -15,7 +15,7 @@ import (
 type mockSessionProvider struct {
 	mu          sync.Mutex
 	sessions    []gui.SessionItem
-	pending     *notify.ToolNotification
+	pending     *model.ToolNotification
 	sentChoices []sentChoice
 }
 
@@ -37,7 +37,7 @@ func (m *mockSessionProvider) CapturePreview(_ string, _, _ int) (gui.PreviewRes
 	return gui.PreviewResult{Content: "preview content"}, nil
 }
 
-func (m *mockSessionProvider) PendingNotifications() []*notify.ToolNotification {
+func (m *mockSessionProvider) PendingNotifications() []*model.ToolNotification {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.pending == nil {
@@ -45,7 +45,7 @@ func (m *mockSessionProvider) PendingNotifications() []*notify.ToolNotification 
 	}
 	n := m.pending
 	m.pending = nil
-	return []*notify.ToolNotification{n}
+	return []*model.ToolNotification{n}
 }
 
 func (m *mockSessionProvider) SendChoice(window string, choice gui.Choice) error {
@@ -63,7 +63,7 @@ func (m *mockSessionProvider) getSentChoices() []sentChoice {
 	return result
 }
 
-func (m *mockSessionProvider) setPending(n *notify.ToolNotification) {
+func (m *mockSessionProvider) setPending(n *model.ToolNotification) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.pending = n
@@ -83,7 +83,7 @@ func TestPopup_ShowAndDismissWithY(t *testing.T) {
 	app.SetSessions(mock)
 
 	// Show popup directly
-	n := &notify.ToolNotification{
+	n := &model.ToolNotification{
 		ToolName: "Write",
 		Input:    `{"file_path":"/tmp/test.txt"}`,
 		Window:   "@0",
@@ -120,7 +120,7 @@ func TestPopup_NotificationPolling(t *testing.T) {
 	app.SetSessions(mock)
 
 	// Set pending notification
-	mock.setPending(&notify.ToolNotification{
+	mock.setPending(&model.ToolNotification{
 		ToolName: "Bash",
 		Input:    `{"command":"ls"}`,
 		Window:   "@0",
@@ -145,7 +145,7 @@ func TestPopup_DiffNotification(t *testing.T) {
 	}
 	app.SetSessions(mock)
 
-	n := &notify.ToolNotification{
+	n := &model.ToolNotification{
 		ToolName:    "Diff",
 		OldFilePath: "/tmp/test.go",
 		NewContents: "package main\n",
@@ -224,7 +224,7 @@ func TestFullScreen_PopupWorksInFullMode(t *testing.T) {
 	assert.True(t, app.IsFullScreenForTest())
 
 	// Show popup — should work identically to preview mode
-	app.ShowToolPopupForTest(&notify.ToolNotification{
+	app.ShowToolPopupForTest(&model.ToolNotification{
 		ToolName: "Write",
 		Input:    `{"file_path":"/tmp/test.txt"}`,
 		Window:   "@0",
@@ -331,7 +331,7 @@ func TestFullScreen_PopupPreservesFullScreen(t *testing.T) {
 	assert.Equal(t, gui.StateFullScreen, app.StateForTest())
 
 	// Show popup
-	app.ShowToolPopupForTest(&notify.ToolNotification{
+	app.ShowToolPopupForTest(&model.ToolNotification{
 		ToolName: "Write",
 		Window:   "@0",
 	})
@@ -378,7 +378,7 @@ func TestFullScreen_DoesNotForwardInPopup(t *testing.T) {
 	app.SetInputForwarder(fwd)
 
 	app.EnterFullScreenForTest("s1")
-	app.ShowToolPopupForTest(&notify.ToolNotification{ToolName: "Write", Window: "@0"})
+	app.ShowToolPopupForTest(&model.ToolNotification{ToolName: "Write", Window: "@0"})
 
 	// Keys should NOT be forwarded when popup is showing
 	app.ForwardKeyForTest('h')
@@ -399,7 +399,7 @@ func TestPopup_BlocksSessionKeys(t *testing.T) {
 	app.SetSessions(mock)
 
 	// Show popup
-	app.ShowToolPopupForTest(&notify.ToolNotification{
+	app.ShowToolPopupForTest(&model.ToolNotification{
 		ToolName: "Write",
 		Window:   "@0",
 	})

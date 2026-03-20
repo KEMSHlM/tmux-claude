@@ -7,7 +7,7 @@ import (
 
 	"github.com/KEMSHlM/lazyclaude/internal/core/config"
 	"github.com/KEMSHlM/lazyclaude/internal/core/event"
-	"github.com/KEMSHlM/lazyclaude/internal/notify"
+	"github.com/KEMSHlM/lazyclaude/internal/core/model"
 	"github.com/jesseduffield/gocui"
 )
 
@@ -34,7 +34,7 @@ type SessionProvider interface {
 	Rename(id, newName string) error
 	PurgeOrphans() (int, error)
 	CapturePreview(id string, width, height int) (PreviewResult, error)
-	PendingNotifications() []*notify.ToolNotification
+	PendingNotifications() []*model.ToolNotification
 	SendChoice(window string, choice Choice) error
 }
 
@@ -76,8 +76,8 @@ type App struct {
 	onTick             func()                       // called every ticker cycle (control mode health check)
 	keyQueue           chan keyCmd                   // serial key forwarding queue (preserves order)
 	popupMode          config.PopupMode             // how popups are displayed (auto/tmux/overlay)
-	notifyBroker       *event.Broker[notify.Event]  // optional in-process broker (nil = file-only)
-	notifyBrokerSub    *event.Subscription[notify.Event] // active subscription (nil if no broker)
+	notifyBroker       *event.Broker[model.Event]  // optional in-process broker (nil = file-only)
+	notifyBrokerSub    *event.Subscription[model.Event] // active subscription (nil if no broker)
 }
 
 // SetPopupMode sets the popup display mode.
@@ -168,7 +168,7 @@ func (a *App) Run() error {
 
 		// brokerCh is nil when no broker is set; a nil channel blocks forever
 		// in select, so the case is effectively disabled.
-		var brokerCh <-chan notify.Event
+		var brokerCh <-chan model.Event
 		if a.notifyBrokerSub != nil {
 			brokerCh = a.notifyBrokerSub.Ch()
 		}
@@ -252,7 +252,7 @@ func (a *App) SetOnTick(fn func()) {
 // notifications are delivered immediately without waiting for the 100ms ticker.
 // Passing nil is a no-op: the app falls back to file-based polling only.
 // Must be called before Run().
-func (a *App) SetNotifyBroker(broker *event.Broker[notify.Event]) {
+func (a *App) SetNotifyBroker(broker *event.Broker[model.Event]) {
 	if broker == nil {
 		return
 	}

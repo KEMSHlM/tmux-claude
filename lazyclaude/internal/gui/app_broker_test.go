@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/KEMSHlM/lazyclaude/internal/core/event"
+	"github.com/KEMSHlM/lazyclaude/internal/core/model"
 	"github.com/KEMSHlM/lazyclaude/internal/gui"
-	"github.com/KEMSHlM/lazyclaude/internal/notify"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -31,7 +31,7 @@ func TestApp_SetNotifyBroker_AcceptsBroker(t *testing.T) {
 	require.NoError(t, err)
 	defer app.Gui().Close()
 
-	broker := event.NewBroker[notify.Event]()
+	broker := event.NewBroker[model.Event]()
 	defer broker.Close()
 
 	assert.NotPanics(t, func() {
@@ -53,17 +53,17 @@ func TestApp_DrainBrokerForTest_ShowsPopup(t *testing.T) {
 	}
 	app.SetSessions(mock)
 
-	broker := event.NewBroker[notify.Event]()
+	broker := event.NewBroker[model.Event]()
 	defer broker.Close()
 	app.SetNotifyBroker(broker)
 
 	// Publish an event to the broker.
-	n := &notify.ToolNotification{
+	n := &model.ToolNotification{
 		ToolName: "Bash",
 		Input:    `{"command":"ls"}`,
 		Window:   "@0",
 	}
-	broker.Publish(notify.Event{Notification: n})
+	broker.Publish(model.Event{Notification: n})
 
 	// DrainBrokerForTest simulates the select in the ticker goroutine receiving
 	// from the broker and calling showToolPopup.
@@ -101,11 +101,11 @@ func TestApp_BrokerEvent_PopupMode_Overlay(t *testing.T) {
 	}
 	app.SetSessions(mock)
 
-	broker := event.NewBroker[notify.Event]()
+	broker := event.NewBroker[model.Event]()
 	defer broker.Close()
 	app.SetNotifyBroker(broker)
 
-	broker.Publish(notify.Event{Notification: &notify.ToolNotification{
+	broker.Publish(model.Event{Notification: &model.ToolNotification{
 		ToolName: "Write",
 		Window:   "@0",
 	}})

@@ -17,6 +17,7 @@ import (
 
 	"github.com/KEMSHlM/lazyclaude/internal/adapter/tmuxadapter"
 	"github.com/KEMSHlM/lazyclaude/internal/core/event"
+	"github.com/KEMSHlM/lazyclaude/internal/core/model"
 	"github.com/KEMSHlM/lazyclaude/internal/core/tmux"
 	"github.com/KEMSHlM/lazyclaude/internal/notify"
 	"nhooyr.io/websocket"
@@ -41,7 +42,7 @@ type Server struct {
 	popup        *PopupOrchestrator
 	tmux         tmux.Client
 	log          *log.Logger
-	notifyBroker *event.Broker[notify.Event]
+	notifyBroker *event.Broker[model.Event]
 
 	listener net.Listener
 	httpSrv  *http.Server
@@ -68,7 +69,7 @@ func New(cfg Config, tmuxClient tmux.Client, logger *log.Logger) *Server {
 		popup:        popup,
 		tmux:         tmuxClient,
 		log:          logger,
-		notifyBroker: event.NewBroker[notify.Event](),
+		notifyBroker: event.NewBroker[model.Event](),
 	}
 
 	mux := http.NewServeMux()
@@ -148,11 +149,11 @@ func (s *Server) RuntimeDir() string {
 	return s.config.RuntimeDir
 }
 
-// NotifyBroker returns the event broker that publishes notify.Event when a
+// NotifyBroker returns the event broker that publishes model.Event when a
 // tool permission request arrives via /notify. The broker is created with the
 // server and lives for the server's lifetime; call broker.Close() (or Stop()
 // the server) to release subscribers.
-func (s *Server) NotifyBroker() *event.Broker[notify.Event] {
+func (s *Server) NotifyBroker() *event.Broker[model.Event] {
 	return s.notifyBroker
 }
 
@@ -373,7 +374,7 @@ func (s *Server) dispatchToolNotification(window, toolName, input, cwd string) {
 	}
 
 	// Write notification file for TUI overlay fallback (SSH remote compat).
-	n := notify.ToolNotification{
+	n := model.ToolNotification{
 		ToolName:  toolName,
 		Input:     input,
 		CWD:       cwd,
@@ -387,7 +388,7 @@ func (s *Server) dispatchToolNotification(window, toolName, input, cwd string) {
 
 	// Publish to in-process broker for fast local GUI notification.
 	// Non-blocking: if no subscriber is ready, the event is dropped.
-	s.notifyBroker.Publish(notify.Event{Notification: &n})
+	s.notifyBroker.Publish(model.Event{Notification: &n})
 
 	// Spawn tmux display-popup (non-blocking)
 	s.popup.SpawnToolPopup(context.Background(), window, toolName, input, cwd)

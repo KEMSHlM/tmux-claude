@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/KEMSHlM/lazyclaude/internal/core/model"
 	"github.com/KEMSHlM/lazyclaude/internal/gui"
-	"github.com/KEMSHlM/lazyclaude/internal/notify"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -144,7 +144,7 @@ func TestFullScreen_PopupBlocksForwarding(t *testing.T) {
 	app.EnterFullScreenForTest("s1")
 
 	// Show popup — forwarding should be blocked
-	app.ShowToolPopupForTest(&notify.ToolNotification{
+	app.ShowToolPopupForTest(&model.ToolNotification{
 		ToolName: "Write",
 		Window:   "@0",
 	})

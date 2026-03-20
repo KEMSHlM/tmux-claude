@@ -15,6 +15,7 @@ import (
 	"github.com/KEMSHlM/lazyclaude/internal/core/config"
 	"github.com/KEMSHlM/lazyclaude/internal/core/event"
 	"github.com/KEMSHlM/lazyclaude/internal/core/lifecycle"
+	"github.com/KEMSHlM/lazyclaude/internal/core/model"
 	"github.com/KEMSHlM/lazyclaude/internal/core/tmux"
 	"github.com/KEMSHlM/lazyclaude/internal/gui"
 	"github.com/KEMSHlM/lazyclaude/internal/notify"
@@ -82,7 +83,7 @@ func newRootCmd() *cobra.Command {
 			// Start the MCP server: prefer in-process so the broker can be wired
 			// directly to the GUI for immediate popup delivery (no 100ms poll delay).
 			// Falls back to a subprocess if the server is already running as a daemon.
-			var notifyBroker *event.Broker[notify.Event]
+			var notifyBroker *event.Broker[model.Event]
 			inProcessSrv := tryStartInProcessServer(paths, tmuxClient, logger)
 			if inProcessSrv != nil {
 				notifyBroker = inProcessSrv.NotifyBroker()
@@ -313,7 +314,7 @@ func (a *sessionAdapter) PurgeOrphans() (int, error) {
 	return a.mgr.PurgeOrphans()
 }
 
-func (a *sessionAdapter) PendingNotifications() []*notify.ToolNotification {
+func (a *sessionAdapter) PendingNotifications() []*model.ToolNotification {
 	notifications, err := notify.ReadAll(a.paths.RuntimeDir)
 	if err != nil || len(notifications) == 0 {
 		return nil

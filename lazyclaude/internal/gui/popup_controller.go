@@ -1,7 +1,7 @@
 package gui
 
 import (
-	"github.com/KEMSHlM/lazyclaude/internal/notify"
+	"github.com/KEMSHlM/lazyclaude/internal/core/model"
 )
 
 // PopupController manages the popup stack independently from App.
@@ -19,12 +19,6 @@ type popupEntry struct {
 // NewPopupController creates a popup controller.
 func NewPopupController() *PopupController {
 	return &PopupController{}
-}
-
-// Push adds a notification to the popup stack and focuses it.
-func (pc *PopupController) Push(n *notify.ToolNotification) {
-	pc.stack = append(pc.stack, popupEntry{popup: newPopupFromNotification(n)})
-	pc.focusIdx = len(pc.stack) - 1
 }
 
 // PushPopup adds a Popup directly to the stack and focuses it.
@@ -56,7 +50,7 @@ func (pc *PopupController) HasVisible() bool {
 
 // ActiveNotification returns the focused popup's notification, or nil.
 // This is a backward-compatibility helper for code that still uses ToolNotification.
-func (pc *PopupController) ActiveNotification() *notify.ToolNotification {
+func (pc *PopupController) ActiveNotification() *model.ToolNotification {
 	e := pc.ActiveEntry()
 	if e == nil {
 		return nil
@@ -186,7 +180,7 @@ func (pc *PopupController) VisibleIndexOf(stackIdx int) int {
 
 // notificationFromPopup extracts the ToolNotification from a Popup,
 // returning nil if the Popup type does not wrap a ToolNotification.
-func notificationFromPopup(p Popup) *notify.ToolNotification {
+func notificationFromPopup(p Popup) *model.ToolNotification {
 	switch v := p.(type) {
 	case *ToolPopup:
 		return v.Notification()

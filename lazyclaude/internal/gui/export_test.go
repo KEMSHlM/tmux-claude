@@ -1,7 +1,7 @@
 package gui
 
 import (
-	"github.com/KEMSHlM/lazyclaude/internal/notify"
+	"github.com/KEMSHlM/lazyclaude/internal/core/model"
 	"github.com/jesseduffield/gocui"
 )
 
@@ -11,7 +11,7 @@ func (a *App) TestLayout(g *gocui.Gui) error {
 }
 
 // ShowToolPopupForTest exposes showToolPopup for testing.
-func (a *App) ShowToolPopupForTest(n *notify.ToolNotification) {
+func (a *App) ShowToolPopupForTest(n *model.ToolNotification) {
 	a.showToolPopup(n)
 }
 

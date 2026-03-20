@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/KEMSHlM/lazyclaude/internal/core/model"
 	"github.com/KEMSHlM/lazyclaude/internal/gui/presentation"
-	"github.com/KEMSHlM/lazyclaude/internal/notify"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -14,41 +14,41 @@ import (
 
 func TestToolPopup_ImplementsPopupInterface(t *testing.T) {
 	t.Parallel()
-	n := &notify.ToolNotification{ToolName: "Bash", Window: "@0"}
+	n := &model.ToolNotification{ToolName: "Bash", Window: "@0"}
 	var _ Popup = NewToolPopup(n)
 }
 
 func TestToolPopup_ID(t *testing.T) {
 	t.Parallel()
-	n := &notify.ToolNotification{ToolName: "Bash", Window: "@42"}
+	n := &model.ToolNotification{ToolName: "Bash", Window: "@42"}
 	p := NewToolPopup(n)
 	assert.Equal(t, "@42/Bash", p.ID())
 }
 
 func TestToolPopup_Window(t *testing.T) {
 	t.Parallel()
-	n := &notify.ToolNotification{ToolName: "Bash", Window: "@99"}
+	n := &model.ToolNotification{ToolName: "Bash", Window: "@99"}
 	p := NewToolPopup(n)
 	assert.Equal(t, "@99", p.Window())
 }
 
 func TestToolPopup_Title(t *testing.T) {
 	t.Parallel()
-	n := &notify.ToolNotification{ToolName: "Write", Window: "@0"}
+	n := &model.ToolNotification{ToolName: "Write", Window: "@0"}
 	p := NewToolPopup(n)
 	assert.Equal(t, " Write ", p.Title())
 }
 
 func TestToolPopup_IsDiff_ReturnsFalse(t *testing.T) {
 	t.Parallel()
-	n := &notify.ToolNotification{ToolName: "Bash", Window: "@0"}
+	n := &model.ToolNotification{ToolName: "Bash", Window: "@0"}
 	p := NewToolPopup(n)
 	assert.False(t, p.IsDiff())
 }
 
 func TestToolPopup_ContentLines_NonEmpty(t *testing.T) {
 	t.Parallel()
-	n := &notify.ToolNotification{
+	n := &model.ToolNotification{
 		ToolName: "Bash",
 		Input:    `{"command":"echo hello"}`,
 		CWD:      "/tmp",
@@ -70,21 +70,21 @@ func TestToolPopup_ContentLines_NonEmpty(t *testing.T) {
 
 func TestToolPopup_ContentKinds_Nil(t *testing.T) {
 	t.Parallel()
-	n := &notify.ToolNotification{ToolName: "Bash", Window: "@0"}
+	n := &model.ToolNotification{ToolName: "Bash", Window: "@0"}
 	p := NewToolPopup(n)
 	assert.Nil(t, p.ContentKinds())
 }
 
 func TestToolPopup_ScrollY_InitiallyZero(t *testing.T) {
 	t.Parallel()
-	n := &notify.ToolNotification{ToolName: "Bash", Window: "@0"}
+	n := &model.ToolNotification{ToolName: "Bash", Window: "@0"}
 	p := NewToolPopup(n)
 	assert.Equal(t, 0, p.ScrollY())
 }
 
 func TestToolPopup_SetScrollY(t *testing.T) {
 	t.Parallel()
-	n := &notify.ToolNotification{ToolName: "Bash", Window: "@0"}
+	n := &model.ToolNotification{ToolName: "Bash", Window: "@0"}
 	p := NewToolPopup(n)
 	p.SetScrollY(10)
 	assert.Equal(t, 10, p.ScrollY())
@@ -92,7 +92,7 @@ func TestToolPopup_SetScrollY(t *testing.T) {
 
 func TestToolPopup_SetScrollY_ClampedToZero(t *testing.T) {
 	t.Parallel()
-	n := &notify.ToolNotification{ToolName: "Bash", Window: "@0"}
+	n := &model.ToolNotification{ToolName: "Bash", Window: "@0"}
 	p := NewToolPopup(n)
 	p.SetScrollY(-5)
 	assert.Equal(t, 0, p.ScrollY())
@@ -100,7 +100,7 @@ func TestToolPopup_SetScrollY_ClampedToZero(t *testing.T) {
 
 func TestToolPopup_MaxScroll_SmallViewport(t *testing.T) {
 	t.Parallel()
-	n := &notify.ToolNotification{
+	n := &model.ToolNotification{
 		ToolName: "Bash",
 		Input:    `{"command":"echo hello"}`,
 		CWD:      "/tmp",
@@ -114,7 +114,7 @@ func TestToolPopup_MaxScroll_SmallViewport(t *testing.T) {
 
 func TestToolPopup_MaxScroll_LargeViewport(t *testing.T) {
 	t.Parallel()
-	n := &notify.ToolNotification{ToolName: "Bash", Window: "@0"}
+	n := &model.ToolNotification{ToolName: "Bash", Window: "@0"}
 	p := NewToolPopup(n)
 	// With viewport larger than content, MaxScroll should be 0
 	max := p.MaxScroll(1000)
@@ -123,7 +123,7 @@ func TestToolPopup_MaxScroll_LargeViewport(t *testing.T) {
 
 func TestToolPopup_Notification(t *testing.T) {
 	t.Parallel()
-	n := &notify.ToolNotification{ToolName: "Read", Window: "@5"}
+	n := &model.ToolNotification{ToolName: "Read", Window: "@5"}
 	p := NewToolPopup(n)
 	assert.Same(t, n, p.Notification())
 }
@@ -132,7 +132,7 @@ func TestToolPopup_Notification(t *testing.T) {
 
 func TestDiffPopup_ImplementsPopupInterface(t *testing.T) {
 	t.Parallel()
-	n := &notify.ToolNotification{
+	n := &model.ToolNotification{
 		ToolName:    "Write",
 		Window:      "@0",
 		OldFilePath: "/tmp/test.go",
@@ -143,7 +143,7 @@ func TestDiffPopup_ImplementsPopupInterface(t *testing.T) {
 
 func TestDiffPopup_ID(t *testing.T) {
 	t.Parallel()
-	n := &notify.ToolNotification{
+	n := &model.ToolNotification{
 		ToolName:    "Write",
 		Window:      "@7",
 		OldFilePath: "/tmp/foo.go",
@@ -154,7 +154,7 @@ func TestDiffPopup_ID(t *testing.T) {
 
 func TestDiffPopup_Window(t *testing.T) {
 	t.Parallel()
-	n := &notify.ToolNotification{
+	n := &model.ToolNotification{
 		ToolName:    "Write",
 		Window:      "@3",
 		OldFilePath: "/tmp/test.go",
@@ -165,7 +165,7 @@ func TestDiffPopup_Window(t *testing.T) {
 
 func TestDiffPopup_Title(t *testing.T) {
 	t.Parallel()
-	n := &notify.ToolNotification{
+	n := &model.ToolNotification{
 		ToolName:    "Write",
 		Window:      "@0",
 		OldFilePath: "/some/path/myfile.go",
@@ -176,7 +176,7 @@ func TestDiffPopup_Title(t *testing.T) {
 
 func TestDiffPopup_IsDiff_ReturnsTrue(t *testing.T) {
 	t.Parallel()
-	n := &notify.ToolNotification{
+	n := &model.ToolNotification{
 		ToolName:    "Write",
 		Window:      "@0",
 		OldFilePath: "/tmp/test.go",
@@ -188,7 +188,7 @@ func TestDiffPopup_IsDiff_ReturnsTrue(t *testing.T) {
 func TestDiffPopup_ContentLines_ForNewFile(t *testing.T) {
 	t.Parallel()
 	// OldFilePath doesn't exist => new file diff
-	n := &notify.ToolNotification{
+	n := &model.ToolNotification{
 		ToolName:    "Write",
 		Window:      "@0",
 		OldFilePath: "/nonexistent/path/newfile.go",
@@ -204,7 +204,7 @@ func TestDiffPopup_ContentLines_ForNewFile(t *testing.T) {
 
 func TestDiffPopup_ContentLines_CachedOnRepeatCall(t *testing.T) {
 	t.Parallel()
-	n := &notify.ToolNotification{
+	n := &model.ToolNotification{
 		ToolName:    "Write",
 		Window:      "@0",
 		OldFilePath: "/nonexistent/cache-test.go",
@@ -222,7 +222,7 @@ func TestDiffPopup_ContentLines_CachedOnRepeatCall(t *testing.T) {
 
 func TestDiffPopup_ContentKinds_LengthMatchesLines(t *testing.T) {
 	t.Parallel()
-	n := &notify.ToolNotification{
+	n := &model.ToolNotification{
 		ToolName:    "Write",
 		Window:      "@0",
 		OldFilePath: "/nonexistent/kinds-test.go",
@@ -236,7 +236,7 @@ func TestDiffPopup_ContentKinds_LengthMatchesLines(t *testing.T) {
 
 func TestDiffPopup_ContentKinds_ContainsDiffKinds(t *testing.T) {
 	t.Parallel()
-	n := &notify.ToolNotification{
+	n := &model.ToolNotification{
 		ToolName:    "Write",
 		Window:      "@0",
 		OldFilePath: "/nonexistent/kinds2-test.go",
@@ -259,7 +259,7 @@ func TestDiffPopup_ContentKinds_ContainsDiffKinds(t *testing.T) {
 
 func TestDiffPopup_ScrollY_InitiallyZero(t *testing.T) {
 	t.Parallel()
-	n := &notify.ToolNotification{
+	n := &model.ToolNotification{
 		ToolName:    "Write",
 		Window:      "@0",
 		OldFilePath: "/tmp/test.go",
@@ -270,7 +270,7 @@ func TestDiffPopup_ScrollY_InitiallyZero(t *testing.T) {
 
 func TestDiffPopup_SetScrollY(t *testing.T) {
 	t.Parallel()
-	n := &notify.ToolNotification{
+	n := &model.ToolNotification{
 		ToolName:    "Write",
 		Window:      "@0",
 		OldFilePath: "/tmp/test.go",
@@ -282,7 +282,7 @@ func TestDiffPopup_SetScrollY(t *testing.T) {
 
 func TestDiffPopup_SetScrollY_ClampedToZero(t *testing.T) {
 	t.Parallel()
-	n := &notify.ToolNotification{
+	n := &model.ToolNotification{
 		ToolName:    "Write",
 		Window:      "@0",
 		OldFilePath: "/tmp/test.go",
@@ -294,7 +294,7 @@ func TestDiffPopup_SetScrollY_ClampedToZero(t *testing.T) {
 
 func TestDiffPopup_MaxScroll_LargeViewport(t *testing.T) {
 	t.Parallel()
-	n := &notify.ToolNotification{
+	n := &model.ToolNotification{
 		ToolName:    "Write",
 		Window:      "@0",
 		OldFilePath: "/nonexistent/maxscroll.go",
@@ -307,7 +307,7 @@ func TestDiffPopup_MaxScroll_LargeViewport(t *testing.T) {
 
 func TestDiffPopup_MaxScroll_SmallViewport(t *testing.T) {
 	t.Parallel()
-	n := &notify.ToolNotification{
+	n := &model.ToolNotification{
 		ToolName:    "Write",
 		Window:      "@0",
 		OldFilePath: "/nonexistent/maxscroll2.go",
@@ -324,7 +324,7 @@ func TestDiffPopup_MaxScroll_SmallViewport(t *testing.T) {
 
 func TestDiffPopup_Notification(t *testing.T) {
 	t.Parallel()
-	n := &notify.ToolNotification{
+	n := &model.ToolNotification{
 		ToolName:    "Write",
 		Window:      "@0",
 		OldFilePath: "/tmp/test.go",
@@ -337,7 +337,7 @@ func TestDiffPopup_Notification(t *testing.T) {
 
 func TestNewPopupFromNotification_ReturnsDiffPopup(t *testing.T) {
 	t.Parallel()
-	n := &notify.ToolNotification{
+	n := &model.ToolNotification{
 		ToolName:    "Write",
 		Window:      "@0",
 		OldFilePath: "/tmp/test.go",
@@ -350,7 +350,7 @@ func TestNewPopupFromNotification_ReturnsDiffPopup(t *testing.T) {
 
 func TestNewPopupFromNotification_ReturnsToolPopup(t *testing.T) {
 	t.Parallel()
-	n := &notify.ToolNotification{ToolName: "Bash", Window: "@0"}
+	n := &model.ToolNotification{ToolName: "Bash", Window: "@0"}
 	p := newPopupFromNotification(n)
 	assert.False(t, p.IsDiff())
 	_, ok := p.(*ToolPopup)
@@ -361,21 +361,21 @@ func TestNewPopupFromNotification_ReturnsToolPopup(t *testing.T) {
 
 func TestToolPopup_EmptyToolName(t *testing.T) {
 	t.Parallel()
-	n := &notify.ToolNotification{ToolName: "", Window: "@0"}
+	n := &model.ToolNotification{ToolName: "", Window: "@0"}
 	p := NewToolPopup(n)
 	assert.Equal(t, "  ", p.Title()) // spaces around empty string
 }
 
 func TestToolPopup_EmptyWindow(t *testing.T) {
 	t.Parallel()
-	n := &notify.ToolNotification{ToolName: "Bash", Window: ""}
+	n := &model.ToolNotification{ToolName: "Bash", Window: ""}
 	p := NewToolPopup(n)
 	assert.Equal(t, "", p.Window())
 }
 
 func TestDiffPopup_EmptyNewContents(t *testing.T) {
 	t.Parallel()
-	n := &notify.ToolNotification{
+	n := &model.ToolNotification{
 		ToolName:    "Write",
 		Window:      "@0",
 		OldFilePath: "/nonexistent/empty.go",
@@ -390,7 +390,7 @@ func TestDiffPopup_EmptyNewContents(t *testing.T) {
 
 func TestToolPopup_SetScrollY_MultipleUpdates(t *testing.T) {
 	t.Parallel()
-	n := &notify.ToolNotification{ToolName: "Bash", Window: "@0"}
+	n := &model.ToolNotification{ToolName: "Bash", Window: "@0"}
 	p := NewToolPopup(n)
 	p.SetScrollY(3)
 	p.SetScrollY(7)
@@ -400,7 +400,7 @@ func TestToolPopup_SetScrollY_MultipleUpdates(t *testing.T) {
 
 func TestDiffPopup_SetScrollY_MultipleUpdates(t *testing.T) {
 	t.Parallel()
-	n := &notify.ToolNotification{
+	n := &model.ToolNotification{
 		ToolName:    "Write",
 		Window:      "@0",
 		OldFilePath: "/tmp/test.go",
@@ -416,7 +416,7 @@ func TestDiffPopup_SetScrollY_MultipleUpdates(t *testing.T) {
 func TestPopupController_PushPopup_ToolPopup(t *testing.T) {
 	t.Parallel()
 	pc := NewPopupController()
-	n := &notify.ToolNotification{ToolName: "Bash", Window: "@0"}
+	n := &model.ToolNotification{ToolName: "Bash", Window: "@0"}
 	p := NewToolPopup(n)
 	pc.PushPopup(p)
 	assert.Equal(t, 1, pc.Count())
@@ -429,7 +429,7 @@ func TestPopupController_PushPopup_ToolPopup(t *testing.T) {
 func TestPopupController_PushPopup_DiffPopup(t *testing.T) {
 	t.Parallel()
 	pc := NewPopupController()
-	n := &notify.ToolNotification{
+	n := &model.ToolNotification{
 		ToolName:    "Write",
 		Window:      "@5",
 		OldFilePath: "/tmp/test.go",
@@ -445,8 +445,8 @@ func TestPopupController_PushPopup_DiffPopup(t *testing.T) {
 func TestPopupController_PushPopup_FocusesNewEntry(t *testing.T) {
 	t.Parallel()
 	pc := NewPopupController()
-	pc.PushPopup(NewToolPopup(&notify.ToolNotification{ToolName: "A", Window: "@0"}))
-	pc.PushPopup(NewToolPopup(&notify.ToolNotification{ToolName: "B", Window: "@1"}))
+	pc.PushPopup(NewToolPopup(&model.ToolNotification{ToolName: "A", Window: "@0"}))
+	pc.PushPopup(NewToolPopup(&model.ToolNotification{ToolName: "B", Window: "@1"}))
 	active := pc.ActivePopup()
 	require.NotNil(t, active)
 	assert.Equal(t, "@1", active.Window())
@@ -455,17 +455,17 @@ func TestPopupController_PushPopup_FocusesNewEntry(t *testing.T) {
 func TestPopupController_FocusIndex(t *testing.T) {
 	t.Parallel()
 	pc := NewPopupController()
-	pc.Push(makeTestNotif("A", "@0"))
-	pc.Push(makeTestNotif("B", "@1"))
+	pc.PushPopup(NewToolPopup(makeTestNotif("A", "@0")))
+	pc.PushPopup(NewToolPopup(makeTestNotif("B", "@1")))
 	assert.Equal(t, 1, pc.FocusIndex())
 }
 
 func TestPopupController_VisibleIndexOf(t *testing.T) {
 	t.Parallel()
 	pc := NewPopupController()
-	pc.Push(makeTestNotif("A", "@0"))
-	pc.Push(makeTestNotif("B", "@1"))
-	pc.Push(makeTestNotif("C", "@2"))
+	pc.PushPopup(NewToolPopup(makeTestNotif("A", "@0")))
+	pc.PushPopup(NewToolPopup(makeTestNotif("B", "@1")))
+	pc.PushPopup(NewToolPopup(makeTestNotif("C", "@2")))
 	assert.Equal(t, 0, pc.VisibleIndexOf(0))
 	assert.Equal(t, 1, pc.VisibleIndexOf(1))
 	assert.Equal(t, 2, pc.VisibleIndexOf(2))
@@ -474,9 +474,9 @@ func TestPopupController_VisibleIndexOf(t *testing.T) {
 func TestPopupController_VisibleIndexOf_WithSuspended(t *testing.T) {
 	t.Parallel()
 	pc := NewPopupController()
-	pc.Push(makeTestNotif("A", "@0"))
-	pc.Push(makeTestNotif("B", "@1"))
-	pc.Push(makeTestNotif("C", "@2"))
+	pc.PushPopup(NewToolPopup(makeTestNotif("A", "@0")))
+	pc.PushPopup(NewToolPopup(makeTestNotif("B", "@1")))
+	pc.PushPopup(NewToolPopup(makeTestNotif("C", "@2")))
 	// Suspend the middle entry by suspending all then unsuspending the first
 	// We can't suspend individual entries directly from outside, so just test SuspendAll
 	pc.SuspendAll()
@@ -488,7 +488,7 @@ func TestPopupController_VisibleIndexOf_WithSuspended(t *testing.T) {
 
 func TestNotificationFromPopup_DiffPopup(t *testing.T) {
 	t.Parallel()
-	n := &notify.ToolNotification{
+	n := &model.ToolNotification{
 		ToolName:    "Write",
 		Window:      "@0",
 		OldFilePath: "/tmp/test.go",
@@ -500,7 +500,7 @@ func TestNotificationFromPopup_DiffPopup(t *testing.T) {
 
 func TestNotificationFromPopup_ToolPopup(t *testing.T) {
 	t.Parallel()
-	n := &notify.ToolNotification{ToolName: "Bash", Window: "@0"}
+	n := &model.ToolNotification{ToolName: "Bash", Window: "@0"}
 	p := NewToolPopup(n)
 	result := notificationFromPopup(p)
 	assert.Same(t, n, result)
