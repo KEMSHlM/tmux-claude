@@ -2,7 +2,6 @@ package gui
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -152,8 +151,6 @@ func (a *App) layout(g *gocui.Gui) error {
 
 func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 	g.DeleteView("fullscreen-bar") // clean up after full-screen mode
-	g.Cursor = false
-	fmt.Fprint(os.Stdout, "\033[0 q") // restore default cursor
 
 	l := ComputeLayout(maxX, maxY)
 
@@ -248,8 +245,6 @@ func (a *App) layoutFullScreen(g *gocui.Gui, maxX, maxY int) error {
 	v.Editable = true
 	v.Editor = &inputEditor{app: a}
 	v.Clear()
-	g.Cursor = true
-	fmt.Fprint(os.Stdout, "\033[2 q") // steady block cursor (no blink)
 
 	// Render preview content (same pipeline as split-panel mode)
 	var items []SessionItem
@@ -377,7 +372,7 @@ func (a *App) renderPreview(v *gocui.View, items []SessionItem, previewW, previe
 			if err == nil && strings.TrimSpace(result.Content) != "" {
 				a.preview.Update(result.Content, cursorSnapshot, result.CursorX, result.CursorY)
 			} else {
-				a.preview.MarkFetched()
+				a.preview.MarkFetched(cursorSnapshot)
 			}
 			a.preview.Unlock()
 			a.gui.Update(func(g *gocui.Gui) error { return nil })
@@ -386,11 +381,6 @@ func (a *App) renderPreview(v *gocui.View, items []SessionItem, previewW, previe
 
 	if cache != "" && cachedCursor == a.cursor {
 		fmt.Fprint(v, cache)
-		if a.state.IsFullScreen() {
-			a.preview.Lock()
-			v.SetCursor(a.preview.CursorX(), a.preview.CursorY())
-			a.preview.Unlock()
-		}
 		return
 	}
 

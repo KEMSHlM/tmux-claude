@@ -266,12 +266,6 @@ func (a *sessionAdapter) CapturePreview(id string, width, height int) (gui.Previ
 		return gui.PreviewResult{Content: content}, err
 	}
 
-	// Get cursor position from tmux pane
-	var curX, curY int
-	if posStr, err := a.tmux.ShowMessage(ctx, target, "#{cursor_x},#{cursor_y}"); err == nil {
-		fmt.Sscanf(posStr, "%d,%d", &curX, &curY)
-	}
-
 	// Safety truncate
 	lines := strings.Split(content, "\n")
 	for i, line := range lines {
@@ -285,8 +279,6 @@ func (a *sessionAdapter) CapturePreview(id string, width, height int) (gui.Previ
 
 	return gui.PreviewResult{
 		Content: strings.Join(lines, "\n"),
-		CursorX: curX,
-		CursorY: curY,
 	}, nil
 }
 

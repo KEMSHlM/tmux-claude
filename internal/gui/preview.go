@@ -74,8 +74,13 @@ func (pc *PreviewCache) InvalidateTimestamp() {
 
 // MarkFetched records the current time as the last fetch time and clears busy,
 // without updating the cached content. Use after a fetch that returned no
-// useful data to prevent tight retry loops. Caller must hold lock.
-func (pc *PreviewCache) MarkFetched() {
+// useful data to prevent tight retry loops.
+// IMPORTANT: cursor must be updated to prevent needFetch loop when content is
+// empty (e.g. Claude Code startup). Without this, Cursor() != cursor stays
+// true and triggers capture-pane on every frame.
+// Caller must hold lock.
+func (pc *PreviewCache) MarkFetched(cursorIdx int) {
+	pc.cursor = cursorIdx
 	pc.busy = false
 	pc.fetchAt = time.Now()
 }
