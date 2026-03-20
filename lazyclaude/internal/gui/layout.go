@@ -6,8 +6,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/KEMSHlM/lazyclaude/internal/gui/presentation"
 	"github.com/jesseduffield/gocui"
 )
+
+// roundedFrame is the set of runes for rounded border corners.
+// Order: horizontal, vertical, top-left, top-right, bottom-left, bottom-right.
+var roundedFrame = []rune{'─', '│', '╭', '╮', '╰', '╯'}
+
+// setRoundedFrame applies rounded border corners to a gocui view.
+func setRoundedFrame(v *gocui.View) {
+	v.FrameRunes = roundedFrame
+}
 
 // Rect is a simple rectangle from (X0, Y0) to (X1, Y1) inclusive,
 // matching gocui's SetView coordinate convention.
@@ -155,6 +165,7 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 	if err != nil && !isUnknownView(err) {
 		return err
 	}
+	setRoundedFrame(v)
 	v.Title = tabTitle
 	v.Highlight = true
 	v.SelBgColor = gocui.ColorBlue
@@ -172,6 +183,7 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 	if err != nil && !isUnknownView(err) {
 		return err
 	}
+	setRoundedFrame(v2)
 	v2.Title = " Server "
 	v2.Wrap = true
 	if isUnknownView(err) {
@@ -183,6 +195,7 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 	if err != nil && !isUnknownView(err) {
 		return err
 	}
+	setRoundedFrame(v3)
 	v3.Wrap = false
 	v3.Editable = false
 	v3.Clear()
@@ -200,7 +213,14 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 	}
 	v4.Frame = false
 	if isUnknownView(err) {
-		fmt.Fprint(v4, " n: new  d: del  enter: full  r: resume  R: rename  q: quit")
+		fmt.Fprint(v4, " ",
+			presentation.StyledKey("n", "new"), "  ",
+			presentation.StyledKey("d", "del"), "  ",
+			presentation.StyledKey("enter", "full"), "  ",
+			presentation.StyledKey("r", "resume"), "  ",
+			presentation.StyledKey("R", "rename"), "  ",
+			presentation.StyledKey("q", "quit"),
+		)
 	}
 
 	// Set focus to active tab's view
@@ -264,9 +284,21 @@ func (a *App) layoutFullScreen(g *gocui.Gui, maxX, maxY int) error {
 	v2.Frame = false
 	v2.Clear()
 	if a.state == StateFullInsert {
-		fmt.Fprintf(v2, " INSERT | %s | Ctrl+\\: normal mode", items[targetIdx].Name)
+		fmt.Fprintf(v2, " %s %s %s %s",
+			presentation.ModeInsert(),
+			presentation.FgDimGray+presentation.IconSep+presentation.Reset,
+			items[targetIdx].Name,
+			presentation.Dim+"Ctrl+\\:normal"+presentation.Reset)
 	} else {
-		fmt.Fprintf(v2, " NORMAL | %s | i: insert  q: exit  j/k: scroll", items[targetIdx].Name)
+		fmt.Fprintf(v2, " %s %s %s %s",
+			presentation.ModeNormal(),
+			presentation.FgDimGray+presentation.IconSep+presentation.Reset,
+			items[targetIdx].Name,
+			presentation.Dim+
+				presentation.StyledKey("i", "insert")+"  "+
+				presentation.StyledKey("q", "exit")+"  "+
+				presentation.StyledKey("j/k", "scroll")+
+				presentation.Reset)
 	}
 
 	if _, err := g.SetCurrentView("main"); err != nil && !isUnknownView(err) {
@@ -283,6 +315,7 @@ func (a *App) layoutPopup(g *gocui.Gui, maxX, maxY int) error {
 	if err != nil && !isUnknownView(err) {
 		return err
 	}
+	setRoundedFrame(v)
 	v.Wrap = false
 
 	// Actions bar (bottom)
@@ -303,17 +336,24 @@ func (a *App) layoutPopup(g *gocui.Gui, maxX, maxY int) error {
 
 func (a *App) renderPreview(v *gocui.View, items []SessionItem, previewW, previewH int) {
 	if items == nil {
-		v.Title = " Main "
+		v.Title = " Preview "
 		fmt.Fprintln(v, "")
-		fmt.Fprintln(v, "  lazyclaude")
-		fmt.Fprintln(v, "  A standalone TUI for Claude Code")
+		fmt.Fprintln(v, presentation.Bold+"  lazyclaude"+presentation.Reset)
+		fmt.Fprintln(v, presentation.Dim+"  A standalone TUI for Claude Code"+presentation.Reset)
+		fmt.Fprintln(v, "")
+		fmt.Fprintln(v, presentation.FgDimGray+"  "+presentation.IconRunning+" running  "+
+			presentation.IconDetached+" detached  "+
+			presentation.IconDead+" dead  "+
+			presentation.IconOrphan+" orphan"+presentation.Reset)
 		return
 	}
 
 	if len(items) == 0 || a.cursor >= len(items) {
-		v.Title = " Main "
+		v.Title = " Preview "
 		fmt.Fprintln(v, "")
-		fmt.Fprintln(v, "  Select a session or press 'n' to create one.")
+		fmt.Fprintln(v, presentation.Dim+"  Select a session or press "+
+			presentation.Reset+presentation.Bold+"n"+presentation.Reset+
+			presentation.Dim+" to create one."+presentation.Reset)
 		return
 	}
 
@@ -322,8 +362,8 @@ func (a *App) renderPreview(v *gocui.View, items []SessionItem, previewW, previe
 
 	if item.Status == "Orphan" {
 		fmt.Fprintln(v, "")
-		fmt.Fprintln(v, "  Session not found in tmux.")
-		fmt.Fprintln(v, "  Press 'd' to remove.")
+		fmt.Fprintln(v, presentation.FgYellow+"  "+presentation.IconOrphan+" Session not found in tmux."+presentation.Reset)
+		fmt.Fprintln(v, "  Press "+presentation.Bold+"d"+presentation.Reset+" to remove.")
 		return
 	}
 
@@ -376,9 +416,10 @@ func (a *App) renderPreview(v *gocui.View, items []SessionItem, previewW, previe
 
 func (a *App) renderSessionList(v *gocui.View, items []SessionItem) {
 	if len(items) == 0 {
-		fmt.Fprintln(v, "  (no sessions)")
 		fmt.Fprintln(v, "")
-		fmt.Fprintln(v, "  Press 'n' to create")
+		fmt.Fprintln(v, presentation.Dim+"  No sessions"+presentation.Reset)
+		fmt.Fprintln(v, "")
+		fmt.Fprintln(v, "  Press "+presentation.Bold+"n"+presentation.Reset+" to create")
 		return
 	}
 
@@ -392,26 +433,26 @@ func (a *App) renderSessionList(v *gocui.View, items []SessionItem) {
 	for i, item := range items {
 		prefix := "  "
 		if i == a.cursor {
-			prefix = "> "
+			prefix = presentation.FgCyan + presentation.Bold + "> " + presentation.Reset
 		}
 
-		status := ""
+		var icon string
 		switch item.Status {
 		case "Running":
-			status = " *"
+			icon = " " + presentation.IconRunning
 		case "Dead":
-			status = " !"
+			icon = " " + presentation.IconDead
 		case "Orphan":
-			status = " x"
+			icon = " " + presentation.IconOrphan
 		case "Detached":
-			status = " -"
+			icon = " " + presentation.IconDetached
 		}
 
 		name := item.Name
 		if item.Host != "" {
-			name = item.Host + ":" + name
+			name = presentation.FgPurple + item.Host + presentation.Reset + ":" + name
 		}
-		fmt.Fprintf(v, "%s%-20s%s\n", prefix, name, status)
+		fmt.Fprintf(v, "%s%-20s%s\n", prefix, name, icon)
 	}
 
 	v.SetCursor(0, a.cursor)

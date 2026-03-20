@@ -54,15 +54,15 @@ func FormatSessionLines(sessions []session.Session, maxWidth int) []string {
 func statusIndicator(s session.Status) string {
 	switch s {
 	case session.StatusRunning:
-		return "*"
+		return IconRunning
 	case session.StatusDead:
-		return "!"
+		return IconDead
 	case session.StatusOrphan:
-		return "x"
+		return IconOrphan
 	case session.StatusDetached:
-		return "-"
+		return IconDetached
 	default:
-		return "?"
+		return IconUnknown
 	}
 }
 

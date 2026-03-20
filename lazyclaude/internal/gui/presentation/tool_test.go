@@ -101,8 +101,8 @@ func TestFormatToolLines_Bash(t *testing.T) {
 
 	joined := strings.Join(lines, "\n")
 	assert.Contains(t, joined, "Command:")
-	assert.Contains(t, joined, "$ npm test")
-	assert.Contains(t, joined, "CWD: /home/user/app")
+	assert.Contains(t, joined, "npm test") // content present (may have ANSI around $)
+	assert.Contains(t, joined, "/home/user/app")
 }
 
 func TestFormatToolLines_NoCWD(t *testing.T) {
@@ -114,7 +114,7 @@ func TestFormatToolLines_NoCWD(t *testing.T) {
 
 	lines := presentation.FormatToolLines(td)
 	joined := strings.Join(lines, "\n")
-	assert.NotContains(t, joined, "CWD:")
+	assert.NotContains(t, joined, "/home") // no CWD path when not set
 }
 
 func TestFormatToolLines_NonBash(t *testing.T) {

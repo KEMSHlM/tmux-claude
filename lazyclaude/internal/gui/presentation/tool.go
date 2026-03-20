@@ -42,16 +42,26 @@ func ParseToolInput(toolName, toolInput, cwd string) ToolDisplay {
 	return td
 }
 
-// FormatToolLines renders the full tool popup body.
+// FormatToolLines renders the full tool popup body with styled output.
 func FormatToolLines(td ToolDisplay) []string {
 	var lines []string
 	lines = append(lines, "")
 
 	switch td.Name {
 	case "Bash":
-		lines = append(lines, "  Command:")
+		lines = append(lines, Dim+"  Command:"+Reset)
 		for _, l := range td.Lines {
-			lines = append(lines, "  $ "+l)
+			lines = append(lines, FgCyan+"  $ "+Reset+l)
+		}
+	case "Edit":
+		for _, l := range td.Lines {
+			if strings.HasPrefix(l, "  - ") {
+				lines = append(lines, FgRed+l+Reset)
+			} else if strings.HasPrefix(l, "  + ") {
+				lines = append(lines, FgGreen+l+Reset)
+			} else {
+				lines = append(lines, "  "+l)
+			}
 		}
 	default:
 		for _, l := range td.Lines {
@@ -61,7 +71,7 @@ func FormatToolLines(td ToolDisplay) []string {
 
 	if td.CWD != "" {
 		lines = append(lines, "")
-		lines = append(lines, fmt.Sprintf("  CWD: %s", td.CWD))
+		lines = append(lines, Dim+"  CWD: "+Reset+FgDimGray+td.CWD+Reset)
 	}
 
 	lines = append(lines, "")

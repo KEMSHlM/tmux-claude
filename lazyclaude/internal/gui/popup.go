@@ -100,6 +100,7 @@ func (a *App) layoutToolPopup(g *gocui.Gui, maxX, maxY int) error {
 		if err != nil && !isUnknownView(err) {
 			return err
 		}
+		setRoundedFrame(v)
 		v.Clear()
 
 		if e.popup.IsDiff() {
@@ -143,16 +144,20 @@ func (a *App) layoutToolPopup(g *gocui.Gui, maxX, maxY int) error {
 		p := focusedEntry.popup
 
 		maxOpt := p.MaxOption()
-		base := " y/n"
+		base := " " + presentation.StyledKey("y", "yes") + "  " + presentation.StyledKey("n", "no")
 		if maxOpt >= 3 {
-			base = " y/a/n"
+			base = " " + presentation.StyledKey("y", "yes") + "  " +
+				presentation.StyledKey("a", "allow") + "  " +
+				presentation.StyledKey("n", "no")
 		}
 		if p.IsDiff() {
-			base += " j/k:scroll"
+			base += "  " + presentation.StyledKey("j/k", "scroll")
 		}
-		base += " Esc:hide"
+		base += "  " + presentation.StyledKey("Esc", "hide")
 		if visible > 1 {
-			base += fmt.Sprintf(" Y:all [%d/%d]", a.popups.VisibleIndexOf(a.popups.FocusIndex())+1, visible)
+			base += fmt.Sprintf("  "+presentation.StyledKey("Y", "all")+
+				" "+presentation.Dim+"[%d/%d]"+presentation.Reset,
+				a.popups.VisibleIndexOf(a.popups.FocusIndex())+1, visible)
 		}
 		fmt.Fprint(v2, base)
 
