@@ -34,12 +34,12 @@ func TestE2E_ToolPopup_SendKeys(t *testing.T) {
 	require.NoError(t, err)
 
 	toolCmd := fmt.Sprintf(
-		"TOOL_NAME=Bash TOOL_INPUT='{\"command\":\"ls\"}' %s tool --window %s --send-keys",
-		bin, winID)
+		"LAZYCLAUDE_TMUX_SOCKET=%s TOOL_NAME=Bash TOOL_INPUT='{\"command\":\"ls\"}' %s tool --window %s --send-keys",
+		h.socket, bin, winID)
 	h.sendKeys("lazyclaude:popup", toolCmd, "Enter")
 
-	// Wait for the tool popup to render
-	found := h.waitForText("lazyclaude:popup", "Bash", 5*time.Second)
+	// Wait for the tool popup to render (use gocui-specific text, not "Bash" which is in the command)
+	found := h.waitForText("lazyclaude:popup", "Esc: cancel", 10*time.Second)
 	require.True(t, found, "tool popup should render with tool name")
 
 	// Press 'y' in the popup
@@ -68,17 +68,17 @@ func TestE2E_DiffPopup_SendKeys(t *testing.T) {
 
 	oldFile := testdataPath(t, "old.go")
 	newFile := testdataPath(t, "new.go")
-	diffCmd := fmt.Sprintf("%s diff --window %s --send-keys --old %s --new %s",
-		bin, winID, oldFile, newFile)
+	diffCmd := fmt.Sprintf("LAZYCLAUDE_TMUX_SOCKET=%s %s diff --window %s --send-keys --old %s --new %s",
+		h.socket, bin, winID, oldFile, newFile)
 	h.sendKeys("lazyclaude:popup", diffCmd, "Enter")
 
-	found := h.waitForText("lazyclaude:popup", "hello", 5*time.Second)
+	found := h.waitForText("lazyclaude:popup", "Esc: cancel", 10*time.Second)
 	require.True(t, found, "diff popup should render")
 
-	// Press 'n' (reject -> key "3")
+	// Press 'n' (reject -> clamped by maxOption)
 	h.sendKeys("lazyclaude:popup", "n")
 
-	// Verify "3" arrived at the cat pane (choice Reject -> key "3")
+	// Verify key arrived at the cat pane (reject clamps to maxOption)
 	require.Eventually(t, func() bool {
 		return strings.Contains(h.capturePane("lazyclaude:"+winID), "3")
 	}, 3*time.Second, 200*time.Millisecond, "cat pane should have received key '3'")

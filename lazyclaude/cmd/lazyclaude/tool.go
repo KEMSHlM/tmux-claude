@@ -150,7 +150,12 @@ func runToolPopup(window, toolName, toolInput, toolCWD string, sendKeys bool) er
 
 	// Send the choice key directly to Claude Code's pane
 	if sendKeys && window != "" && choiceVal != gui.ChoiceCancel {
-		client := tmux.NewExecClient()
+		var client tmux.Client
+		if s := os.Getenv("LAZYCLAUDE_TMUX_SOCKET"); s != "" {
+			client = tmux.NewExecClientWithSocket(s)
+		} else {
+			client = tmux.NewExecClient()
+		}
 		if err := choice.SendToPane(context.Background(), client, window, choiceVal); err != nil {
 			fmt.Fprintf(os.Stderr, "send-keys: %v\n", err)
 		}

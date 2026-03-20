@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,6 +18,7 @@ func TestTmux_DiffPopup_ShowsContent(t *testing.T) {
 	oldFile := testdataPath(t, "old.go")
 	newFile := testdataPath(t, "new.go")
 
+	// No real Claude pane → maxOption defaults to 3 → action bar: y: yes  a: allow always  n: no
 	h.sendKeys("diff-test",
 		fmt.Sprintf("%s diff --window lc-test --old %s --new %s", bin, oldFile, newFile),
 		"Enter")
@@ -25,7 +27,9 @@ func TestTmux_DiffPopup_ShowsContent(t *testing.T) {
 	assert.True(t, found, "expected diff content")
 
 	content := h.capturePane("diff-test")
-	assert.Contains(t, content, "y:")
+	assert.Contains(t, content, "y: yes", "action bar should show y: yes")
+	assert.Contains(t, content, "a: allow always", "3-option default: should show allow always")
+	assert.Contains(t, content, "n: no", "action bar should show n: no")
 
 	h.sendKeys("diff-test", "y")
 }
@@ -33,19 +37,67 @@ func TestTmux_DiffPopup_ShowsContent(t *testing.T) {
 func TestTmux_ToolPopup_ShowsContent(t *testing.T) {
 	bin := e2eBinary(t)
 	h := newTmuxHelper(t)
-	h.startSession("tool-test", 200, 15)
+	h.startSession("tool-test", 80, 20)
 
+	// No real Claude pane → capture fails → maxOption defaults to 3 → 3-option action bar
 	h.sendKeys("tool-test",
 		fmt.Sprintf("TOOL_NAME=Bash TOOL_INPUT='{\"command\":\"ls\"}' TOOL_CWD=/tmp %s tool --window lc-tool", bin),
 		"Enter")
 
-	found := h.waitForText("tool-test", "Bash", 5*time.Second)
-	assert.True(t, found, "expected tool name in popup")
+	// Wait for gocui to render (not just the command line)
+	found := h.waitForText("tool-test", "Esc: cancel", 10*time.Second)
+	if !found {
+		t.Logf("capture:\n%s", h.capturePane("tool-test"))
+	}
+	require.True(t, found, "expected gocui popup to render")
 
 	content := h.capturePane("tool-test")
-	assert.Contains(t, content, "y:")
+	assert.Contains(t, content, "y: yes", "action bar should show y: yes")
+	assert.Contains(t, content, "a: allow always", "3-option default: should show allow always")
+	assert.Contains(t, content, "n: no", "action bar should show n: no")
+	assert.Contains(t, content, "Esc: cancel", "action bar should show Esc: cancel")
 
 	h.sendKeys("tool-test", "n")
+}
+
+func TestTmux_ToolPopup_2Option(t *testing.T) {
+	bin := e2eBinary(t)
+	h := newTmuxHelper(t)
+
+	// Create a "lazyclaude" session with a pane that simulates a 2-option dialog
+	h.startSession("lazyclaude", 80, 24)
+	// Write a fake 2-option dialog to the pane
+	h.sendKeys("lazyclaude",
+		"echo ' Do you want to proceed?'; echo ' ❯ 1. Yes'; echo '   2. No'", "Enter")
+	time.Sleep(300 * time.Millisecond)
+
+	// Get window ID
+	winID, err := h.run("display-message", "-t", "lazyclaude", "-p", "#{window_id}")
+	require.NoError(t, err)
+
+	// Start tool popup targeting that window
+	_, err = h.run("new-window", "-t", "lazyclaude", "-n", "popup")
+	require.NoError(t, err)
+
+	toolCmd := fmt.Sprintf(
+		"TOOL_NAME=Bash TOOL_INPUT='{\"command\":\"ls\"}' %s tool --window %s",
+		bin, strings.TrimSpace(winID))
+	h.sendKeys("lazyclaude:popup", toolCmd, "Enter")
+
+	found := h.waitForText("lazyclaude:popup", "Esc: cancel", 10*time.Second)
+	if !found {
+		t.Logf("capture:\n%s", h.capturePane("lazyclaude:popup"))
+	}
+	require.True(t, found, "expected gocui popup to render")
+
+	content := h.capturePane("lazyclaude:popup")
+	// 2-option: must show y/n, must NOT show "allow always"
+	assert.Contains(t, content, "y: yes", "2-option: should show y: yes")
+	assert.Contains(t, content, "n: no", "2-option: should show n: no")
+	assert.NotContains(t, content, "a: allow always", "2-option: must NOT show allow always")
+	assert.Contains(t, content, "Esc: cancel", "2-option: should show Esc: cancel")
+
+	h.sendKeys("lazyclaude:popup", "n")
 }
 
 func TestTmux_ServerCommand_StartsAndStops(t *testing.T) {
