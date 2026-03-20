@@ -123,15 +123,18 @@ echo "  tool_info=$STATUS1 permission_prompt=$STATUS2" >&2
 R=0; [ "$STATUS1" = "200" ] && [ "$STATUS2" = "200" ] || R=1
 check "/notify both 200" $R
 
-# --- 5. Wait for auto-accept popup ---
+# --- 5. Wait for display-popup + auto-accept ---
 echo "--- Step 5: Wait (3s) ---" >&2
 sleep 3
 
-# --- 6. Verify cat received '1' ---
-echo "--- Step 6: Verify ---" >&2
+# --- 6. Verify ---
+echo "--- Step 6: Verify key arrival ---" >&2
+echo "" >&2
+echo "--- cat-listener pane ---" >&2
 CAT_CONTENT=$(tmux -L "$SOCKET" capture-pane -t "lazyclaude:cat-listener" -p)
-echo "  cat pane:" >&2
-echo "$CAT_CONTENT" | head -3 >&2
+echo "$CAT_CONTENT" >&2
+echo "--- end ---" >&2
+echo "" >&2
 
 R=0; echo "$CAT_CONTENT" | grep -q "1" || R=1
 check "cat received '1' via display-popup chain" $R
