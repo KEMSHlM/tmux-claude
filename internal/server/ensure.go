@@ -63,6 +63,19 @@ func EnsureServer(opts EnsureOpts) (EnsureResult, error) {
 	return EnsureResult{Started: true}, nil
 }
 
+// IsAlive checks if a server is running by reading the port file and dialing.
+func IsAlive(portFile string) bool {
+	data, err := os.ReadFile(portFile)
+	if err != nil {
+		return false
+	}
+	port, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || port <= 0 {
+		return false
+	}
+	return isServerAlive(port)
+}
+
 // isServerAlive checks if a TCP server is listening on the given port.
 func isServerAlive(port int) bool {
 	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), dialTimeout)

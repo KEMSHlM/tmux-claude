@@ -110,6 +110,12 @@ func newRootCmd() *cobra.Command {
 			}
 			app.SetSessions(adapter)
 
+			// Popup mode: tmux display-popup when launched from tmux plugin,
+			// gocui overlay fallback otherwise.
+			if pm := os.Getenv("LAZYCLAUDE_POPUP_MODE"); pm != "" {
+				app.SetPopupMode(config.ParsePopupMode(pm))
+			}
+
 			// Wire the notify broker (nil-safe: falls back to file polling only).
 			app.SetNotifyBroker(notifyBroker)
 
@@ -149,12 +155,8 @@ func newRootCmd() *cobra.Command {
 // external server is already alive (the caller should fall back to ensureMCPServer).
 func tryStartInProcessServer(paths config.Paths, tmuxClient tmux.Client, logger *slog.Logger) *server.Server {
 	// If an external server is already alive, do not start a second one.
-	result, err := server.EnsureServer(server.EnsureOpts{
-		Binary:   os.Args[0],
-		PortFile: paths.PortFile(),
-	})
-	if err == nil && !result.Started {
-		// External server is alive; leave it running and skip in-process.
+	// Only check health — do NOT call EnsureServer which would spawn a subprocess.
+	if server.IsAlive(paths.PortFile()) {
 		return nil
 	}
 

@@ -1,24 +1,21 @@
 #!/usr/bin/env bash
 # lazyclaude TPM plugin entry point.
-# 1. Finds the lazyclaude binary
-# 2. Runs `lazyclaude setup` (MCP server + Claude Code hooks)
-# 3. Registers tmux keybindings from @claude-* options
+# 1. Runs `lazyclaude setup` (MCP server + Claude Code hooks)
+# 2. Registers tmux keybindings from @claude-* options
 #
 # Configurable options (set in tmux.conf / plugins.conf):
 #   @claude-launch-key    key to launch lazyclaude TUI (default: space)
 #   @claude-suppress-keys space-separated keys to disable inside lazyclaude session
 
-CURRENT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-BINARY="${CURRENT_DIR}/bin/lazyclaude"
-
-if [ ! -x "$BINARY" ]; then
-    BINARY="$(command -v lazyclaude 2>/dev/null)"
-fi
+BINARY="$(command -v lazyclaude 2>/dev/null)"
 
 if [ -z "$BINARY" ]; then
-    echo "lazyclaude: binary not found in ${CURRENT_DIR}/bin/ or PATH" >&2
+    echo "lazyclaude: binary not found in PATH" >&2
     exit 1
 fi
+
+# Capture PATH now (login shell) — display-popup may have a restricted PATH.
+LAUNCH_PATH="$PATH"
 
 # Run Go setup (MCP server + Claude Code hooks)
 "$BINARY" setup
@@ -30,12 +27,9 @@ suppress_keys=$(tmux show-option -gqv @claude-suppress-keys 2>/dev/null)
 launch_key="${launch_key:-space}"
 
 # Register keybindings
-# Use display-popup so lazyclaude runs as an overlay without creating a window
-# in the user's tmux session. -c passes the current pane's CWD so 'n' (new session)
-# creates Claude Code sessions in the right directory. -E closes the popup on exit.
-# env -u TMUX prevents tmux nesting guard from blocking lazyclaude's
-# commands on the separate lazyclaude socket (-L lazyclaude).
-tmux bind-key "$launch_key" display-popup -w 90% -h 80% -d "#{pane_current_path}" -E "env -u TMUX $BINARY"
+# display-popup runs lazyclaude as an overlay. env -u TMUX prevents the tmux
+# nesting guard. PATH is passed from the login shell so claude is found.
+tmux bind-key "$launch_key" display-popup -w 90% -h 80% -d "#{pane_current_path}" -E "env -u TMUX PATH='$LAUNCH_PATH' LAZYCLAUDE_POPUP_MODE=tmux $BINARY"
 
 # Suppress specified keys inside lazyclaude session
 for key in $suppress_keys; do
