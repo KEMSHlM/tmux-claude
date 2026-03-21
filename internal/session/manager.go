@@ -331,25 +331,18 @@ func claudeEnv() map[string]string {
 	return env
 }
 
-// cleanSessionCommands returns tmux commands to disable status bar and all keybindings.
-// These are chained after new-session via ";".
-// IMPORTANT: automatic-rename and remain-on-exit are set WITHOUT -w flag
-// so they become session-level defaults that apply to ALL windows (not just the first).
-// With -w they only apply to the current window, causing new windows created via
-// NewWindow to get tmux's defaults (automatic-rename=on), which renames windows
-// and breaks SyncWithTmux's name-based matching.
+// cleanSessionCommands returns tmux commands chained after new-session via ";".
+// Configures the lazyclaude tmux server: disables status bar, prevents window
+// renaming, keeps dead panes, and binds Ctrl+\ to detach-client.
 func cleanSessionCommands() [][]string {
+	// Use -g (global) so settings apply to all windows on the lazyclaude
+	// server, not just the current session/window context.
 	return [][]string{
-		{"set-option", "status", "off"},
-		{"set-option", "prefix", "None"},
-		{"set-option", "automatic-rename", "off"},
-		{"set-option", "remain-on-exit", "on"},
-		// Size window to the largest client (not smallest), so the
-		// interactive attach is not constrained by control mode's size.
-		{"set-option", "window-size", "largest"},
-		{"unbind-key", "-a", "-T", "prefix"},
-		{"unbind-key", "-a", "-T", "root"},
-		// Ctrl+\ detaches from the session, returning to lazyclaude TUI.
+		{"set-option", "-g", "status", "off"},
+		{"set-option", "-g", "automatic-rename", "off"},
+		{"set-option", "-g", "remain-on-exit", "on"},
+		{"set-option", "-g", "window-size", "largest"},
+		{"set-hook", "-g", "pane-died", "detach-client"},
 		{"bind-key", "-T", "root", "C-\\", "detach-client"},
 	}
 }

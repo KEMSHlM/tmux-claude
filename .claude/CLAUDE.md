@@ -118,8 +118,65 @@ func isUnknownView(err error) bool {
 Ctrl+[ と Esc は同じバイト (0x1B)。gocui/tcell で区別不可能。
 lazyclaude は **Ctrl+\\** を normal mode 切替に使用。
 
+## tmux アーキテクチャ
+
+### 2つの tmux サーバー
+
+lazyclaude は2つの独立した tmux サーバーを使用する:
+
+1. **ユーザーの tmux** (デフォルトソケット) — `display-popup` で lazyclaude TUI を表示
+2. **lazyclaude tmux** (`-L lazyclaude` ソケット) — Claude Code セッションを管理
+
+### キー入力の流れ
+
+```
+popup 外: キー → ユーザーの tmux root table → マッチなら実行
+popup 内: キー → popup プロセスに直接渡る (ユーザーの tmux root table はバイパス)
+attach 中: キー → lazyclaude tmux の root table → マッチなら実行
+```
+
+- popup 内ではユーザーの tmux の keybinding は発火しない
+- そのため同じキー (Ctrl+\) をユーザー側 (popup 起動) と lazyclaude 側 (detach) に登録しても競合しない
+
+### display-popup の動作 (tmux 3.4+)
+
+- popup 内から `display-popup` を呼ぶと既存 popup を **変更** できる (ネストではない)
+- `-b rounded` / `-B` で枠線を動的に切り替え可能
+- `-T " title "` でタイトルを動的に変更可能
+- popup 内のプロセスが終了すると変更も消える
+
+### `tmux source` はキーバインドをリセットしない
+
+`tmux source ~/.config/tmux/tmux.conf` は既存のキーバインドを削除しない。上書きまたは追加のみ。
+完全リセットは tmux サーバーの再起動が必要。デバッグ時は `tmux list-keys | grep <key>` と `tmux unbind-key` を使う。
+
+### cleanSessionCommands の制約
+
+- `PostCommands` は `NewSession` 時のみ実行される (`NewWindow` では実行されない)
+- lazyclaude サーバー上で実行されるため `-L lazyclaude` は不要
+- `-g` (global) を使えばサーバー全体に適用される
+- `bind-key` に `-t` フラグは存在しない (tmux エラーになる)
+- `pane-border-lines` に `rounded` は存在しない (`single`, `double`, `heavy`, `simple` のみ)
+- `popup-border-lines` には `rounded` がある (別のオプション)
+- lazyclaude サーバー固有の設定は `tmux -L lazyclaude set-option/bind-key` で `lazyclaude.tmux` から直接設定可能
+
+### MCP サーバー
+
+- `lazyclaude setup` (lazyclaude.tmux 実行時) に起動される常駐デーモン
+- Claude Code の hooks から通知を受け、`tmux display-popup` で tool/diff 確認を表示
+- lazyclaude TUI が閉じていても popup は表示される
+- サーバーログ: `/tmp/lazyclaude-server.log`
+- 重複起動防止: `server.IsAlive()` で port file + TCP dial チェック
+
+### パフォーマンス
+
+- `tmux display-message` (subprocess) を capture ごとに呼ぶと ~5ms のオーバーヘッドで体感速度が劣化する
+- パフォーマンス問題は git bisect でバイナリ比較して特定する (コード分析より確実)
+- チェックポイントは `.claude/checkpoints.log` に記録
+
 ## 設計ドキュメント
 
 - `docs/dev/popup-redesign-plan.md` — ポップアップ再設計計画 (全フェーズ完了)
 - `docs/dev/issue-normal-mode-navigation.md` — normal mode ナビゲーション issue
 - `docs/dev/issue-popup-fullmode.md` — tmux display-popup の失敗記録
+- `docs/research/go-pty-terminal-in-terminal.md` — Go PTY/terminal-in-terminal 調査

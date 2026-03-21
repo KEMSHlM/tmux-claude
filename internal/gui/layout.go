@@ -1,13 +1,18 @@
 package gui
 
 import (
+	"bytes"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/KEMSHlM/lazyclaude/internal/gui/presentation"
 	"github.com/jesseduffield/gocui"
 )
+
+const serverLogPath = "/tmp/lazyclaude-server.log"
+const serverLogLines = 30
 
 // roundedFrame is the set of runes for rounded border corners.
 // Order: horizontal, vertical, top-left, top-right, bottom-left, bottom-right.
@@ -183,9 +188,8 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 	setRoundedFrame(v2)
 	v2.Title = " Server "
 	v2.Wrap = true
-	if isUnknownView(err) {
-		fmt.Fprintln(v2, "  MCP: not running")
-	}
+	v2.Clear()
+	a.renderServerLog(v2)
 
 	// Main panel (right side)
 	v3, err := g.SetView("main", l.Main.X0, l.Main.Y0, l.Main.X1, l.Main.Y1, 0)
@@ -459,4 +463,21 @@ func TabBar(tabs []SideTab, activeIdx int) string {
 		}
 	}
 	return strings.Join(parts, "  ")
+}
+
+// renderServerLog reads the last N lines of the server log file and writes them to the view.
+func (a *App) renderServerLog(v *gocui.View) {
+	data, err := os.ReadFile(serverLogPath)
+	if err != nil {
+		fmt.Fprintln(v, presentation.Dim+"  MCP: no log"+presentation.Reset)
+		return
+	}
+	lines := bytes.Split(bytes.TrimRight(data, "\n"), []byte("\n"))
+	start := 0
+	if len(lines) > serverLogLines {
+		start = len(lines) - serverLogLines
+	}
+	for _, line := range lines[start:] {
+		fmt.Fprintln(v, " "+string(line))
+	}
 }

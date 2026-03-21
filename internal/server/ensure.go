@@ -54,9 +54,20 @@ func EnsureServer(opts EnsureOpts) (EnsureResult, error) {
 		cmd.Env = append(os.Environ(), opts.ExtraEnv...)
 	}
 	cmd.Stdout = nil
-	cmd.Stderr = nil
+	// Log server output to file so it persists after detach.
+	logFile, err := os.OpenFile("/tmp/lazyclaude-server.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err == nil {
+		cmd.Stderr = logFile
+	}
 	if err := cmd.Start(); err != nil {
+		if logFile != nil {
+			logFile.Close()
+		}
 		return EnsureResult{}, fmt.Errorf("start MCP server: %w", err)
+	}
+	// Close parent's copy — child inherited the fd via Start().
+	if logFile != nil {
+		logFile.Close()
 	}
 	cmd.Process.Release() // detach
 

@@ -172,10 +172,10 @@ func tryStartInProcessServer(paths config.Paths, tmuxClient tmux.Client, logger 
 		binaryPath = b
 	}
 
+	// Log file lives for the process lifetime (closed on exit).
 	var srvLogger *log.Logger
-	if logger != nil {
-		// Adapt slog to stdlib log for the server (which uses log.Logger).
-		srvLogger = log.New(os.Stderr, "lazyclaude-srv: ", log.LstdFlags)
+	if f, err := os.OpenFile("/tmp/lazyclaude-server.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+		srvLogger = log.New(f, "lazyclaude-srv: ", log.LstdFlags)
 	} else {
 		srvLogger = log.New(os.Stderr, "lazyclaude-srv: ", log.LstdFlags)
 	}
@@ -332,7 +332,6 @@ func (a *sessionAdapter) AttachSession(id string) error {
 	_ = exec.Command("tmux", "-L", "lazyclaude", "set-option", "-t", "lazyclaude", "window-size", "largest").Run()
 
 	// Directly attach to the lazyclaude tmux session.
-	// Ctrl+\ detaches back to gocui (bound in cleanSessionCommands).
 	cmd := exec.Command("tmux", "-L", "lazyclaude", "attach-session", "-t", target)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
