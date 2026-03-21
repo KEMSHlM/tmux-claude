@@ -33,7 +33,9 @@ VHS_RC=0
 vhs -q "$TAPE" || VHS_RC=$?
 
 sleep 1
+# tail -f を含むパイプ全体を停止
 kill "$WATCHER_PID" 2>/dev/null || true
+pkill -f "tail -f $TXT" 2>/dev/null || true
 wait "$WATCHER_PID" 2>/dev/null || true
 
 cleanup_frames
