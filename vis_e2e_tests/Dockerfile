@@ -55,6 +55,7 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
+COPY --from=base /usr/local/bin/claude /usr/local/bin/claude
 RUN go build -o bin/lazyclaude ./cmd/lazyclaude && \
     ln -sf /app/bin/lazyclaude /usr/local/bin/lazyclaude && \
     mkdir -p /app/outputs && \

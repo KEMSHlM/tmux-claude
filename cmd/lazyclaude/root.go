@@ -47,10 +47,11 @@ func newRootCmd() *cobra.Command {
 			}
 			tmuxClient := tmux.NewExecClientWithSocket(tmuxSocket)
 
+			os.MkdirAll("/tmp/lazyclaude", 0o755)
 			if debug {
 				dest := logFile
 				if dest == "" {
-					dest = "/tmp/lazyclaude-debug.log"
+					dest = "/tmp/lazyclaude/debug.log"
 				}
 				f, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 				if err != nil {
@@ -140,7 +141,7 @@ func newRootCmd() *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&debug, "debug", false, "enable debug logging")
-	cmd.Flags().StringVar(&logFile, "log-file", "/tmp/lazyclaude-debug.log", "log file path (used with --debug)")
+	cmd.Flags().StringVar(&logFile, "log-file", "/tmp/lazyclaude/debug.log", "log file path (used with --debug)")
 
 	cmd.AddCommand(newServerCmd())
 	cmd.AddCommand(newDiffCmd())
@@ -174,7 +175,7 @@ func tryStartInProcessServer(paths config.Paths, tmuxClient tmux.Client, logger 
 
 	// Log file lives for the process lifetime (closed on exit).
 	var srvLogger *log.Logger
-	if f, err := os.OpenFile("/tmp/lazyclaude-server.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+	if f, err := os.OpenFile("/tmp/lazyclaude/server.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
 		srvLogger = log.New(f, "lazyclaude-srv: ", log.LstdFlags)
 	} else {
 		srvLogger = log.New(os.Stderr, "lazyclaude-srv: ", log.LstdFlags)

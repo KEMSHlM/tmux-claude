@@ -11,7 +11,7 @@ import (
 	"github.com/jesseduffield/gocui"
 )
 
-const serverLogPath = "/tmp/lazyclaude-server.log"
+const serverLogPath = "/tmp/lazyclaude/server.log"
 const serverLogLines = 30
 
 // roundedFrame is the set of runes for rounded border corners.

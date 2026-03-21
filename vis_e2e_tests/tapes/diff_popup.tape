@@ -3,23 +3,25 @@ Output outputs/diff_popup/diff_popup.txt
 
 Set Shell "bash"
 Set Width 1200
-Set Height 600
+Set Height 800
 Set FontSize 16
-Set WaitTimeout 10s
+Set WaitTimeout 30s
 
-# diff ビューア起動
-Type "lazyclaude diff --old /tmp/old.go --new /tmp/new.go"
-Enter
-Sleep 3s
+# lazyclaude 起動
+Type "lazyclaude" Enter Sleep 5s
 
-# スクロール
-Type "j"
-Type "j"
-Type "j"
-Sleep 1s
-Type "k"
-Sleep 1s
+# セッション作成
+Type "n" Sleep 5s
 
-# 承認
-Type "y"
-Sleep 1s
+# フルスクリーン
+Enter Sleep 5s
+
+# Claude に編集依頼
+Type "edit /tmp/test.go and change hello to goodbye" Enter Sleep 15s
+
+# diff popup が表示される → y で承認
+Type "y" Sleep 3s
+
+# フルスクリーンから戻る → 終了
+Ctrl+\ Sleep 1s
+Type "q" Sleep 1s

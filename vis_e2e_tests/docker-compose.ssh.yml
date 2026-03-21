@@ -20,6 +20,9 @@ services:
     depends_on:
       remote:
         condition: service_healthy
+    env_file:
+      - path: .env
+        required: false
     environment:
       - REMOTE_HOST=remote
       - TERM=xterm-256color

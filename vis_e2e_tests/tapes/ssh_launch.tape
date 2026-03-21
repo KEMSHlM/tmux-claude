@@ -3,7 +3,7 @@ Output outputs/ssh_launch/ssh_launch.txt
 
 Set Shell "bash"
 Set Width 1200
-Set Height 600
+Set Height 800
 Set FontSize 16
 Set WaitTimeout 30s
 

@@ -3,40 +3,27 @@ Output outputs/popup_stack/popup_stack.txt
 
 Set Shell "bash"
 Set Width 1200
-Set Height 600
+Set Height 800
 Set FontSize 16
-Set WaitTimeout 30s
+Set WaitTimeout 60s
 
 # lazyclaude 起動
-Type "lazyclaude"
-Enter
-Wait+Screen /No sessions/
-Sleep 1s
+Type "lazyclaude" Enter Sleep 5s
 
-# カスケード表示を待つ [3/3]
-Wait+Screen /3\/3/
-Sleep 1s
+# セッション作成
+Type "n" Sleep 5s
 
-# 上矢印 → [2/3]
-Up
-Sleep 1s
+# フルスクリーン
+Enter Sleep 5s
 
-# Esc → サスペンド
-Escape
-Sleep 1s
+# Claude に複数ツールを使うタスクを依頼
+Type "create 3 files: /tmp/a.txt with 'aaa', /tmp/b.txt with 'bbb', /tmp/c.txt with 'ccc'" Enter Sleep 15s
 
-# p → 再表示
-Type "p"
-Sleep 1s
+# popup が表示される → y で承認 (3回)
+Type "y" Sleep 3s
+Type "y" Sleep 3s
+Type "y" Sleep 3s
 
-# y → 個別却下
-Type "y"
-Sleep 1s
-
-# y → もう一つ却下
-Type "y"
-Sleep 1s
-
-# 終了
-Type "q"
-Sleep 1s
+# フルスクリーンから戻る → 終了
+Ctrl+\ Sleep 1s
+Type "q" Sleep 1s

@@ -21,7 +21,36 @@ case "$TAPE_NAME" in
         sleep 2
         export VHS_AUTO_TMUX=1
         ;;
+    diff_popup)
+        /app/bin/lazyclaude setup 2>/dev/null || true
+        export LAZYCLAUDE_POPUP_MODE=tmux
+        # テスト用ファイル作成
+        cat > /tmp/test.go << 'GOEOF'
+package main
+
+import "fmt"
+
+func hello() string {
+    return "hello"
+}
+
+func main() {
+    fmt.Println(hello())
+}
+GOEOF
+        ;;
 esac
+
+# --- lazyclaude を --debug で起動するようにラッパーを上書き ---
+DEBUG_LOG="${OUTDIR}/debug.log"
+rm -f /usr/local/bin/lazyclaude
+cat > /usr/local/bin/lazyclaude << WRAPPER
+#!/bin/bash-real
+exec /app/bin/lazyclaude --debug --log-file "$DEBUG_LOG" "\$@"
+WRAPPER
+chmod +x /usr/local/bin/lazyclaude
+mkdir -p /tmp/lazyclaude
+ln -sf "${OUTDIR}/server.log" /tmp/lazyclaude/server.log
 
 # --- フレーム監視 (バックグラウンド) ---
 LOG="${OUTDIR}/${TAPE_NAME}.log"
