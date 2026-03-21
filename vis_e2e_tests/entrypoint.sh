@@ -12,7 +12,16 @@ mkdir -p "$OUTDIR"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/scripts/show_frame.sh"
 
-# --- セットアップ ---
+# --- 共通セットアップ ---
+# Docker DNS が ttyd 内で効かない場合があるため、remote の IP を /etc/hosts に追加
+if [ -n "${REMOTE_HOST:-}" ]; then
+    REMOTE_IP=$(getent hosts "$REMOTE_HOST" 2>/dev/null | awk '{print $1}')
+    if [ -n "$REMOTE_IP" ]; then
+        echo "$REMOTE_IP $REMOTE_HOST" >> /etc/hosts
+    fi
+fi
+
+# --- テープ固有セットアップ ---
 case "$TAPE_NAME" in
     ssh_launch)
         tmux new-session -d -s main -x 125 -y 37
