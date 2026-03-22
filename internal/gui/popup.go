@@ -97,9 +97,9 @@ func (a *App) layoutToolPopup(g *gocui.Gui, maxX, maxY int) error {
 		v.Clear()
 
 		if e.popup.IsDiff() {
-			a.renderDiffPopup(v, e.popup)
+			renderDiffPopup(v, e.popup)
 		} else {
-			a.renderToolPopup(v, e.popup)
+			renderToolPopup(v, e.popup)
 		}
 
 		if i == a.popups.FocusIndex() {
@@ -115,7 +115,7 @@ func (a *App) layoutToolPopup(g *gocui.Gui, maxX, maxY int) error {
 	focusedEntry := a.popups.ActiveEntry()
 	if focusedEntry != nil {
 		cx, cy := popupCascadeOffset(baseX, baseY, a.popups.VisibleIndexOf(a.popups.FocusIndex()))
-		ay0 := cy + popH - 1
+		ay0 := cy + popH - 2
 		ay1 := ay0 + 2
 		if ay1 >= maxY {
 			ay1 = maxY - 1
@@ -130,6 +130,7 @@ func (a *App) layoutToolPopup(g *gocui.Gui, maxX, maxY int) error {
 			return err
 		}
 		v2.Frame = false
+		v2.BgColor = gocui.Get256Color(236)
 		v2.Clear()
 		g.SetViewOnTop(popupActionsViewName)
 
@@ -171,48 +172,6 @@ func (a *App) cleanupPopupViews(g *gocui.Gui) {
 			continue
 		}
 		g.DeleteView(name)
-	}
-}
-
-func (a *App) renderToolPopup(v *gocui.View, p Popup) {
-	v.Title = p.Title()
-	for _, line := range p.ContentLines() {
-		fmt.Fprintln(v, line)
-	}
-}
-
-func (a *App) renderDiffPopup(v *gocui.View, p Popup) {
-	v.Title = p.Title()
-
-	diffLines := p.ContentLines()
-	diffKinds := p.ContentKinds()
-	_, viewH := v.Size()
-	visibleLines := viewH - 1
-
-	start := p.ScrollY()
-	end := start + visibleLines
-	if end > len(diffLines) {
-		end = len(diffLines)
-	}
-	if start < 0 {
-		start = 0
-	}
-
-	for i := start; i < end; i++ {
-		line := diffLines[i]
-		kind := diffKinds[i]
-		switch kind {
-		case presentation.DiffAdd:
-			fmt.Fprintf(v, "\x1b[32m%s\x1b[0m\n", line)
-		case presentation.DiffDel:
-			fmt.Fprintf(v, "\x1b[31m%s\x1b[0m\n", line)
-		case presentation.DiffHunk:
-			fmt.Fprintf(v, "\x1b[36m%s\x1b[0m\n", line)
-		case presentation.DiffHeader:
-			fmt.Fprintf(v, "\x1b[1m%s\x1b[0m\n", line)
-		default:
-			fmt.Fprintln(v, line)
-		}
 	}
 }
 

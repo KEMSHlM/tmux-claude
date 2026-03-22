@@ -138,7 +138,7 @@ func TestStore_GenerateName_Remote(t *testing.T) {
 	s := session.NewStore("")
 
 	name := s.GenerateName("/home/user/work", "srv1")
-	assert.Equal(t, "srv1:work", name)
+	assert.Equal(t, "work", name)
 }
 
 func TestSession_WindowName(t *testing.T) {

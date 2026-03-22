@@ -2,6 +2,7 @@ package gui
 
 import (
 	"fmt"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -108,19 +109,6 @@ func ComputePopupLayout(width, height int) Layout {
 	}
 }
 
-// ActiveTabIdx returns the active side panel tab index.
-func (a *App) ActiveTabIdx() int {
-	return a.activeTabIdx
-}
-
-// SetActiveTab switches the side panel tab.
-func (a *App) SetActiveTab(idx int) {
-	tabs := SideTabs()
-	if idx >= 0 && idx < len(tabs) {
-		a.activeTabIdx = idx
-	}
-}
-
 func (a *App) layout(g *gocui.Gui) error {
 	maxX, maxY := g.Size()
 
@@ -133,7 +121,7 @@ func (a *App) layout(g *gocui.Gui) error {
 
 	switch a.mode {
 	case ModeMain:
-		if a.state.IsFullScreen() {
+		if a.fullscreen.IsActive() {
 			if err := a.layoutFullScreen(g, maxX, maxY); err != nil {
 				return err
 			}
@@ -153,9 +141,7 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 	g.DeleteView("fullscreen-bar") // clean up after full-screen mode
 
 	l := ComputeLayout(maxX, maxY)
-
-	tabs := SideTabs()
-	tabTitle := " " + TabBar(tabs, a.activeTabIdx) + " "
+	focusedName := a.panelManager.ActivePanel().Name()
 
 	// Sessions view (upper left)
 	v, err := g.SetView("sessions", l.Sessions.X0, l.Sessions.Y0, l.Sessions.X1, l.Sessions.Y1, 0)
@@ -163,29 +149,45 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 		return err
 	}
 	setRoundedFrame(v)
-	v.Title = tabTitle
-	v.Highlight = true
+	v.Title = " Sessions "
+	v.Highlight = focusedName == "sessions"
 	v.SelBgColor = gocui.ColorBlue
 	v.SelFgColor = gocui.ColorWhite
+	if focusedName == "sessions" {
+		v.FrameColor = gocui.ColorCyan
+	} else {
+		v.FrameColor = gocui.ColorDefault
+	}
 	v.Clear()
-	// Take a single snapshot of sessions for this frame (prevents TOCTOU with GC)
 	var items []SessionItem
 	if a.sessions != nil {
 		items = a.sessions.Sessions()
 	}
-	a.renderSessionList(v, items)
+	if len(items) > 0 {
+		if a.cursor >= len(items) {
+			a.cursor = len(items) - 1
+		}
+		if a.cursor < 0 {
+			a.cursor = 0
+		}
+	}
+	renderSessionList(v, items, a.cursor)
 
-	// Server view (lower left)
-	v2, err := g.SetView("server", l.Server.X0, l.Server.Y0, l.Server.X1, l.Server.Y1, 0)
+	// Logs view (lower left)
+	v2, err := g.SetView("logs", l.Server.X0, l.Server.Y0, l.Server.X1, l.Server.Y1, 0)
 	if err != nil && !isUnknownView(err) {
 		return err
 	}
 	setRoundedFrame(v2)
-	v2.Title = " Server "
+	v2.Title = " Logs "
 	v2.Wrap = true
-	if isUnknownView(err) {
-		fmt.Fprintln(v2, "  MCP: not running")
+	if focusedName == "logs" {
+		v2.FrameColor = gocui.ColorCyan
+	} else {
+		v2.FrameColor = gocui.ColorDefault
 	}
+	v2.Clear()
+	renderServerLog(v2, a.logs, focusedName == "logs")
 
 	// Main panel (right side)
 	v3, err := g.SetView("main", l.Main.X0, l.Main.Y0, l.Main.X1, l.Main.Y1, 0)
@@ -196,34 +198,26 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 	v3.Wrap = false
 	v3.Editable = false
 	v3.Clear()
-	// Pass preview panel inner dimensions (exclude borders).
-	// Width: gocui border takes 1 col on each side of the right panel.
-	// Height: top border + bottom border + options bar = 2 top + 2 bottom rows.
 	previewW := l.Main.Width() - 1
 	previewH := l.Main.Height() - 2
 	a.renderPreview(v3, items, previewW, previewH)
 
-	// Options bar (bottom, frameless)
+	// Options bar (bottom, frameless) — dynamic per focused panel
 	v4, err := g.SetView("options", l.Options.X0, l.Options.Y0, l.Options.X1, l.Options.Y1, 0)
 	if err != nil && !isUnknownView(err) {
 		return err
 	}
 	v4.Frame = false
-	if isUnknownView(err) {
-		fmt.Fprint(v4, " ",
-			presentation.StyledKey("n", "new"), "  ",
-			presentation.StyledKey("d", "del"), "  ",
-			presentation.StyledKey("enter", "full"), "  ",
-			presentation.StyledKey("r", "resume"), "  ",
-			presentation.StyledKey("R", "rename"), "  ",
-			presentation.StyledKey("q", "quit"),
-		)
+	v4.Clear()
+	if optionsText := a.dispatcher.ActiveOptionsBar(a); optionsText != "" {
+		fmt.Fprint(v4, optionsText)
 	}
 
-	// Set focus to active tab's view
-	activeView := tabs[a.activeTabIdx].Name
-	if _, err := g.SetCurrentView(activeView); err != nil && !isUnknownView(err) {
-		return err
+	// Set focus to active panel's view (skip if rename input is active).
+	if a.renameSessionID == "" {
+		if _, err := g.SetCurrentView(focusedName); err != nil && !isUnknownView(err) {
+			return err
+		}
 	}
 	return nil
 }
@@ -231,7 +225,7 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 func (a *App) layoutFullScreen(g *gocui.Gui, maxX, maxY int) error {
 	// Remove split-panel views
 	g.DeleteView("sessions")
-	g.DeleteView("server")
+	g.DeleteView("logs")
 	g.DeleteView("options")
 
 	l := ComputeFullScreenLayout(maxX, maxY)
@@ -254,7 +248,7 @@ func (a *App) layoutFullScreen(g *gocui.Gui, maxX, maxY int) error {
 	// Find the full-screen target session
 	targetIdx := -1
 	for i, item := range items {
-		if item.ID == a.fullScreenTarget {
+		if item.ID == a.fullscreen.Target() {
 			targetIdx = i
 			break
 		}
@@ -269,7 +263,7 @@ func (a *App) layoutFullScreen(g *gocui.Gui, maxX, maxY int) error {
 	a.renderPreview(v, items, previewW, previewH)
 
 	// Scroll offset for mouse scroll
-	v.SetOrigin(0, a.fullScreenScrollY)
+	v.SetOrigin(0, a.fullscreen.ScrollY())
 
 	// Status bar
 	v2, err := g.SetView("fullscreen-bar", l.Options.X0, l.Options.Y0, l.Options.X1, l.Options.Y1, 0)
@@ -390,73 +384,53 @@ func (a *App) renderPreview(v *gocui.View, items []SessionItem, previewW, previe
 	fmt.Fprintf(v, "  %s\n", item.Path)
 }
 
-func (a *App) renderSessionList(v *gocui.View, items []SessionItem) {
-	if len(items) == 0 {
-		fmt.Fprintln(v, "")
-		fmt.Fprintln(v, presentation.Dim+"  No sessions"+presentation.Reset)
-		fmt.Fprintln(v, "")
-		fmt.Fprintln(v, "  Press "+presentation.Bold+"n"+presentation.Reset+" to create")
-		return
-	}
 
-	if a.cursor >= len(items) {
-		a.cursor = len(items) - 1
-	}
-	if a.cursor < 0 {
-		a.cursor = 0
-	}
-
-	for i, item := range items {
-		prefix := "  "
-		if i == a.cursor {
-			prefix = presentation.FgCyan + presentation.Bold + "> " + presentation.Reset
-		}
-
-		var icon string
-		switch item.Status {
-		case "Running":
-			icon = " " + presentation.IconRunning
-		case "Dead":
-			icon = " " + presentation.IconDead
-		case "Orphan":
-			icon = " " + presentation.IconOrphan
-		case "Detached":
-			icon = " " + presentation.IconDetached
-		}
-
-		name := item.Name
-		if item.Host != "" {
-			name = presentation.FgPurple + item.Host + presentation.Reset + ":" + name
-		}
-		fmt.Fprintf(v, "%s%-20s%s\n", prefix, name, icon)
-	}
-
-	v.SetCursor(0, a.cursor)
+// copyToClipboard copies text to the system clipboard using pbcopy (macOS).
+func copyToClipboard(text string) {
+	cmd := exec.Command("pbcopy")
+	cmd.Stdin = strings.NewReader(text)
+	_ = cmd.Run()
 }
 
-// SideTab represents a tab in the left side panel.
-type SideTab struct {
-	Label string
-	Name  string
+// showRenameInput creates a small input view for renaming a session.
+// Returns false if the view could not be created.
+func (a *App) showRenameInput(g *gocui.Gui, currentName string) bool {
+	maxX, maxY := g.Size()
+	w := 40
+	if w > maxX-4 {
+		w = maxX - 4
+	}
+	x0 := (maxX - w) / 2
+	y0 := maxY/2 - 1
+	x1 := x0 + w
+	y1 := y0 + 2
+
+	v, err := g.SetView("rename-input", x0, y0, x1, y1, 0)
+	if err != nil && !isUnknownView(err) {
+		return false
+	}
+	v.Title = " Rename "
+	v.Editable = true
+	v.Editor = gocui.DefaultEditor
+	v.TextArea.Clear()
+	for _, ch := range currentName {
+		v.TextArea.TypeCharacter(string(ch))
+	}
+	v.RenderTextArea()
+	if _, err := g.SetCurrentView("rename-input"); err != nil && !isUnknownView(err) {
+		return false
+	}
+	g.Cursor = true
+	return true
 }
 
-// SideTabs returns the side panel tabs for the main screen.
-func SideTabs() []SideTab {
-	return []SideTab{
-		{Label: "Sessions", Name: "sessions"},
-		{Label: "Server", Name: "server"},
+// closeRenameInput removes the rename input view and restores focus.
+func (a *App) closeRenameInput(g *gocui.Gui) {
+	a.renameSessionID = ""
+	g.DeleteView("rename-input")
+	g.Cursor = false
+	if _, err := g.SetCurrentView("sessions"); err != nil && !isUnknownView(err) {
+		// Fallback: sessions view may not exist in some modes.
+		_ = err
 	}
-}
-
-// TabBar renders the tab bar string for the side panel title.
-func TabBar(tabs []SideTab, activeIdx int) string {
-	parts := make([]string, len(tabs))
-	for i, tab := range tabs {
-		if i == activeIdx {
-			parts[i] = "[" + tab.Label + "]"
-		} else {
-			parts[i] = tab.Label
-		}
-	}
-	return strings.Join(parts, "  ")
 }

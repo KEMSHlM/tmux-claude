@@ -2,5 +2,8 @@ bin/
 /lazyclaude
 /mock-claude-client
 .env
-tests/integration/tapes/outputs/
+vis_e2e_tests/outputs/
 integration.test
+.DS_Store
+old_tapes/
+.claude/

@@ -79,7 +79,12 @@ func (c *ExecClient) Socket() string {
 func (c *ExecClient) prependSocket(args []string) []string {
 	prefix := []string{"-u"} // force UTF-8
 	if c.socket != "" {
-		prefix = append(prefix, "-L", c.socket)
+		// Use -S for absolute paths, -L for socket names
+		if strings.HasPrefix(c.socket, "/") {
+			prefix = append(prefix, "-S", c.socket)
+		} else {
+			prefix = append(prefix, "-L", c.socket)
+		}
 	}
 	return append(prefix, args...)
 }
@@ -304,7 +309,7 @@ func (c *ExecClient) DisplayPopup(ctx context.Context, opts PopupOpts) error {
 	}
 	popupCmd := prefix + opts.Cmd
 
-	args := []string{"display-popup"}
+	args := []string{"display-popup", "-b", "rounded"}
 	if opts.Target != "" {
 		args = append(args, "-t", opts.Target)
 	} else if opts.Client != "" {

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -23,6 +24,42 @@ type EnsureOpts struct {
 type EnsureResult struct {
 	Port    int  // listening port (0 if unknown)
 	Started bool // true if a new server process was spawned
+}
+
+// RestartServer kills any existing server and starts a new one.
+func RestartServer(opts EnsureOpts) (EnsureResult, error) {
+	// Kill existing server by reading port file and finding the process.
+	if data, err := os.ReadFile(opts.PortFile); err == nil {
+		port, parseErr := strconv.Atoi(strings.TrimSpace(string(data)))
+		if parseErr == nil && port > 0 {
+			killServerOnPort(port)
+		}
+		os.Remove(opts.PortFile)
+	}
+	return startServer(opts)
+}
+
+// killServerOnPort finds and kills the server process listening on the given port.
+func killServerOnPort(port int) {
+	// Find PID from lock file
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	lockPath := fmt.Sprintf("%s/.claude/ide/%d.lock", home, port)
+	data, err := os.ReadFile(lockPath)
+	if err != nil {
+		return
+	}
+	var lock struct {
+		PID int `json:"pid"`
+	}
+	if json.Unmarshal(data, &lock) == nil && lock.PID > 0 {
+		if p, err := os.FindProcess(lock.PID); err == nil {
+			p.Signal(os.Interrupt)
+		}
+	}
+	os.Remove(lockPath)
 }
 
 // EnsureServer starts the MCP server if not already running.
@@ -48,15 +85,32 @@ func EnsureServer(opts EnsureOpts) (EnsureResult, error) {
 		}
 	}
 
-	// 2. Start new server (inherits parent environment + extra vars)
+	return startServer(opts)
+}
+
+func startServer(opts EnsureOpts) (EnsureResult, error) {
+	// Kill any orphan server processes before starting a new one
+	killOrphanServers(opts.Binary)
+
 	cmd := exec.Command(opts.Binary, "server", "--port", "0")
 	if len(opts.ExtraEnv) > 0 {
 		cmd.Env = append(os.Environ(), opts.ExtraEnv...)
 	}
 	cmd.Stdout = nil
-	cmd.Stderr = nil
+	// Log server output to file so it persists after detach.
+	logFile, err := os.OpenFile("/tmp/lazyclaude/server.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err == nil {
+		cmd.Stderr = logFile
+	}
 	if err := cmd.Start(); err != nil {
+		if logFile != nil {
+			logFile.Close()
+		}
 		return EnsureResult{}, fmt.Errorf("start MCP server: %w", err)
+	}
+	// Close parent's copy — child inherited the fd via Start().
+	if logFile != nil {
+		logFile.Close()
 	}
 	cmd.Process.Release() // detach
 
@@ -74,6 +128,13 @@ func IsAlive(portFile string) bool {
 		return false
 	}
 	return isServerAlive(port)
+}
+
+// killOrphanServers finds and kills any lazyclaude server processes.
+func killOrphanServers(binary string) {
+	// Use pkill to kill all matching processes
+	exec.Command("pkill", "-f", binary+" server").Run()
+	time.Sleep(100 * time.Millisecond)
 }
 
 // isServerAlive checks if a TCP server is listening on the given port.

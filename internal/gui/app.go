@@ -2,12 +2,16 @@ package gui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/KEMSHlM/lazyclaude/internal/core/config"
 	"github.com/KEMSHlM/lazyclaude/internal/core/event"
 	"github.com/KEMSHlM/lazyclaude/internal/core/model"
+	"github.com/KEMSHlM/lazyclaude/internal/gui/keydispatch"
+	"github.com/KEMSHlM/lazyclaude/internal/gui/keyhandler"
 	"github.com/jesseduffield/gocui"
 )
 
@@ -36,6 +40,7 @@ type SessionProvider interface {
 	CapturePreview(id string, width, height int) (PreviewResult, error)
 	PendingNotifications() []*model.ToolNotification
 	SendChoice(window string, choice Choice) error
+	AttachSession(id string) error
 }
 
 // SessionItem is a read-only view of a session for display.
@@ -60,24 +65,21 @@ type PreviewResult struct {
 type App struct {
 	gui              *gocui.Gui
 	mode             AppMode
-	activeTabIdx     int
 	sessions         SessionProvider
 	cursor           int // selected session index
 	preview          *PreviewCache
 	lastWidth        int
 	lastHeight       int
-	popups           *PopupController              // popup stack management
-	state            AppState                     // current UI state (Main, FullScreen)
-	fullScreenTarget string                        // session ID for full-screen view
-	inputForwarder   InputForwarder                // forwards keys to tmux pane in full-screen
+	popups           PopupManager                  // popup stack management
+	fullscreen       *FullScreenState              // fullscreen mode state + key forwarding
 	keyRegistry        *KeyRegistry                   // single source of truth for key bindings
-	outputNotify       chan struct{}                 // signals pane output (from control mode)
-	fullScreenScrollY  int                          // mouse scroll offset
-	onTick             func()                       // called every ticker cycle (control mode health check)
-	keyQueue           chan keyCmd                   // serial key forwarding queue (preserves order)
+	dispatcher         *keydispatch.Dispatcher       // key dispatch chain
+	panelManager       *keyhandler.PanelManager      // panel focus management
+	logs               *LogsState                    // logs panel cursor/selection state
+	notify             *NotifyLoop                   // notification delivery (output, broker, tick)
+	quitRequested      bool                         // set by Quit(), checked after Dispatch
 	popupMode          config.PopupMode             // how popups are displayed (auto/tmux/overlay)
-	notifyBroker       *event.Broker[model.Event]  // optional in-process broker (nil = file-only)
-	notifyBrokerSub    *event.Subscription[model.Event] // active subscription (nil if no broker)
+	renameSessionID    string                     // session ID being renamed (empty = no rename in progress)
 }
 
 // SetPopupMode sets the popup display mode.
@@ -101,9 +103,11 @@ func NewApp(mode AppMode) (*App, error) {
 		popups:       NewPopupController(),
 		preview:      &PreviewCache{},
 		keyRegistry:  DefaultKeyRegistry(),
-		outputNotify: make(chan struct{}, 1),
-		keyQueue:     make(chan keyCmd, 64),
+		logs:         NewLogsState(),
+		notify:       NewNotifyLoop(),
 	}
+	app.fullscreen = NewFullScreenState(app.preview)
+	app.initDispatcher()
 
 	g.SetManagerFunc(app.layout)
 	g.Mouse = true
@@ -134,9 +138,11 @@ func NewAppHeadless(mode AppMode, width, height int) (*App, error) {
 		popups:       NewPopupController(),
 		preview:      &PreviewCache{},
 		keyRegistry:  DefaultKeyRegistry(),
-		outputNotify: make(chan struct{}, 1),
-		keyQueue:     make(chan keyCmd, 64),
+		logs:         NewLogsState(),
+		notify:       NewNotifyLoop(),
 	}
+	app.fullscreen = NewFullScreenState(app.preview)
+	app.initDispatcher()
 
 	g.SetManagerFunc(app.layout)
 
@@ -148,39 +154,43 @@ func NewAppHeadless(mode AppMode, width, height int) (*App, error) {
 	return app, nil
 }
 
+// initDispatcher creates the panel manager and key dispatcher.
+func (a *App) initDispatcher() {
+	pm := keyhandler.NewPanelManager(
+		&keyhandler.SessionsPanel{},
+		&keyhandler.LogsPanel{},
+	)
+	a.panelManager = pm
+	a.dispatcher = keydispatch.New(pm)
+}
+
 // Run starts the main event loop. Blocks until quit.
 func (a *App) Run() error {
 	defer a.gui.Close()
 
+	// TUI lock file: signals to MCP server that TUI is open.
+	// Server skips display-popup when this file exists.
+	tuiLock := filepath.Join(os.TempDir(), "lazyclaude-tui.lock")
+	os.WriteFile(tuiLock, []byte(fmt.Sprintf("%d", os.Getpid())), 0o644)
+	defer os.Remove(tuiLock)
+
 	// Serial key forwarder: preserves keystroke order (critical for IME input).
 	done := make(chan struct{})
-	go a.runKeyForwarder(done)
+	go a.fullscreen.RunKeyForwarder(done)
 
-	// Refresh loop: event-driven via outputNotify (from control mode),
-	// with a fallback ticker for notification polling and non-control scenarios.
-	//
-	// When a notify broker is configured, broker events are handled in this
-	// select in addition to the 100ms ticker polling — giving immediate popup
-	// delivery for local in-process communication.
+	// Refresh loop: event-driven via notify channels + ticker fallback.
 	go func() {
 		ticker := time.NewTicker(100 * time.Millisecond)
 		defer ticker.Stop()
 
-		// brokerCh is nil when no broker is set; a nil channel blocks forever
-		// in select, so the case is effectively disabled.
-		var brokerCh <-chan model.Event
-		if a.notifyBrokerSub != nil {
-			brokerCh = a.notifyBrokerSub.Ch()
-		}
+		brokerCh := a.notify.BrokerCh()
 
 		for {
 			select {
 			case <-done:
-				if a.notifyBrokerSub != nil {
-					a.notifyBrokerSub.Cancel()
-				}
+				a.notify.Cancel()
 				return
-			case <-a.outputNotify:
+			case <-a.notify.OutputCh():
 				a.preview.Lock()
 				if !a.preview.Busy() {
 					a.preview.InvalidateTimestamp()
@@ -189,7 +199,6 @@ func (a *App) Run() error {
 				a.gui.Update(func(g *gocui.Gui) error { return nil })
 			case ev, ok := <-brokerCh:
 				if !ok {
-					// Broker was closed; disable this case by setting channel to nil.
 					brokerCh = nil
 					continue
 				}
@@ -200,13 +209,9 @@ func (a *App) Run() error {
 					})
 				}
 			case <-ticker.C:
-				if a.onTick != nil {
-					a.onTick()
-				}
-				// Poll for tool notifications (overlay mode only).
-				// In tmux mode, the server handles popups via display-popup.
+				a.notify.OnTick()
 				a.gui.Update(func(g *gocui.Gui) error {
-					if a.sessions != nil && a.popupMode != config.PopupModeTmux {
+					if a.sessions != nil {
 						for _, n := range a.sessions.PendingNotifications() {
 							a.showToolPopup(n)
 						}
@@ -228,9 +233,14 @@ func (a *App) Run() error {
 	return nil
 }
 
-// Mode returns the current app mode.
-func (a *App) Mode() AppMode {
+// AppMode returns the current app mode (typed).
+func (a *App) AppMode() AppMode {
 	return a.mode
+}
+
+// Mode returns the current app mode as int (satisfies keyhandler.AppActions).
+func (a *App) Mode() int {
+	return int(a.mode)
 }
 
 // SetSessions sets the session provider for the main screen.
@@ -240,12 +250,12 @@ func (a *App) SetSessions(sp SessionProvider) {
 
 // SetInputForwarder sets the input forwarder for full-screen mode.
 func (a *App) SetInputForwarder(fwd InputForwarder) {
-	a.inputForwarder = fwd
+	a.fullscreen.SetForwarder(fwd)
 }
 
 // SetOnTick sets a callback invoked every ticker cycle (for control mode health checks).
 func (a *App) SetOnTick(fn func()) {
-	a.onTick = fn
+	a.notify.SetOnTick(fn)
 }
 
 // SetNotifyBroker attaches an event broker to the App so that server-side
@@ -253,12 +263,7 @@ func (a *App) SetOnTick(fn func()) {
 // Passing nil is a no-op: the app falls back to file-based polling only.
 // Must be called before Run().
 func (a *App) SetNotifyBroker(broker *event.Broker[model.Event]) {
-	if broker == nil {
-		return
-	}
-	// Buffer of 8 to absorb bursts without dropping events under normal load.
-	a.notifyBroker = broker
-	a.notifyBrokerSub = broker.Subscribe(8)
+	a.notify.SetBroker(broker)
 }
 
 // keyCmd is a queued key forwarding command.
@@ -267,37 +272,11 @@ type keyCmd struct {
 	key    string
 }
 
-// enqueueKey adds a key to the serial forwarding queue.
-// Non-blocking: if the queue is full, the key is dropped.
-func (a *App) enqueueKey(target, key string) {
-	select {
-	case a.keyQueue <- keyCmd{target: target, key: key}:
-	default:
-	}
-}
-
-// runKeyForwarder drains the key queue serially, preserving order.
-// Runs as a background goroutine for the lifetime of the app.
-func (a *App) runKeyForwarder(done <-chan struct{}) {
-	for {
-		select {
-		case <-done:
-			return
-		case cmd := <-a.keyQueue:
-			if a.inputForwarder != nil {
-				a.inputForwarder.ForwardKey(cmd.target, cmd.key)
-			}
-		}
-	}
-}
 
 // NotifyOutput signals that a pane has new output.
 // Called from the control mode callback. Non-blocking.
 func (a *App) NotifyOutput() {
-	select {
-	case a.outputNotify <- struct{}{}:
-	default: // already signaled, skip
-	}
+	a.notify.NotifyOutput()
 }
 
 // Gui returns the underlying gocui.Gui (for testing).
@@ -306,7 +285,7 @@ func (a *App) Gui() *gocui.Gui {
 }
 
 func (a *App) setStatus(g *gocui.Gui, msg string) {
-	v, err := g.View("server")
+	v, err := g.View("logs")
 	if err != nil {
 		return
 	}

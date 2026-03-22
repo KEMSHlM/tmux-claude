@@ -56,6 +56,8 @@ func ReadAll(runtimeDir string) ([]*model.ToolNotification, error) {
 	// Sort by name (CreateTemp includes timestamp, so lexicographic = creation order)
 	sort.Strings(files)
 
+	const maxAge = 30 * time.Second
+
 	var result []*model.ToolNotification
 	for _, name := range files {
 		path := filepath.Join(runtimeDir, name)
@@ -69,7 +71,29 @@ func ReadAll(runtimeDir string) ([]*model.ToolNotification, error) {
 		if err := json.Unmarshal(data, &n); err != nil {
 			continue
 		}
+		// Skip stale notifications (Claude Code already moved on)
+		if !n.Timestamp.IsZero() && time.Since(n.Timestamp) > maxAge {
+			continue
+		}
 		result = append(result, &n)
 	}
 	return result, nil
+}
+
+// PendingCount returns the number of queued notification files without consuming them.
+func PendingCount(runtimeDir string) (int, error) {
+	entries, err := os.ReadDir(runtimeDir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	count := 0
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), queuePrefix) && strings.HasSuffix(e.Name(), ".json") {
+			count++
+		}
+	}
+	return count, nil
 }

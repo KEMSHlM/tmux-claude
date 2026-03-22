@@ -143,6 +143,24 @@ func (s *State) GetDiffChoice(window string) (string, bool) {
 	return dc.Key, true
 }
 
+// LastPendingWindow returns the window of the most recently stored pending tool info.
+// Used as fallback when a permission_prompt arrives from a different PID than the
+// earlier PreToolUse hook (common in SSH remote sessions where each hook spawns
+// a separate process with a different ppid).
+func (s *State) LastPendingWindow() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var latest string
+	var latestExpiry time.Time
+	for w, p := range s.pending {
+		if p.Expiry.After(latestExpiry) {
+			latest = w
+			latestExpiry = p.Expiry
+		}
+	}
+	return latest
+}
+
 // ConnCount returns the number of active connections.
 func (s *State) ConnCount() int {
 	s.mu.RLock()

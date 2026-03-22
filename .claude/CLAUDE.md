@@ -5,94 +5,36 @@
 ### ユニットテスト (ホストで実行可能)
 
 ```bash
-# 全パッケージ
 go test ./internal/... -count=1
-
-# gui パッケージのみ (42テスト)
-go test -v ./internal/gui/ -count=1
-
-# カバレッジ
 go test -cover ./internal/...
 ```
 
-### E2E テスト (Docker 必須)
-
-tmux + capture-pane で TUI の動作を検証。Docker 内でのみ実行可能。
+### VHS 可視化 E2E (Docker 必須)
 
 ```bash
-# Docker イメージビルド
-docker build -f Dockerfile.test -t lazyclaude-test .
+# テスト実行
+make test-vhs TAPE=ssh_launch
+make test-vhs TAPE=smoke
 
-# E2E テスト実行
-docker run --rm lazyclaude-test go test -v -timeout 120s ./tests/integration/ -run TestE2E
-
-# 全テスト (ユニット + E2E)
-docker run --rm lazyclaude-test
+# フレーム確認
+awk '/\[Frame 5\]/,/\[Frame 6\]/{if(/\[Frame 6\]/)exit; print}' vis_e2e_tests/outputs/ssh_launch/ssh_launch.log
 ```
 
-E2E テストは lazyclaude 内部の tmux ソケットを共有するため、各テストで
-`cleanLazyClaudeState()` を呼んで状態をリセットする必要がある。
+- tape は人間の操作のみ。テスト都合は `entrypoint.sh`
+- 出力: `outputs/{name}/` に `.gif` + `.txt` + `.log`
 
-### 手動テスト (Docker 対話モード)
-
-```bash
-# ソースをマウントして対話モードで入る
-docker run --rm -it --env-file .env -v "$(pwd)":/app lazyclaude-test bash
-
-# Docker 内でビルド + 起動
-go build -o /usr/local/bin/lazyclaude ./cmd/lazyclaude/ && lazyclaude --debug
-
-# デバッグログ確認
-cat /tmp/lazyclaude-debug.log
-cat /tmp/lazyclaude-debug-tmux-cmds.log
-```
-
-### capture-pane の制約
-
-- capture-pane はペインのテキスト内容のみを返す
-- カーソル位置、copy-mode ハイライト、tmux オーバーレイは含まれない
-- capture-pane テストが PASS でも「表示が正しい」とは限らない
-- 表示に関わる修正はユーザーの仮想環境で確認すること
-- 参考: tmux issues #1949, #3787
-
-## Docker 仮想環境
-
-全テスト・動作確認は Docker 内で行う。ホスト環境に一切影響しない。
-
-### Claude Code 認証 (サブスクリプション)
-
-Docker 内で Claude Code を使うには `.env` が必要:
+### Claude Code 認証 (Docker)
 
 ```bash
-# 1. トークン取得 (ホストで1回だけ実行)
 claude setup-token
-
-# 2. .env に保存
-echo "CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-..." > .env
-
-# 3. 認証確認
-docker run --rm --env-file .env lazyclaude-test claude auth status
+echo "CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-..." > vis_e2e_tests/.env
 ```
-
-`.env` は `.gitignore` 登録済み。コミットされない。
-
-### Production Isolation
-
-Docker 内で全て完結。ホスト環境への影響はゼロ。
-
-| リソース | Docker 内 | ホスト |
-|---------|----------|-------|
-| tmux | Docker 内の tmux | 影響なし |
-| ~/.claude/ide/ | Docker の /root/.claude/ide/ | 影響なし |
-| /tmp/ | Docker の /tmp/ | 影響なし |
-| state.json | Docker の /root/.local/share/ | 影響なし |
 
 ## gocui の注意点
 
 ### ErrUnknownView の比較
 
-jesseduffield/gocui は `go-errors` の `Wrap` を使うため、`==` や `errors.Is` では一致しない。
-文字列比較を使う:
+`==` や `errors.Is` では一致しない。文字列比較を使う:
 
 ```go
 func isUnknownView(err error) bool {
@@ -108,18 +50,60 @@ func isUnknownView(err error) bool {
 3. Global bindings — ただし Editable view では rune キー (ch!=0) のグローバルバインドはスキップ
 ```
 
-- Edit() が `true` を返すとキーは「処理済み」、global binding は呼ばれない
-- Edit() が `false` を返すと global binding に fallthrough
-- Editable view では rune のグローバルバインドは無視される (gocui 仕様)
-- Special key (ch=0: Ctrl+\, Ctrl+D, Esc, Enter, 矢印) は Editable でも global binding が動く
+### Frame=false ビューの座標系
+
+`Frame=false` でもコンテンツ領域は `(x0+1, y0+1)` から `(x1-1, y1-1)` のまま。
+フレームは描画されないが、y0 / y1 の行はコンテンツに使われない。
+frameless バーを配置するときは y0+1 がテキスト開始位置になることに注意。
+
+```
+InnerWidth  = Width  - 2  (常に)
+InnerHeight = Height - 2  (常に)
+```
 
 ### Ctrl+[ と Esc
 
-Ctrl+[ と Esc は同じバイト (0x1B)。gocui/tcell で区別不可能。
+同じバイト (0x1B)。gocui/tcell で区別不可能。
 lazyclaude は **Ctrl+\\** を normal mode 切替に使用。
 
-## 設計ドキュメント
+## tmux アーキテクチャ
 
-- `docs/dev/popup-redesign-plan.md` — ポップアップ再設計計画 (全フェーズ完了)
-- `docs/dev/issue-normal-mode-navigation.md` — normal mode ナビゲーション issue
-- `docs/dev/issue-popup-fullmode.md` — tmux display-popup の失敗記録
+### 2つの tmux サーバー
+
+1. **ユーザーの tmux** (デフォルトソケット) — `display-popup` で lazyclaude TUI を表示
+2. **lazyclaude tmux** (`-L lazyclaude` ソケット) — Claude Code セッションを管理
+
+### キー入力の流れ
+
+```
+popup 外: キー → ユーザーの tmux root table → マッチなら実行
+popup 内: キー → popup プロセスに直接渡る (ユーザーの tmux root table はバイパス)
+attach 中: キー → lazyclaude tmux の root table → マッチなら実行
+```
+
+### display-popup の動作 (tmux 3.4+)
+
+- popup 内から `display-popup` を呼ぶと既存 popup を **変更** できる (ネストではない)
+- `-b rounded` / `-B` で枠線を動的に切り替え可能
+- popup 内のプロセスが終了すると変更も消える
+
+### `tmux source` はキーバインドをリセットしない
+
+上書きまたは追加のみ。完全リセットは tmux サーバーの再起動が必要。
+
+### MCP サーバー
+
+- `lazyclaude setup` で起動される常駐デーモン
+- サーバーログ: `/tmp/lazyclaude-server.log`
+- 重複起動防止: `server.IsAlive()` で port file + TCP dial チェック
+
+### パフォーマンス
+
+- パフォーマンス問題は git bisect でバイナリ比較して特定する (コード分析より確実)
+- チェックポイントは `.claude/checkpoints.log` に記録
+
+### SSH コマンド生成
+
+- リモートコマンドは plain bash スクリプトとしてファイルに書き出し、base64 でエンコード
+- ネストクォート禁止。`shell.Quote` を SSH コマンド文字列内で使わない
+- `scripts/lazyclaude-launch.sh` が唯一のエントリポイント (tmux plugin + standalone)

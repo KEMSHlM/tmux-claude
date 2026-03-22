@@ -165,7 +165,11 @@ func (m *Manager) Create(ctx context.Context, dirPath, host string) (*Session, e
 		if mcpErr != nil {
 			return nil, fmt.Errorf("read MCP server info for SSH session: %w", mcpErr)
 		}
-		claudeCmd = buildSSHCommand(sess, mcpPort, token)
+		var sshErr error
+		claudeCmd, sshErr = buildSSHCommand(sess, mcpPort, token)
+		if sshErr != nil {
+			return nil, fmt.Errorf("build SSH command: %w", sshErr)
+		}
 
 		// Write pending window file so the MCP server can associate
 		// the remote ide_connected PID with this tmux window.
@@ -182,6 +186,13 @@ func (m *Manager) Create(ctx context.Context, dirPath, host string) (*Session, e
 		return nil, fmt.Errorf("resolve path %q: %w", sess.Path, err)
 	}
 	m.log.Debug("create.tmux", "exists", exists, "window", windowName, "cmd", claudeCmd, "dir", absPath)
+	// Always log SSH commands to server log for debugging pane-is-dead issues.
+	if host != "" {
+		if f, err := os.OpenFile("/tmp/lazyclaude/server.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+			fmt.Fprintf(f, "[create] host=%s cmd=%s\n", host, claudeCmd)
+			f.Close()
+		}
+	}
 
 	env := claudeEnv()
 	width, height := termSize()
@@ -303,11 +314,12 @@ func (m *Manager) readMCPInfo() (int, string, error) {
 }
 
 func (m *Manager) buildClaudeCommand(sess Session) string {
-	cmd := "exec claude"
+	claudeArgs := "claude"
 	for _, f := range sess.Flags {
-		cmd += " " + shell.Quote(f)
+		claudeArgs += " " + shell.Quote(f)
 	}
-	return cmd
+	// exec $SHELL -lic runs in login shell so PATH (.zshrc/.profile) is loaded
+	return fmt.Sprintf("exec \"$SHELL\" -lic 'exec %s'", claudeArgs)
 }
 
 // claudeEnv returns environment variables to pass to Claude Code sessions.
@@ -331,21 +343,19 @@ func claudeEnv() map[string]string {
 	return env
 }
 
-// cleanSessionCommands returns tmux commands to disable status bar and all keybindings.
-// These are chained after new-session via ";".
-// IMPORTANT: automatic-rename and remain-on-exit are set WITHOUT -w flag
-// so they become session-level defaults that apply to ALL windows (not just the first).
-// With -w they only apply to the current window, causing new windows created via
-// NewWindow to get tmux's defaults (automatic-rename=on), which renames windows
-// and breaks SyncWithTmux's name-based matching.
+// cleanSessionCommands returns tmux commands chained after new-session via ";".
+// Configures the lazyclaude tmux server: disables status bar, prevents window
+// renaming, keeps dead panes, and binds Ctrl+\ to detach-client.
 func cleanSessionCommands() [][]string {
+	// Use -g (global) so settings apply to all windows on the lazyclaude
+	// server, not just the current session/window context.
 	return [][]string{
-		{"set-option", "status", "off"},
-		{"set-option", "prefix", "None"},
-		{"set-option", "automatic-rename", "off"},
-		{"set-option", "remain-on-exit", "on"},
-		{"unbind-key", "-a", "-T", "prefix"},
-		{"unbind-key", "-a", "-T", "root"},
+		{"set-option", "-g", "status", "off"},
+		{"set-option", "-g", "automatic-rename", "off"},
+		{"set-option", "-g", "remain-on-exit", "on"},
+		{"set-option", "-g", "window-size", "largest"},
+		{"set-hook", "-g", "pane-died", "detach-client"},
+		{"bind-key", "-T", "root", "C-\\", "detach-client"},
 	}
 }
 

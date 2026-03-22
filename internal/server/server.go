@@ -58,7 +58,15 @@ func New(cfg Config, tmuxClient tmux.Client, logger *log.Logger) *Server {
 	handler.SetRuntimeDir(cfg.RuntimeDir)
 	lockMgr := NewLockManager(cfg.IDEDir)
 
-	popupOrch := tmuxadapter.NewPopupOrchestrator(cfg.BinaryPath, tmuxClient, logger)
+	// Create a tmux client for the user's tmux (for display-popup).
+	// LAZYCLAUDE_HOST_TMUX contains the user's $TMUX socket path.
+	var hostTmux tmux.Client
+	if hostSocket := os.Getenv("LAZYCLAUDE_HOST_TMUX"); hostSocket != "" {
+		// $TMUX format: "/path/to/socket,pid,session"
+		parts := strings.SplitN(hostSocket, ",", 2)
+		hostTmux = tmux.NewExecClientWithSocket(parts[0])
+	}
+	popupOrch := tmuxadapter.NewPopupOrchestrator(cfg.BinaryPath, cfg.RuntimeDir, tmuxClient, hostTmux, logger)
 	handler.SetPopup(popupOrch)
 
 	s := &Server{
@@ -272,7 +280,16 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 	}
 
 	window := s.resolveNotifyWindow(r.Context(), req.PID)
+	if window == "" && req.Type != "tool_info" {
+		// Fallback for permission_prompt: hook processes may have different PIDs
+		// from the earlier PreToolUse hook. Use the most recent pending window.
+		window = s.state.LastPendingWindow()
+		if window != "" {
+			s.log.Printf("notify: pid=%d not found, using last pending window %q", req.PID, window)
+		}
+	}
 	if window == "" {
+		s.log.Printf("notify: window not found for pid=%d type=%s tool=%s", req.PID, req.Type, req.ToolName)
 		http.Error(w, "window not found", http.StatusNotFound)
 		return
 	}
@@ -390,7 +407,12 @@ func (s *Server) dispatchToolNotification(window, toolName, input, cwd string) {
 	// Non-blocking: if no subscriber is ready, the event is dropped.
 	s.notifyBroker.Publish(model.Event{Notification: &n})
 
-	// Spawn tmux display-popup (non-blocking)
+	// Spawn tmux display-popup only if TUI is NOT open.
+	// If TUI is open (lock file exists), it handles popups via overlay.
+	// If TUI is closed, server shows display-popup on user's tmux.
+	// Always spawn popup. PopupOrchestrator decides which tmux to use:
+	// - TUI closed → hostTmux (user's tmux display-popup)
+	// - TUI open but suspended (fullscreen) → lazyclaude tmux display-popup
 	s.popupOrch.SpawnToolPopup(context.Background(), window, toolName, input, cwd)
 }
 

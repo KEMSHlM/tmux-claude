@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/KEMSHlM/lazyclaude/internal/adapter/tmuxadapter"
+	"github.com/KEMSHlM/lazyclaude/internal/notify"
 	"github.com/KEMSHlM/lazyclaude/internal/core/choice"
 	"github.com/KEMSHlM/lazyclaude/internal/core/config"
 	"github.com/KEMSHlM/lazyclaude/internal/core/tmux"
@@ -147,6 +148,12 @@ func runToolPopup(window, toolName, toolInput, toolCWD string, sendKeys bool) er
 		if err := choice.WriteFile(paths, window, choiceVal); err != nil {
 			return fmt.Errorf("write choice: %w", err)
 		}
+	}
+
+	// Consume notification files so TUI doesn't show stale popups on resume.
+	// Skip on Cancel (Esc) — keep files so TUI can show them as pending.
+	if choiceVal != choice.Cancel {
+		notify.ReadAll(os.TempDir())
 	}
 
 	// Send the choice key directly to Claude Code's pane

@@ -1,42 +1,45 @@
 #!/usr/bin/env bash
 # lazyclaude TPM plugin entry point.
 # 1. Runs `lazyclaude setup` (MCP server + Claude Code hooks)
-# 2. Registers tmux keybindings from @claude-* options
+# 2. Registers tmux keybinding that calls the launcher script
 #
 # Configurable options (set in tmux.conf / plugins.conf):
-#   @claude-launch-key    key to launch lazyclaude TUI (default: space)
+#   @claude-launch-key    key to launch lazyclaude TUI (default: C-\)
 #   @claude-suppress-keys space-separated keys to disable inside lazyclaude session
 
-BINARY="$(command -v lazyclaude 2>/dev/null)"
+CURRENT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+LAUNCHER="${CURRENT_DIR}/scripts/lazyclaude-launch.sh"
+BINARY="${CURRENT_DIR}/bin/lazyclaude"
 
-if [ -z "$BINARY" ]; then
-    echo "lazyclaude: binary not found in PATH" >&2
+if [ ! -x "$BINARY" ]; then
+    echo "lazyclaude: binary not found at $BINARY (run 'make build')" >&2
     exit 1
 fi
 
-# Capture PATH now (login shell) — display-popup may have a restricted PATH.
-LAUNCH_PATH="$PATH"
+# Detect user's tmux socket.
+# If inside lazyclaude tmux, fall back to default socket path.
+HOST_SOCKET=$(tmux display-message -p '#{socket_path}' 2>/dev/null || echo "")
+if echo "$HOST_SOCKET" | grep -q "lazyclaude"; then
+    HOST_SOCKET="/tmp/tmux-$(id -u)/default"
+fi
 
 # Run Go setup (MCP server + Claude Code hooks)
-"$BINARY" setup
+LAZYCLAUDE_HOST_TMUX="$HOST_SOCKET" "$BINARY" setup
 
 # Read tmux options
 launch_key=$(tmux show-option -gqv @claude-launch-key 2>/dev/null)
 suppress_keys=$(tmux show-option -gqv @claude-suppress-keys 2>/dev/null)
+launch_key="${launch_key:-C-\\}"
 
-launch_key="${launch_key:-space}"
+# Keybinding does ONE thing: call the launcher with pane info as arguments.
+# run-shell expands #{} formats at keypress time using the active pane's context.
+tmux bind-key -T root "$launch_key" run-shell \
+    "$LAUNCHER '#{pane_current_command}' '#{pane_pid}' '#{pane_tty}' '#{pane_path}' '#{pane_current_path}'"
 
-# Register keybindings
-# display-popup runs lazyclaude as an overlay. env -u TMUX prevents the tmux
-# nesting guard. PATH is passed from the login shell so claude is found.
-tmux bind-key "$launch_key" display-popup -w 90% -h 80% -d "#{pane_current_path}" -E "env -u TMUX PATH='$LAUNCH_PATH' LAZYCLAUDE_POPUP_MODE=tmux $BINARY"
+# Register detach binding on lazyclaude tmux server (same key).
+tmux -L lazyclaude bind-key -T root "$launch_key" detach-client 2>/dev/null
 
-# Suppress specified keys inside lazyclaude session
+# Suppress specified keys on the lazyclaude tmux server only.
 for key in $suppress_keys; do
-    original=$(tmux list-keys -T prefix 2>/dev/null | awk -v k="$key" '$4 == k {$1=$2=$3=$4=""; sub(/^[[:space:]]+/,""); print}')
-    if [ -n "$original" ]; then
-        tmux bind-key "$key" if -F '#{==:#{session_name},lazyclaude}' '' "$original"
-    else
-        tmux bind-key "$key" if -F '#{==:#{session_name},lazyclaude}' '' ''
-    fi
+    tmux -L lazyclaude unbind-key -T prefix "$key" 2>/dev/null
 done

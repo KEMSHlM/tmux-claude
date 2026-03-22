@@ -162,6 +162,103 @@ For bubbletea-based apps, Charmbracelet provides the separate `teatest` library 
 
 ---
 
+## 3.5. Error Handling and Exit Code Behavior
+
+This section answers four specific questions about how VHS handles command failures.
+
+### Q1: Is there a way to abort tape execution when a command exits non-zero?
+
+**No.** VHS has no built-in mechanism to detect that a shell command typed via `Type`/`Enter` exited with a non-zero status code. The tape continues executing regardless of what the typed command returned. VHS is architecturally blind to exit codes: it only sees rendered terminal text, not PTY metadata.
+
+The feature was explicitly proposed in issue #14 (October 2022) as a `set -e`-like option. The maintainers declined it in its general form because "sometimes demos may involve exiting with non-zero status codes to be part of the GIF." The issue was closed by implementing `Require` instead, which only checks PATH availability before execution starts.
+
+As of March 2026, issue #653 (opened August 2025) remains open and is the active tracker for the request to abort recording when the shell process itself exits unexpectedly. There is no fix or PR merged for it.
+
+### Q2: Is there a `Set FailOnError` or similar setting?
+
+**No.** There is no `FailOnError`, `Set ExitOnError`, `Set StopOnError`, or equivalent setting in VHS. The complete list of `Set` settings is documented in section 2 above; none relate to command exit codes.
+
+The only settings that affect error behavior are:
+- `Set WaitTimeout <duration>` -- controls how long `Wait` will poll before giving up and failing the tape
+- `Set WaitPattern /regex/` -- sets the default regex for bare `Wait`
+
+### Q3: What happens when a command fails inside a tape?
+
+VHS continues normally. Specifically:
+
+1. The failing command's error output appears in the terminal (visible in the recording and in `.txt` output).
+2. The shell prompt reappears (assuming the shell itself has not exited).
+3. VHS moves to the next tape instruction without any knowledge that a failure occurred.
+4. If the shell was configured with `set -e` (either via `Set Shell "bash -e"` or by typing `set -e` in the tape), the shell exits on the first failure. After the shell exits, the TTY shows a static blinking cursor. VHS then continues executing remaining tape instructions (typing characters, waiting, sleeping) against a dead shell, which is essentially a no-op. The tape does not abort; it runs to completion or until a `Wait` times out.
+
+This "zombie shell" scenario is the motivation for issue #653. The only current workaround documented in that issue is to insert a `Wait` with a short timeout after critical operations:
+
+```
+Type "./build.sh"
+Enter
+Wait@5s /Build succeeded/
+```
+
+If the build fails and the prompt returns without the expected text, `Wait` times out and vhs exits non-zero. This provides failure detection but not graceful abort: the rest of the tape still runs (and may produce garbage output) before the timeout fires.
+
+### Q4: Alternatives to `Wait+Screen` for error detection
+
+There is no purpose-built error detection primitive. The available approaches, ranked by reliability:
+
+**Option A: `Wait` with a success pattern (recommended)**
+
+Wait for a string that only appears on success. If the command fails, the string never appears and `Wait` times out with a non-zero exit.
+
+```
+Type "go build ./..."
+Enter
+Wait /\$\s*$/       # waits for prompt; does NOT distinguish success from failure
+```
+
+A better form uses a success-specific pattern:
+
+```
+Type "go test ./... && echo BUILD_OK"
+Enter
+Wait+Screen /BUILD_OK/
+```
+
+The `&& echo BUILD_OK` idiom is the most robust workaround: it appends a sentinel only on success. If the command fails, `BUILD_OK` never appears, and `Wait+Screen` times out.
+
+**Option B: Inspect `.txt` output after the tape**
+
+Declare `Output out.txt` and check the captured terminal buffer with `grep` or `diff` in CI after `vhs` returns. This detects failures post-hoc rather than aborting mid-tape.
+
+**Option C: Configure the shell with `set -e` + a narrow `Wait` timeout**
+
+```
+Type "set -e"
+Enter
+Set WaitTimeout 5s
+Type "failing-command"
+Enter
+Wait /\$\s*$/
+```
+
+If `failing-command` exits non-zero and `set -e` kills the shell, the prompt never reappears, `Wait` times out after 5 s, and vhs exits non-zero. This is fragile: if the command legitimately takes longer than the timeout, it produces a false failure.
+
+**Option D: `AwaitPrompt` (proposed, not yet merged)**
+
+PR #708 proposes an `AwaitPrompt` command that detects shell prompt readiness more reliably than a regex wait. As of March 2026 it is open and not available in any release.
+
+### Summary table
+
+| Capability | Available | Mechanism |
+|---|---|---|
+| Abort tape on non-zero exit | No | Not implemented; issue #653 open |
+| `Set FailOnError` or equivalent | No | No such setting exists |
+| Detect command failure mid-tape | Partial | `Wait+Screen /sentinel/` with `&& echo sentinel` idiom |
+| Detect failure after tape finishes | Yes | Grep `.txt` output in CI |
+| Pre-execution binary check | Yes | `Require <binary>` |
+| Shell prompt detection | No (future) | PR #708 proposes `AwaitPrompt` |
+
+---
+
 ## 4. Applicability to gocui-based TUI Apps in tmux
 
 ### What vhs can do
@@ -288,3 +385,7 @@ Latest release: v0.11.0 (March 2025).
 - VHS_NO_SANDBOX issue: https://github.com/charmbracelet/vhs/issues/504
 - "Why does this need a browser?" discussion: https://github.com/charmbracelet/vhs/discussions/291
 - Charmbracelet, "Writing Bubble Tea Tests" (teatest, separate library): https://charm.land/blog/teatest/
+- Issue #14 "Fail early when missing required programs": https://github.com/charmbracelet/vhs/issues/14
+- Issue #537 "Wait for command to finish / exit on nonzero": https://github.com/charmbracelet/vhs/issues/537
+- Issue #653 "Abort recording if the shell exits" (open): https://github.com/charmbracelet/vhs/issues/653
+- PR #708 "AwaitPrompt command" (open): https://github.com/charmbracelet/vhs/pull/708

@@ -1,0 +1,45 @@
+services:
+  remote:
+    build:
+      context: ..
+      dockerfile: vis_e2e_tests/Dockerfile
+      target: remote
+    env_file:
+      - path: .env
+        required: false
+    networks:
+      - testnet
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep sshd"]
+      interval: 1s
+      timeout: 3s
+      retries: 10
+
+  vhs:
+    build:
+      context: ..
+      dockerfile: vis_e2e_tests/Dockerfile
+      target: vhs
+    depends_on:
+      remote:
+        condition: service_healthy
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - REMOTE_HOST=remote
+      - TERM=xterm-256color
+      - TAPE=${TAPE:-ssh_launch}
+    networks:
+      - testnet
+    volumes:
+      - ../vis_e2e_tests/outputs:/app/outputs
+      - ../vis_e2e_tests/outputs/${TAPE:-ssh_launch}/log:/tmp/lazyclaude
+    tty: true
+    entrypoint: ["/bin/bash-real", "-c"]
+    command:
+      - /app/vis_e2e_tests/entrypoint.sh /app/vis_e2e_tests/tapes/$${TAPE}.tape
+
+networks:
+  testnet:
+    driver: bridge

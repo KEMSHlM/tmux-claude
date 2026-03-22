@@ -1,39 +1,8 @@
 package gui
 
-import "time"
-
-// transition changes App state with entry/exit side effects.
-func (a *App) transition(to AppState) {
-	from := a.state
-
-	if from == to {
-		return
-	}
-
-	// Exit actions
-	switch from {
-	case StateFullScreen:
-		if !to.IsFullScreen() {
-			a.fullScreenTarget = ""
-			a.preview.Invalidate()
-		}
-	}
-
-	// Enter actions
-	switch to {
-	case StateFullScreen:
-		if !from.IsFullScreen() {
-			a.fullScreenScrollY = 0
-			a.preview.Invalidate()
-		}
-	}
-
-	a.state = to
-}
-
+// enterFullScreen enters fullscreen mode for the given session.
 func (a *App) enterFullScreen(sessionID string) {
-	a.fullScreenTarget = sessionID
-	a.transition(StateFullScreen)
+	a.fullscreen.Enter(sessionID)
 	if a.sessions != nil {
 		for i, item := range a.sessions.Sessions() {
 			if item.ID == sessionID {
@@ -44,13 +13,39 @@ func (a *App) enterFullScreen(sessionID string) {
 	}
 }
 
+// exitFullScreen exits fullscreen mode.
 func (a *App) exitFullScreen() {
-	a.transition(StateMain)
+	a.fullscreen.Exit()
 }
 
 // resolveForwardTarget returns the tmux target for key forwarding.
 func (a *App) resolveForwardTarget() string {
-	if !a.state.IsFullScreen() || a.inputForwarder == nil || a.hasPopup() || a.sessions == nil {
+	if !a.fullscreen.IsActive() || a.fullscreen.forwarder == nil || a.hasPopup() || a.sessions == nil {
+		return ""
+	}
+	items := a.sessions.Sessions()
+	if a.cursor < 0 || a.cursor >= len(items) {
+		return ""
+	}
+	t := items[a.cursor].TmuxWindow
+	if t == "" {
+		id := items[a.cursor].ID
+		if id == "" {
+			return ""
+		}
+		windowName := "lc-" + id
+		if len(id) > 8 {
+			windowName = "lc-" + id[:8]
+		}
+		return "lazyclaude:" + windowName
+	}
+	return "lazyclaude:" + t
+}
+
+// resolveSessionTarget returns the tmux target for the selected session.
+// Unlike resolveForwardTarget, this works without fullscreen mode.
+func (a *App) resolveSessionTarget() string {
+	if a.sessions == nil {
 		return ""
 	}
 	items := a.sessions.Sessions()
@@ -77,8 +72,8 @@ func (a *App) forwardKey(ch rune) {
 	if target == "" {
 		return
 	}
-	a.enqueueKey(target, RuneToTmuxKey(ch))
-	a.triggerRefreshAfterInput()
+	a.fullscreen.EnqueueKey(target, RuneToTmuxKey(ch))
+	a.fullscreen.TriggerRefresh()
 }
 
 func (a *App) forwardSpecialKey(tmuxKey string) {
@@ -86,15 +81,6 @@ func (a *App) forwardSpecialKey(tmuxKey string) {
 	if target == "" {
 		return
 	}
-	a.enqueueKey(target, tmuxKey)
-	a.triggerRefreshAfterInput()
-}
-
-func (a *App) triggerRefreshAfterInput() {
-	a.fullScreenScrollY = 0
-	a.preview.Lock()
-	if !a.preview.Busy() && a.preview.Stale(50*time.Millisecond) {
-		a.preview.InvalidateTimestamp()
-	}
-	a.preview.Unlock()
+	a.fullscreen.EnqueueKey(target, tmuxKey)
+	a.fullscreen.TriggerRefresh()
 }

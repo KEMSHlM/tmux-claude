@@ -6,6 +6,7 @@ import (
 	"log"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -46,10 +47,11 @@ func newRootCmd() *cobra.Command {
 			}
 			tmuxClient := tmux.NewExecClientWithSocket(tmuxSocket)
 
+			os.MkdirAll("/tmp/lazyclaude", 0o755)
 			if debug {
 				dest := logFile
 				if dest == "" {
-					dest = "/tmp/lazyclaude-debug.log"
+					dest = "/tmp/lazyclaude/debug.log"
 				}
 				f, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 				if err != nil {
@@ -139,7 +141,7 @@ func newRootCmd() *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&debug, "debug", false, "enable debug logging")
-	cmd.Flags().StringVar(&logFile, "log-file", "/tmp/lazyclaude-debug.log", "log file path (used with --debug)")
+	cmd.Flags().StringVar(&logFile, "log-file", "/tmp/lazyclaude/debug.log", "log file path (used with --debug)")
 
 	cmd.AddCommand(newServerCmd())
 	cmd.AddCommand(newDiffCmd())
@@ -171,10 +173,10 @@ func tryStartInProcessServer(paths config.Paths, tmuxClient tmux.Client, logger 
 		binaryPath = b
 	}
 
+	// Log file lives for the process lifetime (closed on exit).
 	var srvLogger *log.Logger
-	if logger != nil {
-		// Adapt slog to stdlib log for the server (which uses log.Logger).
-		srvLogger = log.New(os.Stderr, "lazyclaude-srv: ", log.LstdFlags)
+	if f, err := os.OpenFile("/tmp/lazyclaude/server.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+		srvLogger = log.New(f, "lazyclaude-srv: ", log.LstdFlags)
 	} else {
 		srvLogger = log.New(os.Stderr, "lazyclaude-srv: ", log.LstdFlags)
 	}
@@ -318,6 +320,24 @@ func (a *sessionAdapter) PendingNotifications() []*model.ToolNotification {
 
 func (a *sessionAdapter) SendChoice(window string, c gui.Choice) error {
 	return tmuxadapter.SendToPane(context.Background(), a.tmux, window, c)
+}
+
+func (a *sessionAdapter) AttachSession(id string) error {
+	sess := a.mgr.Store().FindByID(id)
+	if sess == nil {
+		return fmt.Errorf("session not found: %s", id)
+	}
+	target := "lazyclaude:" + sess.WindowName()
+
+	// Ensure window-size=largest so attach is not constrained by control mode.
+	_ = exec.Command("tmux", "-L", "lazyclaude", "set-option", "-t", "lazyclaude", "window-size", "largest").Run()
+
+	// Directly attach to the lazyclaude tmux session.
+	cmd := exec.Command("tmux", "-L", "lazyclaude", "attach-session", "-t", target)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
 
 // controlManager handles control mode connection lifecycle.

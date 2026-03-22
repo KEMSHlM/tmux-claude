@@ -54,6 +54,7 @@ func (m *mockSessionProvider) SendChoice(window string, choice gui.Choice) error
 	m.sentChoices = append(m.sentChoices, sentChoice{Window: window, Choice: choice})
 	return nil
 }
+func (m *mockSessionProvider) AttachSession(_ string) error { return nil }
 
 func (m *mockSessionProvider) getSentChoices() []sentChoice {
 	m.mu.Lock()
