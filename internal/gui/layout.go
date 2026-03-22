@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -113,19 +114,6 @@ func ComputePopupLayout(width, height int) Layout {
 	}
 }
 
-// ActiveTabIdx returns the active side panel tab index.
-func (a *App) ActiveTabIdx() int {
-	return a.activeTabIdx
-}
-
-// SetActiveTab switches the side panel tab.
-func (a *App) SetActiveTab(idx int) {
-	tabs := SideTabs()
-	if idx >= 0 && idx < len(tabs) {
-		a.activeTabIdx = idx
-	}
-}
-
 func (a *App) layout(g *gocui.Gui) error {
 	maxX, maxY := g.Size()
 
@@ -158,9 +146,7 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 	g.DeleteView("fullscreen-bar") // clean up after full-screen mode
 
 	l := ComputeLayout(maxX, maxY)
-
-	tabs := SideTabs()
-	tabTitle := " " + TabBar(tabs, a.activeTabIdx) + " "
+	focusedName := a.panelManager.ActivePanel().Name()
 
 	// Sessions view (upper left)
 	v, err := g.SetView("sessions", l.Sessions.X0, l.Sessions.Y0, l.Sessions.X1, l.Sessions.Y1, 0)
@@ -168,26 +154,35 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 		return err
 	}
 	setRoundedFrame(v)
-	v.Title = tabTitle
-	v.Highlight = true
+	v.Title = " Sessions "
+	v.Highlight = focusedName == "sessions"
 	v.SelBgColor = gocui.ColorBlue
 	v.SelFgColor = gocui.ColorWhite
+	if focusedName == "sessions" {
+		v.FrameColor = gocui.ColorCyan
+	} else {
+		v.FrameColor = gocui.ColorDefault
+	}
 	v.Clear()
-	// Take a single snapshot of sessions for this frame (prevents TOCTOU with GC)
 	var items []SessionItem
 	if a.sessions != nil {
 		items = a.sessions.Sessions()
 	}
 	a.renderSessionList(v, items)
 
-	// Server view (lower left)
-	v2, err := g.SetView("server", l.Server.X0, l.Server.Y0, l.Server.X1, l.Server.Y1, 0)
+	// Logs view (lower left)
+	v2, err := g.SetView("logs", l.Server.X0, l.Server.Y0, l.Server.X1, l.Server.Y1, 0)
 	if err != nil && !isUnknownView(err) {
 		return err
 	}
 	setRoundedFrame(v2)
-	v2.Title = " Server "
+	v2.Title = " Logs "
 	v2.Wrap = true
+	if focusedName == "logs" {
+		v2.FrameColor = gocui.ColorCyan
+	} else {
+		v2.FrameColor = gocui.ColorDefault
+	}
 	v2.Clear()
 	a.renderServerLog(v2)
 
@@ -200,34 +195,24 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 	v3.Wrap = false
 	v3.Editable = false
 	v3.Clear()
-	// Pass preview panel inner dimensions (exclude borders).
-	// Width: gocui border takes 1 col on each side of the right panel.
-	// Height: top border + bottom border + options bar = 2 top + 2 bottom rows.
 	previewW := l.Main.Width() - 1
 	previewH := l.Main.Height() - 2
 	a.renderPreview(v3, items, previewW, previewH)
 
-	// Options bar (bottom, frameless)
+	// Options bar (bottom, frameless) — dynamic per focused panel
 	v4, err := g.SetView("options", l.Options.X0, l.Options.Y0, l.Options.X1, l.Options.Y1, 0)
 	if err != nil && !isUnknownView(err) {
 		return err
 	}
 	v4.Frame = false
-	if isUnknownView(err) {
-		fmt.Fprint(v4, " ",
-			presentation.StyledKey("n", "new"), "  ",
-			presentation.StyledKey("d", "del"), "  ",
-			presentation.StyledKey("enter", "full"), "  ",
-			presentation.StyledKey("r", "resume"), "  ",
-			presentation.StyledKey("R", "rename"), "  ",
-			presentation.StyledKey("q", "quit"),
-		)
+	v4.Clear()
+	if optionsText := a.dispatcher.ActiveOptionsBar(a); optionsText != "" {
+		fmt.Fprint(v4, optionsText)
 	}
 
-	// Set focus to active tab's view (skip if rename input is active).
+	// Set focus to active panel's view (skip if rename input is active).
 	if a.renameSessionID == "" {
-		activeView := tabs[a.activeTabIdx].Name
-		if _, err := g.SetCurrentView(activeView); err != nil && !isUnknownView(err) {
+		if _, err := g.SetCurrentView(focusedName); err != nil && !isUnknownView(err) {
 			return err
 		}
 	}
@@ -237,7 +222,7 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 func (a *App) layoutFullScreen(g *gocui.Gui, maxX, maxY int) error {
 	// Remove split-panel views
 	g.DeleteView("sessions")
-	g.DeleteView("server")
+	g.DeleteView("logs")
 	g.DeleteView("options")
 
 	l := ComputeFullScreenLayout(maxX, maxY)
@@ -440,48 +425,91 @@ func (a *App) renderSessionList(v *gocui.View, items []SessionItem) {
 	v.SetCursor(0, a.cursor)
 }
 
-// SideTab represents a tab in the left side panel.
-type SideTab struct {
-	Label string
-	Name  string
-}
 
-// SideTabs returns the side panel tabs for the main screen.
-func SideTabs() []SideTab {
-	return []SideTab{
-		{Label: "Sessions", Name: "sessions"},
-		{Label: "Server", Name: "server"},
-	}
-}
-
-// TabBar renders the tab bar string for the side panel title.
-func TabBar(tabs []SideTab, activeIdx int) string {
-	parts := make([]string, len(tabs))
-	for i, tab := range tabs {
-		if i == activeIdx {
-			parts[i] = "[" + tab.Label + "]"
-		} else {
-			parts[i] = tab.Label
-		}
-	}
-	return strings.Join(parts, "  ")
-}
-
-// renderServerLog reads the last N lines of the server log file and writes them to the view.
-func (a *App) renderServerLog(v *gocui.View) {
+// readLogLines returns all log lines in reverse order (newest first).
+func (a *App) readLogLines() []string {
 	data, err := os.ReadFile(serverLogPath)
 	if err != nil {
+		return nil
+	}
+	raw := bytes.Split(bytes.TrimRight(data, "\n"), []byte("\n"))
+	// Reverse: newest first
+	lines := make([]string, len(raw))
+	for i, b := range raw {
+		lines[len(raw)-1-i] = string(b)
+	}
+	return lines
+}
+
+// renderServerLog writes all log lines to the view with cursor/selection highlighting.
+// Scrolling and viewport are managed by gocui via SetCursor/SetOrigin.
+func (a *App) renderServerLog(v *gocui.View) {
+	lines := a.readLogLines()
+	if len(lines) == 0 {
 		fmt.Fprintln(v, presentation.Dim+"  MCP: no log"+presentation.Reset)
+		a.logsLineCount = 0
 		return
 	}
-	lines := bytes.Split(bytes.TrimRight(data, "\n"), []byte("\n"))
-	start := 0
-	if len(lines) > serverLogLines {
-		start = len(lines) - serverLogLines
+	a.logsLineCount = len(lines)
+
+	// Clamp cursor
+	if a.logsCursorY >= len(lines) {
+		a.logsCursorY = len(lines) - 1
 	}
-	for _, line := range lines[start:] {
-		fmt.Fprintln(v, " "+string(line))
+	if a.logsCursorY < 0 {
+		a.logsCursorY = 0
 	}
+
+	// Selection range
+	selStart, selEnd := -1, -1
+	if a.logsSelecting {
+		selStart, selEnd = a.logsSelAnchor, a.logsCursorY
+		if selStart > selEnd {
+			selStart, selEnd = selEnd, selStart
+		}
+	}
+
+	focused := a.panelManager.ActivePanel().Name() == "logs"
+	w := v.InnerWidth()
+
+	// Write all lines; gocui handles viewport via origin
+	for i, raw := range lines {
+		line := " " + raw
+		inSelection := focused && a.logsSelecting && i >= selStart && i <= selEnd
+		isCursor := focused && i == a.logsCursorY
+
+		if inSelection && isCursor {
+			fmt.Fprintf(v, "\x1b[48;5;33;1;37m%-*s\x1b[0m\n", w, line)
+		} else if inSelection {
+			fmt.Fprintf(v, "\x1b[48;5;24;37m%-*s\x1b[0m\n", w, line)
+		} else if isCursor && a.logsSelecting {
+			fmt.Fprintf(v, "\x1b[48;5;238;1m%-*s\x1b[0m\n", w, line)
+		} else if isCursor {
+			fmt.Fprintf(v, "\x1b[48;5;240m%-*s\x1b[0m\n", w, line)
+		} else {
+			fmt.Fprintln(v, line)
+		}
+	}
+
+	// Let gocui manage scrolling: cursor position determines visible area
+	if focused {
+		v.SetCursor(0, a.logsCursorY)
+		// Ensure origin keeps cursor in view
+		_, oy := v.Origin()
+		h := v.InnerHeight()
+		if a.logsCursorY < oy {
+			v.SetOrigin(0, a.logsCursorY)
+		} else if a.logsCursorY >= oy+h {
+			v.SetOrigin(0, a.logsCursorY-h+1)
+		}
+	}
+}
+
+// copyToClipboard copies text to the system clipboard using pbcopy (macOS).
+func copyToClipboard(text string) {
+	cmd := exec.Command("pbcopy")
+	cmd.Stdin = strings.NewReader(text)
+	_ = cmd.Run()
 }
 
 // showRenameInput creates a small input view for renaming a session.

@@ -15,7 +15,7 @@ func TestNewAppHeadless_ModeMain(t *testing.T) {
 	require.NoError(t, err)
 	defer app.Gui().Close()
 
-	assert.Equal(t, gui.ModeMain, app.Mode())
+	assert.Equal(t, gui.ModeMain, app.AppMode())
 	assert.NotNil(t, app.Gui())
 }
 
@@ -24,7 +24,7 @@ func TestNewAppHeadless_ModeDiff(t *testing.T) {
 	require.NoError(t, err)
 	defer app.Gui().Close()
 
-	assert.Equal(t, gui.ModeDiff, app.Mode())
+	assert.Equal(t, gui.ModeDiff, app.AppMode())
 }
 
 func TestNewAppHeadless_Layout_Main_NoError(t *testing.T) {

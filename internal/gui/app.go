@@ -10,6 +10,8 @@ import (
 	"github.com/KEMSHlM/lazyclaude/internal/core/config"
 	"github.com/KEMSHlM/lazyclaude/internal/core/event"
 	"github.com/KEMSHlM/lazyclaude/internal/core/model"
+	"github.com/KEMSHlM/lazyclaude/internal/gui/keydispatch"
+	"github.com/KEMSHlM/lazyclaude/internal/gui/keyhandler"
 	"github.com/jesseduffield/gocui"
 )
 
@@ -63,7 +65,6 @@ type PreviewResult struct {
 type App struct {
 	gui              *gocui.Gui
 	mode             AppMode
-	activeTabIdx     int
 	sessions         SessionProvider
 	cursor           int // selected session index
 	preview          *PreviewCache
@@ -74,8 +75,15 @@ type App struct {
 	fullScreenTarget string                        // session ID for full-screen view
 	inputForwarder   InputForwarder                // forwards keys to tmux pane in full-screen
 	keyRegistry        *KeyRegistry                   // single source of truth for key bindings
+	dispatcher         *keydispatch.Dispatcher       // key dispatch chain
+	panelManager       *keyhandler.PanelManager      // panel focus management
 	outputNotify       chan struct{}                 // signals pane output (from control mode)
 	fullScreenScrollY  int                          // mouse scroll offset
+	logsCursorY        int                          // logs cursor line (absolute, 0=newest)
+	logsSelecting      bool                         // logs selection mode active
+	logsSelAnchor      int                          // selection anchor line
+	logsLineCount      int                          // cached line count from last render
+	quitRequested      bool                         // set by Quit(), checked after Dispatch
 	onTick             func()                       // called every ticker cycle (control mode health check)
 	keyQueue           chan keyCmd                   // serial key forwarding queue (preserves order)
 	popupMode          config.PopupMode             // how popups are displayed (auto/tmux/overlay)
@@ -108,6 +116,7 @@ func NewApp(mode AppMode) (*App, error) {
 		outputNotify: make(chan struct{}, 1),
 		keyQueue:     make(chan keyCmd, 64),
 	}
+	app.initDispatcher()
 
 	g.SetManagerFunc(app.layout)
 	g.Mouse = true
@@ -141,6 +150,7 @@ func NewAppHeadless(mode AppMode, width, height int) (*App, error) {
 		outputNotify: make(chan struct{}, 1),
 		keyQueue:     make(chan keyCmd, 64),
 	}
+	app.initDispatcher()
 
 	g.SetManagerFunc(app.layout)
 
@@ -150,6 +160,16 @@ func NewAppHeadless(mode AppMode, width, height int) (*App, error) {
 	}
 
 	return app, nil
+}
+
+// initDispatcher creates the panel manager and key dispatcher.
+func (a *App) initDispatcher() {
+	pm := keyhandler.NewPanelManager(
+		&keyhandler.SessionsPanel{},
+		&keyhandler.LogsPanel{},
+	)
+	a.panelManager = pm
+	a.dispatcher = keydispatch.New(pm)
 }
 
 // Run starts the main event loop. Blocks until quit.
@@ -240,9 +260,14 @@ func (a *App) Run() error {
 	return nil
 }
 
-// Mode returns the current app mode.
-func (a *App) Mode() AppMode {
+// AppMode returns the current app mode (typed).
+func (a *App) AppMode() AppMode {
 	return a.mode
+}
+
+// Mode returns the current app mode as int (satisfies keyhandler.AppActions).
+func (a *App) Mode() int {
+	return int(a.mode)
 }
 
 // SetSessions sets the session provider for the main screen.
@@ -318,7 +343,7 @@ func (a *App) Gui() *gocui.Gui {
 }
 
 func (a *App) setStatus(g *gocui.Gui, msg string) {
-	v, err := g.View("server")
+	v, err := g.View("logs")
 	if err != nil {
 		return
 	}

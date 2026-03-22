@@ -4,303 +4,73 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/KEMSHlM/lazyclaude/internal/gui/keyhandler"
 	"github.com/jesseduffield/gocui"
 )
 
-// setupGlobalKeybindings registers all keybindings using the app's keymap.
-//
-// Input priority per event:
-//  1. Popup handlers (if popup showing)
-//  2. Lazyclaude keymap actions (if key matches current context)
-//  3. Forward to Claude Code (if full-screen mode)
+// dispatchRune creates a gocui handler that dispatches a rune key through the Dispatcher.
+func (a *App) dispatchRune(ch rune) func(*gocui.Gui, *gocui.View) error {
+	return func(g *gocui.Gui, v *gocui.View) error {
+		ev := keyhandler.KeyEvent{Rune: ch}
+		a.dispatcher.Dispatch(ev, a)
+		if a.quitRequested {
+			a.quitRequested = false
+			return gocui.ErrQuit
+		}
+		return nil
+	}
+}
+
+// dispatchKey creates a gocui handler that dispatches a special key through the Dispatcher.
+func (a *App) dispatchKey(key gocui.Key) func(*gocui.Gui, *gocui.View) error {
+	return func(g *gocui.Gui, v *gocui.View) error {
+		ev := keyhandler.KeyEvent{Key: key}
+		a.dispatcher.Dispatch(ev, a)
+		if a.quitRequested {
+			a.quitRequested = false
+			return gocui.ErrQuit
+		}
+		return nil
+	}
+}
+
+// setupGlobalKeybindings registers physical keys and delegates to the Dispatcher.
 func (a *App) setupGlobalKeybindings() error {
-	km := a.keyRegistry
-
-	// Ctrl+C: always quit
-	if err := a.gui.SetKeybinding("", gocui.KeyCtrlC, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
-		return gocui.ErrQuit
-	}); err != nil {
-		return err
-	}
-
-	// q: quit (fullScreen keys handled by Editor, not here)
-	if err := a.gui.SetKeybinding("", km.FirstRune(ActionQuit), gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
-		if a.hasPopup() || a.state.IsFullScreen() {
-			return nil
-		}
-		if a.mode == ModeMain {
-			return gocui.ErrQuit
-		}
-		return nil
-	}); err != nil {
-		return err
-	}
-
-	// Esc on popup view: suspend (hide, reopenable with 'p')
-	if err := a.gui.SetKeybinding(popupViewName, gocui.KeyEsc, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
-		a.suspendAllPopups()
-		return nil
-	}); err != nil {
-		return err
-	}
-
-	// Esc: suspend popup, forward in full-screen, quit in popup mode
-	if err := a.gui.SetKeybinding("", gocui.KeyEsc, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
-		if a.hasPopup() {
-			a.suspendAllPopups()
-			return nil
-		}
-		if a.state.IsFullScreen() {
-			a.forwardSpecialKey("Escape")
-			return nil
-		}
-		if a.mode == ModeDiff || a.mode == ModeTool {
-			return gocui.ErrQuit
-		}
-		return nil
-	}); err != nil {
-		return err
-	}
-
-	// Cursor/scroll handler factory: tmuxSpecial for arrow keys, empty for j/k
-	makeCursorHandler := func(tmuxSpecial string, isDown bool) func(*gocui.Gui, *gocui.View) error {
-		return func(g *gocui.Gui, v *gocui.View) error {
-			if a.hasPopup() {
-				if tmuxSpecial != "" {
-					if isDown {
-						a.popupFocusNext()
-					} else {
-						a.popupFocusPrev()
-					}
-				} else {
-					p := a.popups.ActivePopup()
-					if p != nil && p.IsDiff() {
-						if isDown && p.ScrollY() < maxScrollFor(len(p.ContentLines()), 20) {
-							p.SetScrollY(p.ScrollY() + 1)
-						}
-						if !isDown && p.ScrollY() > 0 {
-							p.SetScrollY(p.ScrollY() - 1)
-						}
-					}
-				}
-				return nil
-			}
-			if a.state.IsFullScreen() {
-				if tmuxSpecial != "" {
-					a.forwardSpecialKey(tmuxSpecial)
-				}
-				return nil
-			}
-			if a.mode != ModeMain {
-				return nil
-			}
-			if isDown && a.sessions != nil {
-				if a.cursor < len(a.sessions.Sessions())-1 {
-					a.cursor++
-				}
-			}
-			if !isDown && a.cursor > 0 {
-				a.cursor--
-			}
-			return nil
-		}
-	}
-
-	jDown := makeCursorHandler("", true)
-	kUp := makeCursorHandler("", false)
-	arrowDown := makeCursorHandler("Down", true)
-	arrowUp := makeCursorHandler("Up", false)
-
-	for _, b := range []struct {
-		view string
-		key  interface{} // rune or gocui.Key
-		fn   func(*gocui.Gui, *gocui.View) error
-	}{
-		{"", km.FirstRune(ActionCursorDown), jDown},
-		{"", gocui.KeyArrowDown, arrowDown},
-		{"", km.FirstRune(ActionCursorUp), kUp},
-		{"", gocui.KeyArrowUp, arrowUp},
-		{popupViewName, km.FirstRune(ActionCursorDown), jDown},
-		{popupViewName, km.FirstRune(ActionCursorUp), kUp},
-		{popupViewName, gocui.KeyArrowDown, arrowDown},
-		{popupViewName, gocui.KeyArrowUp, arrowUp},
-	} {
-		var err error
-		switch k := b.key.(type) {
-		case rune:
-			err = a.gui.SetKeybinding(b.view, k, gocui.ModNone, b.fn)
-		case gocui.Key:
-			err = a.gui.SetKeybinding(b.view, k, gocui.ModNone, b.fn)
-		}
-		if err != nil {
+	// 1. Rune keys dispatched through the chain
+	runes := []rune{'j', 'k', 'n', 'd', 'r', 'R', 'D', 'q', 'p', 'y', 'a', 'Y', 'g', 'G', 'v', '1', '2', '3'}
+	for _, ch := range runes {
+		if err := a.gui.SetKeybinding("", ch, gocui.ModNone, a.dispatchRune(ch)); err != nil {
 			return err
 		}
 	}
 
-	// n: new session or reject popup (fullScreen handled by Editor)
-	if err := a.gui.SetKeybinding("", km.FirstRune(ActionNewSession), gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
-		if a.hasPopup() {
-			a.dismissPopup(ChoiceReject)
-			return nil
-		}
-		if a.state.IsFullScreen() || a.mode != ModeMain || a.sessions == nil {
-			return nil
-		}
-		host := DetectSSHHost()
-		path := "."
-		if host != "" {
-			if rp := DetectRemotePath(); rp != "" {
-				path = rp
-			}
-		}
-		if err := a.sessions.Create(path, host); err != nil {
-			a.setStatus(g, fmt.Sprintf("Error: %v", err))
-			return nil
-		}
-		a.setStatus(g, "Session created")
-		return nil
-	}); err != nil {
-		return err
+	// 2. Special keys dispatched through the chain
+	specials := []gocui.Key{
+		gocui.KeyEnter, gocui.KeyEsc, gocui.KeyCtrlC, gocui.KeyCtrlD,
+		gocui.KeyCtrlBackslash, gocui.KeyTab, gocui.KeyBacktab,
+		gocui.KeyArrowUp, gocui.KeyArrowDown,
 	}
-
-	// 'p': unsuspend (reopen) suspended popups
-	if err := a.gui.SetKeybinding("", 'p', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
-		if a.popupCount() > 0 && !a.hasPopup() {
-			a.unsuspendAll()
-		}
-		return nil
-	}); err != nil {
-		return err
-	}
-
-	// Popup choice handlers — bind on BOTH global ("") and popup view name.
-	popupAccept := func(g *gocui.Gui, v *gocui.View) error {
-		if a.hasPopup() {
-			a.dismissPopup(ChoiceAccept)
-		}
-		return nil
-	}
-	popupAllow := func(g *gocui.Gui, v *gocui.View) error {
-		if a.hasPopup() {
-			a.dismissPopup(ChoiceAllow)
-		}
-		return nil
-	}
-	popupReject := func(g *gocui.Gui, v *gocui.View) error {
-		if a.hasPopup() {
-			a.dismissPopup(ChoiceReject)
-		}
-		return nil
-	}
-	popupAcceptAll := func(g *gocui.Gui, v *gocui.View) error {
-		if a.hasPopup() {
-			a.dismissAllPopups(ChoiceAccept)
-		}
-		return nil
-	}
-
-	for _, b := range []struct {
-		view string
-		ch   rune
-		fn   func(*gocui.Gui, *gocui.View) error
-	}{
-		{"", 'Y', popupAcceptAll},
-		{popupViewName, 'Y', popupAcceptAll},
-		{"", km.FirstRune(ActionPopupAccept), popupAccept},
-		{popupViewName, km.FirstRune(ActionPopupAccept), popupAccept},
-		{"", km.FirstRune(ActionPopupAllow), popupAllow},
-		{popupViewName, km.FirstRune(ActionPopupAllow), popupAllow},
-		{popupViewName, '1', popupAccept},
-		{popupViewName, '2', popupAllow},
-		{popupViewName, '3', popupReject},
-		{popupViewName, km.FirstRune(ActionPopupReject), popupReject},
-	} {
-		if err := a.gui.SetKeybinding(b.view, b.ch, gocui.ModNone, b.fn); err != nil {
+	for _, key := range specials {
+		if err := a.gui.SetKeybinding("", key, gocui.ModNone, a.dispatchKey(key)); err != nil {
 			return err
 		}
 	}
 
-	// d: delete session (main mode only)
-	if err := a.gui.SetKeybinding("", km.FirstRune(ActionDeleteSession), gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
-		if a.hasPopup() || a.state.IsFullScreen() || a.mode != ModeMain || a.sessions == nil {
-			return nil
+	// 3. Popup view bindings (gocui may skip global bindings when popup has focus)
+	popupRunes := []rune{'j', 'k', 'y', 'a', 'n', 'Y', '1', '2', '3'}
+	for _, ch := range popupRunes {
+		if err := a.gui.SetKeybinding(popupViewName, ch, gocui.ModNone, a.dispatchRune(ch)); err != nil {
+			return err
 		}
-		items := a.sessions.Sessions()
-		if a.cursor >= 0 && a.cursor < len(items) {
-			if err := a.sessions.Delete(items[a.cursor].ID); err != nil {
-				a.setStatus(g, fmt.Sprintf("Error: %v", err))
-				return nil
-			}
-			if a.cursor > 0 && a.cursor >= len(a.sessions.Sessions()) {
-				a.cursor--
-			}
-			a.setStatus(g, "Session deleted")
+	}
+	popupSpecials := []gocui.Key{gocui.KeyArrowUp, gocui.KeyArrowDown, gocui.KeyEsc}
+	for _, key := range popupSpecials {
+		if err := a.gui.SetKeybinding(popupViewName, key, gocui.ModNone, a.dispatchKey(key)); err != nil {
+			return err
 		}
-		return nil
-	}); err != nil {
-		return err
 	}
 
-	// Enter: suspend gocui and attach to session via tmux, or forward in full-screen
-	if err := a.gui.SetKeybinding("", km.FirstKey(ActionEnterFull), gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
-		if a.hasPopup() {
-			return nil
-		}
-		if a.state.IsFullScreen() {
-			a.forwardSpecialKey("Enter")
-			return nil
-		}
-		if a.mode != ModeMain || a.sessions == nil {
-			return nil
-		}
-		items := a.sessions.Sessions()
-		if a.cursor >= 0 && a.cursor < len(items) {
-			// Suspend gocui, attach to tmux session, resume on detach.
-			if err := g.Suspend(); err != nil {
-				a.setStatus(g, fmt.Sprintf("Suspend error: %v", err))
-				return nil
-			}
-			attachErr := a.sessions.AttachSession(items[a.cursor].ID)
-			if err := g.Resume(); err != nil {
-				return err
-			}
-			if attachErr != nil {
-				a.setStatus(g, fmt.Sprintf("Attach error: %v", attachErr))
-			}
-		}
-		return nil
-	}); err != nil {
-		return err
-	}
-
-	// Ctrl+D: exit full-screen mode
-	if err := a.gui.SetKeybinding("", gocui.KeyCtrlD, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
-		if a.state.IsFullScreen() {
-			a.exitFullScreen()
-		}
-		return nil
-	}); err != nil {
-		return err
-	}
-
-	// Ctrl+\: exit full-screen or quit from preview mode
-	if err := a.gui.SetKeybinding("", gocui.KeyCtrlBackslash, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
-		if a.hasPopup() {
-			return nil
-		}
-		if a.state.IsFullScreen() {
-			a.exitFullScreen()
-			return nil
-		}
-		if a.mode == ModeMain {
-			return gocui.ErrQuit
-		}
-		return nil
-	}); err != nil {
-		return err
-	}
-
-	// Mouse scroll in full-screen
+	// 4. Mouse scroll (not dispatched — simple inline handlers)
 	if err := a.gui.SetKeybinding("", gocui.MouseWheelUp, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
 		if a.state.IsFullScreen() && a.fullScreenScrollY > 0 {
 			a.fullScreenScrollY--
@@ -318,44 +88,7 @@ func (a *App) setupGlobalKeybindings() error {
 		return err
 	}
 
-	// r: resume (enter full-screen, same as Enter)
-	if err := a.gui.SetKeybinding("", 'r', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
-		if a.hasPopup() || a.state.IsFullScreen() {
-			return nil
-		}
-		if a.mode == ModeMain && a.sessions != nil {
-			items := a.sessions.Sessions()
-			if a.cursor >= 0 && a.cursor < len(items) {
-				a.enterFullScreen(items[a.cursor].ID)
-			}
-		}
-		return nil
-	}); err != nil {
-		return err
-	}
-
-	// R: open rename input
-	if err := a.gui.SetKeybinding("", 'R', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
-		if a.hasPopup() || a.state.IsFullScreen() || a.mode != ModeMain || a.sessions == nil {
-			return nil
-		}
-		if a.renameSessionID != "" {
-			return nil // already renaming
-		}
-		items := a.sessions.Sessions()
-		if a.cursor < 0 || a.cursor >= len(items) {
-			return nil
-		}
-		a.renameSessionID = items[a.cursor].ID
-		if !a.showRenameInput(g, items[a.cursor].Name) {
-			a.renameSessionID = ""
-		}
-		return nil
-	}); err != nil {
-		return err
-	}
-
-	// Rename input: Enter to confirm
+	// 5. Rename input (view-specific, outside dispatcher)
 	if err := a.gui.SetKeybinding("rename-input", gocui.KeyEnter, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
 		newName := strings.TrimSpace(v.TextArea.GetContent())
 		if newName != "" && a.renameSessionID != "" {
@@ -370,26 +103,8 @@ func (a *App) setupGlobalKeybindings() error {
 	}); err != nil {
 		return err
 	}
-
-	// Rename input: Esc to cancel
 	if err := a.gui.SetKeybinding("rename-input", gocui.KeyEsc, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
 		a.closeRenameInput(g)
-		return nil
-	}); err != nil {
-		return err
-	}
-
-	// D: purge orphans
-	if err := a.gui.SetKeybinding("", 'D', gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
-		if a.hasPopup() || a.state.IsFullScreen() || a.mode != ModeMain || a.sessions == nil {
-			return nil
-		}
-		count, err := a.sessions.PurgeOrphans()
-		if err != nil {
-			a.setStatus(g, fmt.Sprintf("Error: %v", err))
-			return nil
-		}
-		a.setStatus(g, fmt.Sprintf("Purged %d orphans", count))
 		return nil
 	}); err != nil {
 		return err
