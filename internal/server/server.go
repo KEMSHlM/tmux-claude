@@ -281,6 +281,7 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 
 	window := s.resolveNotifyWindow(r.Context(), req.PID)
 	if window == "" {
+		s.log.Printf("notify: window not found for pid=%d type=%s tool=%s", req.PID, req.Type, req.ToolName)
 		http.Error(w, "window not found", http.StatusNotFound)
 		return
 	}
