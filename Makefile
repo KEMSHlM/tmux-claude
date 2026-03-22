@@ -15,10 +15,13 @@ test-unit:
 	go test -race -cover ./internal/...
 
 ## VHS tape recording (e.g. make test-vhs TAPE=ssh_launch)
+COMPOSE_PROJECT := lazyclaude-e2e-$(shell git rev-parse --short HEAD 2>/dev/null || echo local)
+COMPOSE := docker compose -p $(COMPOSE_PROJECT) -f vis_e2e_tests/docker-compose.ssh.yml
+
 test-vhs:
-	docker compose -f vis_e2e_tests/docker-compose.ssh.yml build
-	TAPE=$(TAPE) docker compose -f vis_e2e_tests/docker-compose.ssh.yml run --rm vhs
-	docker compose -f vis_e2e_tests/docker-compose.ssh.yml down
+	$(COMPOSE) build
+	TAPE=$(TAPE) $(COMPOSE) run --rm vhs
+	$(COMPOSE) down
 
 lint:
 	golangci-lint run ./...
