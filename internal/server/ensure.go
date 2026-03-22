@@ -89,6 +89,9 @@ func EnsureServer(opts EnsureOpts) (EnsureResult, error) {
 }
 
 func startServer(opts EnsureOpts) (EnsureResult, error) {
+	// Kill any orphan server processes before starting a new one
+	killOrphanServers(opts.Binary)
+
 	cmd := exec.Command(opts.Binary, "server", "--port", "0")
 	if len(opts.ExtraEnv) > 0 {
 		cmd.Env = append(os.Environ(), opts.ExtraEnv...)
@@ -125,6 +128,13 @@ func IsAlive(portFile string) bool {
 		return false
 	}
 	return isServerAlive(port)
+}
+
+// killOrphanServers finds and kills any lazyclaude server processes.
+func killOrphanServers(binary string) {
+	// Use pkill to kill all matching processes
+	exec.Command("pkill", "-f", binary+" server").Run()
+	time.Sleep(100 * time.Millisecond)
 }
 
 // isServerAlive checks if a TCP server is listening on the given port.
