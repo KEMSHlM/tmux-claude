@@ -25,7 +25,7 @@ func (p *SessionsPanel) HandleKey(ev KeyEvent, actions AppActions) HandlerResult
 	case ev.Rune == 'd':
 		actions.DeleteSession()
 		return Handled
-	case ev.Key == gocui.KeyEnter && ev.Mod == gocui.ModAlt:
+	case ev.Rune == 'a':
 		actions.AttachSession()
 		return Handled
 	case ev.Key == gocui.KeyEnter:
@@ -49,7 +49,7 @@ func (p *SessionsPanel) OptionsBar() string {
 		presentation.StyledKey("n", "new") + "  " +
 		presentation.StyledKey("d", "del") + "  " +
 		presentation.StyledKey("enter", "full") + "  " +
-		presentation.StyledKey("M-enter", "attach") + "  " +
+		presentation.StyledKey("a", "attach") + "  " +
 		presentation.StyledKey("R", "rename") + "  " +
 		presentation.StyledKey("q", "quit")
 }

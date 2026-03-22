@@ -19,7 +19,7 @@ func TestSessionsPanel_Keys(t *testing.T) {
 		{keyhandler.KeyEvent{Rune: 'n'}, "CreateSession"},
 		{keyhandler.KeyEvent{Rune: 'd'}, "DeleteSession"},
 		{keyhandler.KeyEvent{Key: gocui.KeyEnter}, "EnterFullScreen"},
-		{keyhandler.KeyEvent{Key: gocui.KeyEnter, Mod: gocui.ModAlt}, "AttachSession"},
+		{keyhandler.KeyEvent{Rune: 'a'}, "AttachSession"},
 		{keyhandler.KeyEvent{Rune: 'r'}, "EnterFullScreen"},
 		{keyhandler.KeyEvent{Rune: 'R'}, "StartRename"},
 		{keyhandler.KeyEvent{Rune: 'D'}, "PurgeOrphans"},

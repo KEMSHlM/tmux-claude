@@ -18,9 +18,6 @@ func (h *FullScreenHandler) HandleKey(ev KeyEvent, actions AppActions) HandlerRe
 	case ev.Key == gocui.KeyCtrlD:
 		actions.ExitFullScreen()
 		return Handled
-	case ev.Key == gocui.KeyEnter && ev.Mod == gocui.ModAlt:
-		actions.ForwardSpecialKey("Enter")
-		return Handled
 	case ev.Key == gocui.KeyEnter:
 		actions.ForwardSpecialKey("Enter")
 		return Handled
