@@ -6,4 +6,4 @@ vis_e2e_tests/outputs/
 integration.test
 .DS_Store
 old_tapes/
-.claude/
+.claude/worktrees
