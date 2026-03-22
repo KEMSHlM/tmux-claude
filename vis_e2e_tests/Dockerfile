@@ -52,7 +52,8 @@ RUN curl -fsSL https://claude.ai/install.sh | bash
 ENV PATH="/root/.local/bin:${PATH}"
 RUN go build -o bin/lazyclaude ./cmd/lazyclaude && \
     ln -sf /app/bin/lazyclaude /usr/local/bin/lazyclaude && \
-    mkdir -p /app/outputs && \
+    mkdir -p /app/outputs /tmp/lazyclaude && \
+    echo 'alias lazyclaude="/app/bin/lazyclaude --debug"' >> /root/.bashrc && \
     mv /bin/bash /bin/bash-real && \
     printf '#!/bin/bash-real\nif [ -z "$VHS_IN_TMUX" ]; then\n  export VHS_IN_TMUX=1\n  /app/bin/lazyclaude setup 2>/dev/null\n  tmux new-session -d -s main\n  bash-real /app/lazyclaude.tmux 2>/dev/null\n  exec tmux attach -t main\nfi\nexec /bin/bash-real "$@"\n' > /bin/bash && \
     chmod +x /bin/bash

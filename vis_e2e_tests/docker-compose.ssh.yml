@@ -31,6 +31,7 @@ services:
       - testnet
     volumes:
       - ../vis_e2e_tests/outputs:/app/outputs
+      - ../vis_e2e_tests/outputs/${TAPE:-ssh_launch}/log:/tmp/lazyclaude
     tty: true
     entrypoint: ["/bin/bash-real", "-c"]
     command:

@@ -22,17 +22,6 @@ if [ -n "${REMOTE_HOST:-}" ]; then
     fi
 fi
 
-# lazyclaude を --debug で起動するラッパー
-DEBUG_LOG="${OUTDIR}/debug.log"
-rm -f /usr/local/bin/lazyclaude
-cat > /usr/local/bin/lazyclaude << WRAPPER
-#!/bin/bash-real
-exec /app/bin/lazyclaude --debug --log-file "$DEBUG_LOG" "\$@"
-WRAPPER
-chmod +x /usr/local/bin/lazyclaude
-mkdir -p /tmp/lazyclaude
-ln -sf "${OUTDIR}/server.log" /tmp/lazyclaude/server.log
-
 # --- テープ固有セットアップ ---
 case "$TAPE_NAME" in
     diff_popup)
