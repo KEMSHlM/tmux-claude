@@ -35,9 +35,7 @@ services:
     tty: true
     entrypoint: ["/bin/bash-real", "-c"]
     command:
-      - |
-        ssh-keyscan -H remote >> /root/.ssh/known_hosts 2>/dev/null
-        /app/vis_e2e_tests/entrypoint.sh /app/vis_e2e_tests/tapes/$${TAPE}.tape
+      - /app/vis_e2e_tests/entrypoint.sh /app/vis_e2e_tests/tapes/$${TAPE}.tape
 
 networks:
   testnet:

@@ -16,18 +16,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tmux openssh-server openssh-client curl nodejs expect git \
     && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL https://claude.ai/install.sh | bash
-RUN ssh-keygen -t ed25519 -f /root/.ssh/test_key -N "" -q
 ENV TERM=xterm-256color PATH="/root/.local/bin:${PATH}"
 
 # --- Target: remote (sshd for SSH E2E) ---
 FROM base AS remote
-RUN ssh-keygen -A && mkdir -p /run/sshd /root/.ssh
-COPY --from=base /root/.ssh/test_key.pub /root/.ssh/authorized_keys
-RUN chmod 700 /root/.ssh && chmod 600 /root/.ssh/authorized_keys
+RUN ssh-keygen -A && mkdir -p /run/sshd
 RUN sed -i 's/#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config && \
-    sed -i 's/#PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config && \
-    sed -i 's/#PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config && \
-    echo 'GatewayPorts yes' >> /etc/ssh/sshd_config
+    sed -i 's/#PermitEmptyPasswords.*/PermitEmptyPasswords yes/' /etc/ssh/sshd_config && \
+    sed -i 's/#PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config && \
+    echo 'GatewayPorts yes' >> /etc/ssh/sshd_config && \
+    passwd -d root
 RUN echo 'export PATH="/root/.local/bin:$PATH"' >> /root/.bashrc
 COPY vis_e2e_tests/claude-settings.json /root/.claude/settings.json
 RUN echo '{"hasCompletedOnboarding":true,"numStartups":10,"projects":{"/":{"hasTrustDialogAccepted":true,"allowedTools":[]}}}' > /root/.claude.json
@@ -41,9 +39,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && sed -i '/en_US.UTF-8/s/^# //' /etc/locale.gen && locale-gen
 ENV TERM=xterm-256color LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
-RUN mkdir -p /root/.ssh
-COPY --from=base /root/.ssh/test_key /root/.ssh/id_ed25519
-RUN chmod 700 /root/.ssh && chmod 600 /root/.ssh/id_ed25519
+RUN mkdir -p /root/.ssh && printf 'Host *\n  StrictHostKeyChecking no\n  UserKnownHostsFile /dev/null\n' > /root/.ssh/config
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
