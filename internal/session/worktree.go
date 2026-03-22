@@ -41,13 +41,11 @@ func ValidateWorktreeName(name string) error {
 	return nil
 }
 
-// BuildWorktreePrompt combines the system isolation prompt with the user's prompt.
-func BuildWorktreePrompt(worktreePath, projectRoot, userPrompt string) string {
-	system := fmt.Sprintf(worktreeSystemPrompt, worktreePath, projectRoot)
-	if strings.TrimSpace(userPrompt) == "" {
-		return system
-	}
-	return system + "\n\n---\n\n" + userPrompt
+// BuildWorktreePrompt returns the system isolation instructions for a worktree.
+// This is appended to Claude's system prompt via --append-system-prompt.
+// The user's task description is passed separately as a positional argument.
+func BuildWorktreePrompt(worktreePath, projectRoot string) string {
+	return fmt.Sprintf(worktreeSystemPrompt, worktreePath, projectRoot)
 }
 
 // WorktreePath returns the absolute path for a worktree directory.

@@ -254,7 +254,9 @@ func (m *Manager) CreateWorktree(ctx context.Context, name, userPrompt, projectR
 		return nil, fmt.Errorf("create worktree dir: %w", err)
 	}
 
-	systemPrompt := BuildWorktreePrompt(wtPath, projectRoot, userPrompt)
+	// Isolation instructions go in --append-system-prompt (system level).
+	// User's task description goes as the positional argument (user level).
+	systemPrompt := BuildWorktreePrompt(wtPath, projectRoot)
 
 	// Write a launcher script to avoid nested shell quoting issues.
 	// Go writes the file directly, so the prompt content is never

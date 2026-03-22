@@ -47,8 +47,8 @@ func TestValidateWorktreeName_Invalid(t *testing.T) {
 	}
 }
 
-func TestBuildWorktreePrompt_WithUserPrompt(t *testing.T) {
-	prompt := BuildWorktreePrompt("/project/.claude/worktrees/fix", "/project", "Fix the bug")
+func TestBuildWorktreePrompt(t *testing.T) {
+	prompt := BuildWorktreePrompt("/project/.claude/worktrees/fix", "/project")
 	if !strings.Contains(prompt, "/project/.claude/worktrees/fix") {
 		t.Error("should contain worktree path")
 	}
@@ -57,22 +57,6 @@ func TestBuildWorktreePrompt_WithUserPrompt(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "NEVER modify") {
 		t.Error("should contain isolation instruction")
-	}
-	if !strings.Contains(prompt, "---") {
-		t.Error("should contain separator")
-	}
-	if !strings.Contains(prompt, "Fix the bug") {
-		t.Error("should contain user prompt")
-	}
-}
-
-func TestBuildWorktreePrompt_EmptyUserPrompt(t *testing.T) {
-	prompt := BuildWorktreePrompt("/wt", "/proj", "")
-	if strings.Contains(prompt, "---") {
-		t.Error("should not contain separator when user prompt is empty")
-	}
-	if !strings.Contains(prompt, "NEVER modify") {
-		t.Error("should still contain system prompt")
 	}
 }
 
