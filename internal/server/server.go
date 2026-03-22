@@ -357,6 +357,7 @@ func (s *Server) resolveNotifyWindow(ctx context.Context, pid int) string {
 
 // resolveToolInfo returns the effective tool name, input, and cwd for a permission-prompt
 // notification. It prefers data stored by an earlier PreToolUse hook over the request fields.
+// Falls back to extracting tool name from the message field ("Claude needs your permission to use Write").
 func (s *Server) resolveToolInfo(window string, req notifyRequest) (toolName, input, cwd string) {
 	toolName = req.ToolName
 	input = req.toolInputString()
@@ -368,7 +369,22 @@ func (s *Server) resolveToolInfo(window string, req notifyRequest) (toolName, in
 			cwd = pending.CWD
 		}
 	}
+	// Fallback: extract tool name from message when PreToolUse hook did not fire.
+	// Claude Code sends "Claude needs your permission to use <ToolName>" in the Notification hook.
+	if toolName == "" && req.Message != "" {
+		toolName = extractToolFromMessage(req.Message)
+	}
 	return toolName, input, cwd
+}
+
+// extractToolFromMessage parses "Claude needs your permission to use Write" → "Write".
+func extractToolFromMessage(msg string) string {
+	const prefix = "permission to use "
+	idx := strings.Index(msg, prefix)
+	if idx < 0 {
+		return ""
+	}
+	return strings.TrimSpace(msg[idx+len(prefix):])
 }
 
 // dispatchToolNotification builds a ToolNotification, enqueues it to disk,
