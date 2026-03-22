@@ -28,6 +28,7 @@ RUN sed -i 's/#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config && \
     passwd -d root
 RUN echo 'export PATH="/root/.local/bin:$PATH"' >> /root/.bashrc
 COPY vis_e2e_tests/claude-settings.json /root/.claude/settings.json
+COPY vis_e2e_tests/hooks/ /root/.claude/hooks/
 RUN echo '{"hasCompletedOnboarding":true,"numStartups":10,"projects":{"/":{"hasTrustDialogAccepted":true,"allowedTools":[]}}}' > /root/.claude.json
 EXPOSE 22
 CMD ["/usr/sbin/sshd", "-D"]
