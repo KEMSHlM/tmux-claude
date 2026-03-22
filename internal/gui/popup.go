@@ -115,7 +115,7 @@ func (a *App) layoutToolPopup(g *gocui.Gui, maxX, maxY int) error {
 	focusedEntry := a.popups.ActiveEntry()
 	if focusedEntry != nil {
 		cx, cy := popupCascadeOffset(baseX, baseY, a.popups.VisibleIndexOf(a.popups.FocusIndex()))
-		ay0 := cy + popH - 1
+		ay0 := cy + popH - 2
 		ay1 := ay0 + 2
 		if ay1 >= maxY {
 			ay1 = maxY - 1
