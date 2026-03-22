@@ -56,6 +56,19 @@ func (a *App) setupGlobalKeybindings() error {
 		}
 	}
 
+	// Alt+Enter: attach session (dispatched with Mod set)
+	if err := a.gui.SetKeybinding("", gocui.KeyEnter, gocui.ModAlt, func(g *gocui.Gui, v *gocui.View) error {
+		ev := keyhandler.KeyEvent{Key: gocui.KeyEnter, Mod: gocui.ModAlt}
+		a.dispatcher.Dispatch(ev, a)
+		if a.quitRequested {
+			a.quitRequested = false
+			return gocui.ErrQuit
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
 	// 3. Popup view bindings (gocui may skip global bindings when popup has focus)
 	popupRunes := []rune{'j', 'k', 'y', 'a', 'n', 'Y', '1', '2', '3'}
 	for _, ch := range popupRunes {
