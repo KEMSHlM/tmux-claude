@@ -74,6 +74,7 @@ func (p *PopupOrchestrator) SpawnToolPopup(ctx context.Context, window, toolName
 	p.active[window] = true
 	p.mu.Unlock()
 
+	p.log.Printf("popup: spawning tool %s for window %s", toolName, window)
 	go p.runToolPopup(ctx, req)
 }
 
@@ -119,16 +120,19 @@ func (p *PopupOrchestrator) spawnToolPopupBlocking(ctx context.Context, req tool
 		Cmd:    cmd,
 		Env:    env,
 	}
-	// Use user's tmux for display-popup (not lazyclaude tmux).
+	// Decide which tmux to use for display-popup:
+	// 1. If lazyclaude tmux has an active client (user is in fullscreen/attach),
+	//    use lazyclaude tmux — the user is looking at it.
+	// 2. Otherwise use hostTmux (user's tmux) — TUI is closed.
 	popupTmux := p.tmux
-	if p.hostTmux != nil {
-		popupTmux = p.hostTmux
-		// Don't set Target — lazyclaude window IDs don't exist in user's tmux
-	} else {
-		opts.Target = req.window
-	}
-	if client, err := popupTmux.FindActiveClient(ctx); err == nil && client != nil {
+	if client, err := p.tmux.FindActiveClient(ctx); err == nil && client != nil {
 		opts.Client = client.Name
+		opts.Target = req.window
+	} else if p.hostTmux != nil {
+		popupTmux = p.hostTmux
+		if client, err := p.hostTmux.FindActiveClient(ctx); err == nil && client != nil {
+			opts.Client = client.Name
+		}
 	}
 	if err := popupTmux.DisplayPopup(ctx, opts); err != nil {
 		p.log.Printf("popup: spawn tool: %v", err)
@@ -151,13 +155,14 @@ func (p *PopupOrchestrator) SpawnDiffPopup(ctx context.Context, window, oldPath,
 		Env:    env,
 	}
 	popupTmux := p.tmux
-	if p.hostTmux != nil {
-		popupTmux = p.hostTmux
-	} else {
-		opts.Target = window
-	}
-	if client, err := popupTmux.FindActiveClient(ctx); err == nil && client != nil {
+	if client, err := p.tmux.FindActiveClient(ctx); err == nil && client != nil {
 		opts.Client = client.Name
+		opts.Target = window
+	} else if p.hostTmux != nil {
+		popupTmux = p.hostTmux
+		if client, err := p.hostTmux.FindActiveClient(ctx); err == nil && client != nil {
+			opts.Client = client.Name
+		}
 	}
 	if err := popupTmux.DisplayPopup(ctx, opts); err != nil {
 		p.log.Printf("popup: spawn diff: %v", err)

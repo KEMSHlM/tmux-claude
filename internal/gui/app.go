@@ -2,6 +2,8 @@ package gui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -154,6 +156,12 @@ func NewAppHeadless(mode AppMode, width, height int) (*App, error) {
 func (a *App) Run() error {
 	defer a.gui.Close()
 
+	// TUI lock file: signals to MCP server that TUI is open.
+	// Server skips display-popup when this file exists.
+	tuiLock := filepath.Join(os.TempDir(), "lazyclaude-tui.lock")
+	os.WriteFile(tuiLock, []byte(fmt.Sprintf("%d", os.Getpid())), 0o644)
+	defer os.Remove(tuiLock)
+
 	// Serial key forwarder: preserves keystroke order (critical for IME input).
 	done := make(chan struct{})
 	go a.runKeyForwarder(done)
@@ -205,11 +213,13 @@ func (a *App) Run() error {
 				if a.onTick != nil {
 					a.onTick()
 				}
-				// Poll for tool notifications (overlay mode only).
-				// In tmux mode, the server handles popups via display-popup.
+				// Poll for tool notifications.
+				// TUI always handles popups when open (overlay in gocui).
+				// Server handles popups when TUI is closed (display-popup).
 				a.gui.Update(func(g *gocui.Gui) error {
-					if a.sessions != nil && a.popupMode != config.PopupModeTmux {
-						for _, n := range a.sessions.PendingNotifications() {
+					if a.sessions != nil {
+						notifications := a.sessions.PendingNotifications()
+						for _, n := range notifications {
 							a.showToolPopup(n)
 						}
 					}

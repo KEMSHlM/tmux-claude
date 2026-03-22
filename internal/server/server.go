@@ -398,7 +398,12 @@ func (s *Server) dispatchToolNotification(window, toolName, input, cwd string) {
 	// Non-blocking: if no subscriber is ready, the event is dropped.
 	s.notifyBroker.Publish(model.Event{Notification: &n})
 
-	// Spawn tmux display-popup (non-blocking)
+	// Spawn tmux display-popup only if TUI is NOT open.
+	// If TUI is open (lock file exists), it handles popups via overlay.
+	// If TUI is closed, server shows display-popup on user's tmux.
+	// Always spawn popup. PopupOrchestrator decides which tmux to use:
+	// - TUI closed → hostTmux (user's tmux display-popup)
+	// - TUI open but suspended (fullscreen) → lazyclaude tmux display-popup
 	s.popupOrch.SpawnToolPopup(context.Background(), window, toolName, input, cwd)
 }
 
