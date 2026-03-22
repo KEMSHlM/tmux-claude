@@ -7,8 +7,8 @@ Set Height 800
 Set FontSize 16
 Set WaitTimeout 5s
 
-Type "pwd" Enter Sleep 1s
-Type "ls" Enter Sleep 1s
-Type "echo hello world" Enter Sleep 1s
-Type "cat /nonexistent" Enter Sleep 1s
-Type "ls /no/such/dir" Enter Sleep 1s
+Type "pwd" Enter Wait+Screen /app/
+Type "ls" Enter Wait+Screen /go\.mod/
+Type "echo hello world" Enter Wait+Screen /hello world/
+Type "cat /nonexistent" Enter Wait+Screen /No such file/
+Type "ls /no/such/dir" Enter Wait+Screen /cannot access/

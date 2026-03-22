@@ -8,18 +8,22 @@ Set FontSize 16
 Set WaitTimeout 30s
 
 # lazyclaude 起動
-Type "lazyclaude" Enter Sleep 5s
+Type "lazyclaude" Enter
+Wait+Screen /No sessions/
 
 # セッション作成
-Type "n" Sleep 5s
+Type "n"
+Wait+Screen /app/
 
 # フルスクリーン
-Enter Sleep 5s
+Enter
+Wait+Screen /Sonnet/
 
 # Claude に編集依頼
-Type "edit /tmp/test.go and change hello to goodbye" Enter Sleep 15s
+Type "edit /tmp/test.go and change hello to goodbye" Enter
 
 # diff popup が表示される → y で承認
+Wait+Screen /goodbye/
 Type "y" Sleep 3s
 
 # フルスクリーンから戻る → 終了

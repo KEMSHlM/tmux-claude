@@ -8,29 +8,34 @@ Set FontSize 16
 Set WaitTimeout 60s
 
 # SSH 先にログイン
-Type "ssh remote" Enter Sleep 3s
+Type "ssh remote" Enter
+Wait+Screen /root@/
 
 # Ctrl+\ で lazyclaude popup 起動
-Ctrl+\ Sleep 5s
+Ctrl+\
+Wait+Screen /No sessions/
 
 # n でリモートセッション作成
-Type "n" Sleep 10s
+Type "n"
+Wait+Screen /remote:/
 
 # --- モード選択 (どちらか一方をコメントアウト) ---
 
 # bypass モード: Enter でフルスクリーン (TUI 内プレビュー、キーは send-keys 転送)
-Enter Sleep 15s
+Enter
+Wait+Screen /Sonnet/
 
 # attach モード: a で tmux attach (gocui Suspend → tmux session に直接接続)
-# Type "a" Sleep 15s
+# Type "a"
+# Wait+Screen /Sonnet/
 
 # --- ここまで ---
 
 # Claude にファイル作成を依頼 (Write ツール → permission_prompt → 通知)
 Type "create a file /tmp/hello.txt with content 'hello world'" Enter
 
-# 通知 popup が来るまで待機
-Sleep 30s
+# Write ポップアップが来るまで待機
+Wait+Screen /Write/
 
 # y で承認
 Type "y" Sleep 3s

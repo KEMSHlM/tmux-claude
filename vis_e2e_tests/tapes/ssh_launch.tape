@@ -8,13 +8,16 @@ Set FontSize 16
 Set WaitTimeout 30s
 
 # SSH 先にログイン
-Type "ssh remote" Enter Sleep 3s
+Type "ssh remote" Enter
+Wait+Screen /root@/
 
 # Ctrl+\ で lazyclaude popup 起動
-Ctrl+\ Sleep 5s
+Ctrl+\
+Wait+Screen /No sessions/
 
 # n でリモートセッション作成
-Type "n" Sleep 8s
+Type "n"
+Wait+Screen /remote:/
 
 # q で終了
 Type "q" Sleep 1s
