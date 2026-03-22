@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/KEMSHlM/lazyclaude/internal/gui/presentation"
+	"github.com/KEMSHlM/lazyclaude/internal/session"
 	"github.com/jesseduffield/gocui"
 )
 
@@ -43,6 +44,9 @@ func renderSessionList(v *gocui.View, items []SessionItem, cursor int) {
 		name := item.Name
 		if item.Host != "" {
 			name = presentation.FgPurple + item.Host + presentation.Reset + ":" + name
+		}
+		if session.IsWorktreePath(item.Path) {
+			name = presentation.IconWorktree + " " + name
 		}
 		fmt.Fprintf(v, "%s%-20s%s\n", prefix, name, icon)
 	}

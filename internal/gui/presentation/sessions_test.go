@@ -63,8 +63,6 @@ func TestFormatSessionLine_TruncateLongName(t *testing.T) {
 	t.Parallel()
 	line := presentation.FormatSessionLine("very-long-project-name-that-exceeds-width", "Running", "", nil, 30)
 
-	// Status icons contain ANSI escapes, so byte length exceeds display width.
-	// Just verify truncation marker is present and name is shortened.
 	assert.Contains(t, line, "~") // truncation marker
 	assert.NotContains(t, line, "very-long-project-name-that-exceeds-width")
 }
@@ -87,8 +85,18 @@ func TestFormatSessionLine_NarrowWidth(t *testing.T) {
 	t.Parallel()
 	line := presentation.FormatSessionLine("app", "Running", "", nil, 10)
 
-	// Should not panic, should produce some output
 	assert.NotEmpty(t, line)
+}
+
+func TestFormatSessionLine_ANSIWidthHandling(t *testing.T) {
+	t.Parallel()
+	// Host prefix includes ANSI escapes — padding should use visual width, not byte length
+	line := presentation.FormatSessionLine("app", "Running", "srv1", nil, 40)
+
+	assert.Contains(t, line, "srv1:app")
+	assert.Contains(t, line, "●")
+	// Should NOT be truncated at width 40 (visual "srv1:app" is 8 chars)
+	assert.NotContains(t, line, "~")
 }
 
 func TestServerStatusLine(t *testing.T) {

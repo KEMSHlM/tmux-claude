@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -233,6 +234,180 @@ func (m *Manager) Create(ctx context.Context, dirPath, host string) (*Session, e
 	}
 
 	return &sess, nil
+}
+
+// CreateWorktree creates a worktree directory and launches Claude Code with an initial prompt.
+// The worktree is placed at {projectRoot}/.claude/worktrees/{name}/.
+func (m *Manager) CreateWorktree(ctx context.Context, name, userPrompt, projectRoot string) (*Session, error) {
+	if err := ValidateWorktreeName(name); err != nil {
+		return nil, fmt.Errorf("invalid worktree name: %w", err)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if existing := m.store.FindByName(name); existing != nil {
+		return nil, fmt.Errorf("worktree %q already exists", name)
+	}
+
+	wtPath := WorktreePath(projectRoot, name)
+	if err := createGitWorktree(ctx, projectRoot, wtPath, name); err != nil {
+		return nil, fmt.Errorf("git worktree: %w", err)
+	}
+
+	// Isolation instructions go in --append-system-prompt (system level).
+	// User's task description goes as the positional argument (user level).
+	systemPrompt := BuildWorktreePrompt(wtPath, projectRoot)
+
+	// Write a launcher script to avoid nested shell quoting issues.
+	// Go writes the file directly, so the prompt content is never
+	// interpreted by a shell — no injection risk regardless of content.
+	launcher, err := writeWorktreeLauncher(systemPrompt, userPrompt)
+	if err != nil {
+		return nil, fmt.Errorf("write launcher: %w", err)
+	}
+	// Clean up the launcher on any subsequent failure.
+	cleanupLauncher := true
+	defer func() {
+		if cleanupLauncher {
+			os.Remove(launcher)
+		}
+	}()
+
+	id := uuid.New().String()
+	sess := Session{
+		ID:        id,
+		Name:      name,
+		Path:      wtPath,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	// shell.Quote wraps the temp path in single quotes ('...').
+	// Inside the outer single-quoted -lic argument, adjacent quoted tokens
+	// are concatenated by the shell: 'exec sh ''<path>''' → exec sh <path>.
+	// OS temp paths never contain single quotes, so this is safe.
+	claudeCmd := fmt.Sprintf("exec \"$SHELL\" -lic 'exec sh %s'", shell.Quote(launcher))
+	windowName := sess.WindowName()
+	m.log.Info("createWorktree.start", "name", name, "id", id[:8], "path", wtPath)
+
+	exists, err := m.tmux.HasSession(ctx, tmuxSessionName)
+	if err != nil {
+		return nil, fmt.Errorf("check session: %w", err)
+	}
+
+	env := claudeEnv()
+	width, height := termSize()
+
+	if !exists {
+		err = m.tmux.NewSession(ctx, tmux.NewSessionOpts{
+			Name:         tmuxSessionName,
+			WindowName:   windowName,
+			Command:      claudeCmd,
+			StartDir:     wtPath,
+			Detached:     true,
+			Width:        width,
+			Height:       height,
+			Env:          env,
+			PostCommands: cleanSessionCommands(),
+		})
+	} else {
+		err = m.tmux.NewWindow(ctx, tmux.NewWindowOpts{
+			Session:  tmuxSessionName,
+			Name:     windowName,
+			Command:  claudeCmd,
+			StartDir: wtPath,
+			Env:      env,
+		})
+	}
+	if err != nil {
+		return nil, fmt.Errorf("create tmux window: %w", err)
+	}
+	// tmux will execute the launcher; don't delete it.
+	cleanupLauncher = false
+
+	sess.Status = StatusRunning
+	m.store.Add(sess)
+
+	// Note: if Save fails, the tmux window is already running and the session
+	// is in memory but not persisted to disk. This matches Create()'s behavior.
+	// The next Sync() will reconcile the in-memory state with tmux.
+	if err := m.store.Save(); err != nil {
+		return nil, fmt.Errorf("save store: %w", err)
+	}
+
+	return &sess, nil
+}
+
+// createGitWorktree creates a git worktree at wtPath with a new branch.
+// Returns an error if projectRoot is not a git repository.
+// If the branch already exists, it checks out the existing branch.
+// If the worktree path already exists (reuse), this is a no-op.
+func createGitWorktree(ctx context.Context, projectRoot, wtPath, branch string) error {
+	// Verify projectRoot is a git repository.
+	check := exec.CommandContext(ctx, "git", "rev-parse", "--git-dir")
+	check.Dir = projectRoot
+	if err := check.Run(); err != nil {
+		return fmt.Errorf("not a git repository: %s", projectRoot)
+	}
+
+	// If the worktree directory already exists, assume reuse.
+	if _, err := os.Stat(wtPath); err == nil {
+		return nil
+	}
+
+	// Ensure parent directory exists.
+	if err := os.MkdirAll(filepath.Dir(wtPath), 0o755); err != nil {
+		return fmt.Errorf("create parent dir: %w", err)
+	}
+
+	// Try creating worktree with a new branch first.
+	cmd := exec.CommandContext(ctx, "git", "worktree", "add", "-b", branch, wtPath)
+	cmd.Dir = projectRoot
+	if out, err := cmd.CombinedOutput(); err != nil {
+		// Branch may already exist — try without -b.
+		cmd2 := exec.CommandContext(ctx, "git", "worktree", "add", wtPath, branch)
+		cmd2.Dir = projectRoot
+		if out2, err2 := cmd2.CombinedOutput(); err2 != nil {
+			return fmt.Errorf("%s\n%s", strings.TrimSpace(string(out)), strings.TrimSpace(string(out2)))
+		}
+		_ = out
+	}
+	return nil
+}
+
+// writeWorktreeLauncher writes a shell script that launches claude with
+// --append-system-prompt and an optional user prompt as positional argument.
+// Returns the script path. The script self-deletes after execution.
+func writeWorktreeLauncher(systemPrompt, userPrompt string) (string, error) {
+	f, err := os.CreateTemp("", "lazyclaude-wt-*.sh")
+	if err != nil {
+		return "", fmt.Errorf("create temp script: %w", err)
+	}
+
+	var sb strings.Builder
+	sb.WriteString("#!/bin/sh\n")
+	// Self-delete the launcher script (already read by shell at this point).
+	sb.WriteString("rm -f \"$0\"\n")
+	sb.WriteString("exec claude")
+	sb.WriteString(" --append-system-prompt ")
+	sb.WriteString(shell.Quote(systemPrompt))
+	if strings.TrimSpace(userPrompt) != "" {
+		sb.WriteString(" ")
+		sb.WriteString(shell.Quote(userPrompt))
+	}
+	sb.WriteString("\n")
+
+	if _, err := f.WriteString(sb.String()); err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return "", fmt.Errorf("write launcher script: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(f.Name())
+		return "", fmt.Errorf("close launcher script: %w", err)
+	}
+	return f.Name(), nil
 }
 
 // Delete removes a session and kills its tmux window.

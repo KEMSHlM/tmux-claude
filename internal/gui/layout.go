@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/KEMSHlM/lazyclaude/internal/gui/presentation"
+	"github.com/KEMSHlM/lazyclaude/internal/session"
 	"github.com/jesseduffield/gocui"
 )
 
@@ -213,8 +214,8 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 		fmt.Fprint(v4, optionsText)
 	}
 
-	// Set focus to active panel's view (skip if rename input is active).
-	if a.renameSessionID == "" {
+	// Set focus to active panel's view (skip if any input dialog is active).
+	if !a.HasActiveDialog() {
 		if _, err := g.SetCurrentView(focusedName); err != nil && !isUnknownView(err) {
 			return err
 		}
@@ -334,7 +335,11 @@ func (a *App) renderPreview(v *gocui.View, items []SessionItem, previewW, previe
 	}
 
 	item := items[a.cursor]
-	v.Title = fmt.Sprintf(" %s ", item.Name)
+	if session.IsWorktreePath(item.Path) {
+		v.Title = fmt.Sprintf(" [worktree] %s ", item.Name)
+	} else {
+		v.Title = fmt.Sprintf(" %s ", item.Name)
+	}
 
 	if item.Status == "Orphan" {
 		fmt.Fprintln(v, "")
@@ -421,16 +426,99 @@ func (a *App) showRenameInput(g *gocui.Gui, currentName string) bool {
 		return false
 	}
 	g.Cursor = true
+	a.activeDialog = DialogRename
 	return true
 }
 
 // closeRenameInput removes the rename input view and restores focus.
 func (a *App) closeRenameInput(g *gocui.Gui) {
 	a.renameSessionID = ""
+	a.activeDialog = DialogNone
 	g.DeleteView("rename-input")
 	g.Cursor = false
 	if _, err := g.SetCurrentView("sessions"); err != nil && !isUnknownView(err) {
 		// Fallback: sessions view may not exist in some modes.
+		_ = err
+	}
+}
+
+// showWorktreeDialog creates the worktree input views (branch name + prompt).
+// Returns true if all views were created successfully and dialog is active.
+func (a *App) showWorktreeDialog(g *gocui.Gui) bool {
+	maxX, maxY := g.Size()
+	w := 50
+	if w > maxX-4 {
+		w = maxX - 4
+	}
+	x0 := (maxX - w) / 2
+	branchY0 := maxY/2 - 6
+	if branchY0 < 1 {
+		branchY0 = 1
+	}
+	branchY1 := branchY0 + 2
+
+	// Branch name input (1 line)
+	v, err := g.SetView("worktree-branch", x0, branchY0, x0+w, branchY1, 0)
+	if err != nil && !isUnknownView(err) {
+		return false
+	}
+	v.Title = " Branch "
+	v.Editable = true
+	v.Editor = gocui.DefaultEditor
+	setRoundedFrame(v)
+
+	// Prompt input (6 lines)
+	promptY0 := branchY1 + 1
+	promptY1 := promptY0 + 7
+	if promptY1 >= maxY-2 {
+		promptY1 = maxY - 3
+	}
+
+	v2, err := g.SetView("worktree-prompt", x0, promptY0, x0+w, promptY1, 0)
+	if err != nil && !isUnknownView(err) {
+		a.closeWorktreeDialog(g)
+		return false
+	}
+	v2.Title = " Prompt "
+	v2.Editable = true
+	v2.Editor = gocui.DefaultEditor
+	v2.Wrap = true
+	setRoundedFrame(v2)
+
+	// Hint bar (frameless)
+	hintY0 := promptY1
+	hintY1 := hintY0 + 2
+	if hintY1 >= maxY {
+		hintY1 = maxY - 1
+	}
+	v3, err := g.SetView("worktree-hint", x0, hintY0, x0+w, hintY1, 0)
+	if err != nil && !isUnknownView(err) {
+		a.closeWorktreeDialog(g)
+		return false
+	}
+	v3.Frame = false
+	v3.Clear()
+	fmt.Fprint(v3, " "+presentation.StyledKey("Enter", "create")+"  "+
+		presentation.StyledKey("Tab", "switch")+"  "+
+		presentation.StyledKey("Esc", "cancel"))
+
+	if _, err := g.SetCurrentView("worktree-branch"); err != nil && !isUnknownView(err) {
+		a.closeWorktreeDialog(g)
+		return false
+	}
+	g.Cursor = true
+	a.activeDialog = DialogWorktree
+	return true
+}
+
+// closeWorktreeDialog removes all worktree dialog views and restores focus.
+func (a *App) closeWorktreeDialog(g *gocui.Gui) {
+	a.activeDialog = DialogNone
+	g.DeleteView("worktree-branch")
+	g.DeleteView("worktree-prompt")
+	g.DeleteView("worktree-hint")
+	g.Cursor = false
+	if _, err := g.SetCurrentView("sessions"); err != nil && !isUnknownView(err) {
 		_ = err
 	}
 }

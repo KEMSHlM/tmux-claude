@@ -3,11 +3,17 @@ package presentation
 import (
 	"fmt"
 	"strings"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 // FormatSessionLine renders a single session line for the list view.
 // Accepts primitive fields to avoid a dependency on the session package.
 // Format: "name          status_indicator flags"
+//
+// Note: worktree [W] icon is NOT added here — it is handled by renderSessionList
+// in render.go, which is the actual live render path. This function is used
+// only for tests and external formatting.
 func FormatSessionLine(name, status, host string, flags []string, maxWidth int) string {
 	icon := statusIndicator(status)
 	flagStr := formatFlags(flags)
@@ -21,21 +27,24 @@ func FormatSessionLine(name, status, host string, flags []string, maxWidth int) 
 		displayName = host + ":" + name
 	}
 
-	// Calculate padding
-	nameWidth := maxWidth - len(right) - 2 // 2 for spacing
+	// Use visual width (ignoring ANSI escapes) for padding/truncation.
+	rightWidth := ansi.StringWidth(right)
+	nameWidth := maxWidth - rightWidth - 2 // 2 for spacing
 	if nameWidth < 5 {
 		nameWidth = 5
 	}
 
-	// Truncate name if needed
-	if len(displayName) > nameWidth {
-		displayName = displayName[:nameWidth-1] + "~"
+	// Truncate name if needed (visual width)
+	displayWidth := ansi.StringWidth(displayName)
+	if displayWidth > nameWidth {
+		displayName = ansi.Truncate(displayName, nameWidth-1, "") + "~"
+		displayWidth = ansi.StringWidth(displayName)
 	}
 
 	if right == "" {
 		return displayName
 	}
-	padding := nameWidth - len(displayName)
+	padding := nameWidth - displayWidth
 	if padding < 1 {
 		padding = 1
 	}
