@@ -56,6 +56,8 @@ func ReadAll(runtimeDir string) ([]*model.ToolNotification, error) {
 	// Sort by name (CreateTemp includes timestamp, so lexicographic = creation order)
 	sort.Strings(files)
 
+	const maxAge = 30 * time.Second
+
 	var result []*model.ToolNotification
 	for _, name := range files {
 		path := filepath.Join(runtimeDir, name)
@@ -67,6 +69,10 @@ func ReadAll(runtimeDir string) ([]*model.ToolNotification, error) {
 
 		var n model.ToolNotification
 		if err := json.Unmarshal(data, &n); err != nil {
+			continue
+		}
+		// Skip stale notifications (Claude Code already moved on)
+		if !n.Timestamp.IsZero() && time.Since(n.Timestamp) > maxAge {
 			continue
 		}
 		result = append(result, &n)

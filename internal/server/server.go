@@ -66,7 +66,7 @@ func New(cfg Config, tmuxClient tmux.Client, logger *log.Logger) *Server {
 		parts := strings.SplitN(hostSocket, ",", 2)
 		hostTmux = tmux.NewExecClientWithSocket(parts[0])
 	}
-	popupOrch := tmuxadapter.NewPopupOrchestrator(cfg.BinaryPath, tmuxClient, hostTmux, logger)
+	popupOrch := tmuxadapter.NewPopupOrchestrator(cfg.BinaryPath, cfg.RuntimeDir, tmuxClient, hostTmux, logger)
 	handler.SetPopup(popupOrch)
 
 	s := &Server{

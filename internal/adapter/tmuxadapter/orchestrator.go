@@ -23,10 +23,11 @@ type toolPopupReq struct {
 // For tool popups, it queues requests per window so only one popup
 // is active at a time per window.
 type PopupOrchestrator struct {
-	binary   string      // path to lazyclaude binary
-	tmux     tmux.Client // lazyclaude tmux (-L lazyclaude)
-	hostTmux tmux.Client // user's tmux (for display-popup)
-	log      *log.Logger
+	binary     string      // path to lazyclaude binary
+	tmux       tmux.Client // lazyclaude tmux (-L lazyclaude)
+	hostTmux   tmux.Client // user's tmux (for display-popup)
+	runtimeDir string      // for consuming notification files after popup
+	log        *log.Logger
 
 	mu     sync.Mutex
 	active map[string]bool          // window -> popup currently open
@@ -35,14 +36,15 @@ type PopupOrchestrator struct {
 
 // NewPopupOrchestrator creates a popup orchestrator.
 // hostTmux is the user's tmux client (for display-popup). Can be nil if unknown.
-func NewPopupOrchestrator(binary string, tmuxClient, hostTmux tmux.Client, logger *log.Logger) *PopupOrchestrator {
+func NewPopupOrchestrator(binary, runtimeDir string, tmuxClient, hostTmux tmux.Client, logger *log.Logger) *PopupOrchestrator {
 	return &PopupOrchestrator{
-		binary:   binary,
-		tmux:     tmuxClient,
-		hostTmux: hostTmux,
-		log:      logger,
-		active:   make(map[string]bool),
-		queues:   make(map[string][]toolPopupReq),
+		binary:     binary,
+		runtimeDir: runtimeDir,
+		tmux:       tmuxClient,
+		hostTmux:   hostTmux,
+		log:        logger,
+		active:     make(map[string]bool),
+		queues:     make(map[string][]toolPopupReq),
 	}
 }
 
