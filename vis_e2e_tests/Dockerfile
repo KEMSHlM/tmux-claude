@@ -12,11 +12,11 @@
 
 # --- Stage: shared base ---
 FROM golang:latest AS base
+ARG LAZYGIT_VERSION=0.51.1
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tmux openssh-server openssh-client curl nodejs expect git \
     && rm -rf /var/lib/apt/lists/*
-RUN LAZYGIT_VERSION=$(curl -s "https://api.github.com/repos/jesseduffield/lazygit/releases/latest" | grep -Po '"tag_name": "v\K[^"]*') && \
-    curl -Lo lazygit.tar.gz "https://github.com/jesseduffield/lazygit/releases/latest/download/lazygit_${LAZYGIT_VERSION}_Linux_x86_64.tar.gz" && \
+RUN curl --retry 3 -Lo lazygit.tar.gz "https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/lazygit_${LAZYGIT_VERSION}_Linux_x86_64.tar.gz" && \
     tar xf lazygit.tar.gz lazygit && install lazygit /usr/local/bin && rm -f lazygit lazygit.tar.gz
 RUN curl -fsSL https://claude.ai/install.sh | bash
 ENV TERM=xterm-256color PATH="/root/.local/bin:${PATH}"
@@ -38,12 +38,12 @@ CMD ["/usr/sbin/sshd", "-D"]
 
 # --- Target: vhs (VHS has its own base due to chromium/ttyd/ffmpeg deps) ---
 FROM ghcr.io/charmbracelet/vhs:latest AS vhs
+ARG LAZYGIT_VERSION=0.51.1
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tmux golang-go git nodejs curl openssh-client locales \
     && rm -rf /var/lib/apt/lists/* \
     && sed -i '/en_US.UTF-8/s/^# //' /etc/locale.gen && locale-gen
-RUN LAZYGIT_VERSION=$(curl -s "https://api.github.com/repos/jesseduffield/lazygit/releases/latest" | grep -Po '"tag_name": "v\K[^"]*') && \
-    curl -Lo lazygit.tar.gz "https://github.com/jesseduffield/lazygit/releases/latest/download/lazygit_${LAZYGIT_VERSION}_Linux_x86_64.tar.gz" && \
+RUN curl --retry 3 -Lo lazygit.tar.gz "https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/lazygit_${LAZYGIT_VERSION}_Linux_x86_64.tar.gz" && \
     tar xf lazygit.tar.gz lazygit && install lazygit /usr/local/bin && rm -f lazygit lazygit.tar.gz
 ENV TERM=xterm-256color LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 RUN mkdir -p /root/.ssh && printf 'Host *\n  StrictHostKeyChecking no\n  UserKnownHostsFile /dev/null\n' > /root/.ssh/config

@@ -74,7 +74,7 @@ func buildSSHCommand(sess Session, mcpPort int, token string) (string, error) {
 	}
 	encoded := base64.StdEncoding.EncodeToString(scriptContent)
 
-	host, port := SplitHostPort(sess.Host)
+	host, port := splitHostPort(sess.Host)
 
 	var args []string
 	args = append(args, "exec", "ssh", "-t")
@@ -92,10 +92,26 @@ func buildSSHCommand(sess Session, mcpPort int, token string) (string, error) {
 	return strings.Join(args, " "), nil
 }
 
-// SplitHostPort separates "user@host:port" into ("user@host", "port").
+// BuildLazygitSSHArgs returns the exec.Command arguments for launching lazygit
+// on a remote host via SSH. The path is single-quoted and base64-encoded to
+// prevent shell injection. Returns ("ssh", args).
+func BuildLazygitSSHArgs(host, path string) (string, []string) {
+	sshHost, port := splitHostPort(host)
+	args := []string{"-t"}
+	if port != "" {
+		args = append(args, "-p", port)
+	}
+	safePath := "'" + strings.ReplaceAll(path, "'", "'\\''") + "'"
+	remoteCmd := fmt.Sprintf("cd %s && lazygit", safePath)
+	encoded := base64.StdEncoding.EncodeToString([]byte(remoteCmd))
+	args = append(args, sshHost, fmt.Sprintf("eval \"$(echo %s | base64 -d)\"", encoded))
+	return "ssh", args
+}
+
+// splitHostPort separates "user@host:port" into ("user@host", "port").
 // If no port is specified, returns (host, "").
 // Handles: "host", "host:22", "user@host", "user@host:22", "[::1]".
-func SplitHostPort(hostSpec string) (string, string) {
+func splitHostPort(hostSpec string) (string, string) {
 	if strings.HasPrefix(hostSpec, "[") {
 		return hostSpec, ""
 	}

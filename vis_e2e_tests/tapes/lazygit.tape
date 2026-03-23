@@ -18,11 +18,13 @@ Sleep 3s
 
 # g で lazygit 起動
 Type "g"
-Sleep 8s
+Sleep 10s
+Wait+Screen /Status/
 
 # q で lazygit 終了 -> lazyclaude に復帰
 Type "q"
 Sleep 3s
+Wait+Screen /Sessions/
 
 # q で lazyclaude 終了
 Type "q" Sleep 1s
