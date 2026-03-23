@@ -21,6 +21,7 @@ type AppActions interface {
 	EnterFullScreen()
 	StartRename()
 	StartWorktreeInput()
+	SelectWorktree()
 	PurgeOrphans()
 
 	// Popup

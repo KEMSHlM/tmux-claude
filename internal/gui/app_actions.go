@@ -2,6 +2,7 @@ package gui
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/KEMSHlM/lazyclaude/internal/core/choice"
 	"github.com/KEMSHlM/lazyclaude/internal/gui/keyhandler"
@@ -148,6 +149,35 @@ func (a *App) StartWorktreeInput() {
 		}
 		return nil
 	})
+}
+
+func (a *App) SelectWorktree() {
+	if a.sessions == nil || a.HasActiveDialog() {
+		return
+	}
+	go func() {
+		abs, err := filepath.Abs(".")
+		if err != nil {
+			return
+		}
+		items, err := a.sessions.ListWorktrees(abs)
+		a.gui.Update(func(g *gocui.Gui) error {
+			if err != nil {
+				a.setStatus(g, fmt.Sprintf("Error: %v", err))
+				return nil
+			}
+			if len(items) == 0 {
+				a.setStatus(g, "No worktrees found")
+				return nil
+			}
+			wtItems := make([]WorktreeInfo, len(items))
+			copy(wtItems, items)
+			if !a.showWorktreeChooser(g, wtItems) {
+				a.setStatus(g, "Error: could not open worktree chooser")
+			}
+			return nil
+		})
+	}()
 }
 
 func (a *App) PurgeOrphans() {

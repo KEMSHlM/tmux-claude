@@ -214,8 +214,23 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 		fmt.Fprint(v4, optionsText)
 	}
 
-	// Set focus to active panel's view (skip if any input dialog is active).
-	if !a.HasActiveDialog() {
+	// Focus priority: popup > dialog > panel.
+	// When popup is visible, layoutToolPopup handles focus.
+	// When dialog is active (no popup), restore focus to the dialog view.
+	// Otherwise, focus the active panel.
+	if a.hasPopup() {
+		// layoutToolPopup manages focus — skip here.
+	} else if a.HasActiveDialog() {
+		viewName := a.dialogFocusView()
+		if viewName != "" {
+			if _, err := g.SetCurrentView(viewName); err != nil && !isUnknownView(err) {
+				return err
+			}
+			if a.activeDialog != DialogWorktreeChooser {
+				g.Cursor = true
+			}
+		}
+	} else {
 		if _, err := g.SetCurrentView(focusedName); err != nil && !isUnknownView(err) {
 			return err
 		}
@@ -483,6 +498,8 @@ func (a *App) showWorktreeDialog(g *gocui.Gui) bool {
 	v2.Editable = true
 	v2.Editor = gocui.DefaultEditor
 	v2.Wrap = true
+	v2.TextArea.AutoWrap = true
+	v2.TextArea.AutoWrapWidth = w - 2 // view 幅からフレーム分を引く
 	setRoundedFrame(v2)
 
 	// Hint bar (frameless)
@@ -514,9 +531,124 @@ func (a *App) showWorktreeDialog(g *gocui.Gui) bool {
 // closeWorktreeDialog removes all worktree dialog views and restores focus.
 func (a *App) closeWorktreeDialog(g *gocui.Gui) {
 	a.activeDialog = DialogNone
+	a.worktreeActiveField = ""
 	g.DeleteView("worktree-branch")
 	g.DeleteView("worktree-prompt")
 	g.DeleteView("worktree-hint")
+	g.Cursor = false
+	if _, err := g.SetCurrentView("sessions"); err != nil && !isUnknownView(err) {
+		_ = err
+	}
+}
+
+// showWorktreeChooser creates a list view for selecting an existing worktree.
+// The last item is always "+ New worktree".
+func (a *App) showWorktreeChooser(g *gocui.Gui, items []WorktreeInfo) bool {
+	a.worktreeChoices = items
+	a.worktreeCursor = 0
+
+	maxX, maxY := g.Size()
+	totalItems := len(items) + 1 // +1 for "New worktree"
+	w := 50
+	if w > maxX-4 {
+		w = maxX - 4
+	}
+	h := totalItems + 2 // +2 for frame
+	if h > maxY/2 {
+		h = maxY / 2
+	}
+	x0 := (maxX - w) / 2
+	y0 := (maxY - h) / 2
+	if y0 < 1 {
+		y0 = 1
+	}
+
+	v, err := g.SetView("worktree-chooser", x0, y0, x0+w, y0+h, 0)
+	if err != nil && !isUnknownView(err) {
+		return false
+	}
+	v.Title = " Select Worktree "
+	v.Editable = false
+	v.Highlight = true
+	setRoundedFrame(v)
+	renderWorktreeChooser(v, items, a.worktreeCursor)
+
+	if _, err := g.SetCurrentView("worktree-chooser"); err != nil && !isUnknownView(err) {
+		return false
+	}
+	a.activeDialog = DialogWorktreeChooser
+	return true
+}
+
+// closeWorktreeChooser removes the chooser view and restores focus.
+func (a *App) closeWorktreeChooser(g *gocui.Gui) {
+	a.activeDialog = DialogNone
+	a.worktreeChoices = nil
+	g.DeleteView("worktree-chooser")
+	if _, err := g.SetCurrentView("sessions"); err != nil && !isUnknownView(err) {
+		_ = err
+	}
+}
+
+// showWorktreeResumePrompt creates a prompt-only dialog for an existing worktree.
+func (a *App) showWorktreeResumePrompt(g *gocui.Gui, worktreeName string) bool {
+	maxX, maxY := g.Size()
+	w := 50
+	if w > maxX-4 {
+		w = maxX - 4
+	}
+	x0 := (maxX - w) / 2
+	promptY0 := maxY/2 - 4
+	if promptY0 < 1 {
+		promptY0 = 1
+	}
+	promptY1 := promptY0 + 7
+	if promptY1 >= maxY-2 {
+		promptY1 = maxY - 3
+	}
+
+	v, err := g.SetView("worktree-resume-prompt", x0, promptY0, x0+w, promptY1, 0)
+	if err != nil && !isUnknownView(err) {
+		return false
+	}
+	v.Title = fmt.Sprintf(" Prompt (%s) ", worktreeName)
+	v.Editable = true
+	v.Editor = gocui.DefaultEditor
+	v.Wrap = true
+	v.TextArea.AutoWrap = true
+	v.TextArea.AutoWrapWidth = w - 2
+	setRoundedFrame(v)
+
+	hintY0 := promptY1
+	hintY1 := hintY0 + 2
+	if hintY1 >= maxY {
+		hintY1 = maxY - 1
+	}
+	v2, err := g.SetView("worktree-resume-hint", x0, hintY0, x0+w, hintY1, 0)
+	if err != nil && !isUnknownView(err) {
+		a.closeWorktreeResumePrompt(g)
+		return false
+	}
+	v2.Frame = false
+	v2.Clear()
+	fmt.Fprint(v2, " "+presentation.StyledKey("Enter", "launch")+"  "+
+		presentation.StyledKey("Esc", "cancel"))
+
+	if _, err := g.SetCurrentView("worktree-resume-prompt"); err != nil && !isUnknownView(err) {
+		a.closeWorktreeResumePrompt(g)
+		return false
+	}
+	g.Cursor = true
+	a.activeDialog = DialogWorktreeResume
+	return true
+}
+
+// closeWorktreeResumePrompt removes the resume prompt dialog and restores focus.
+func (a *App) closeWorktreeResumePrompt(g *gocui.Gui) {
+	a.activeDialog = DialogNone
+	a.selectedWorktree = ""
+	g.DeleteView("worktree-resume-prompt")
+	g.DeleteView("worktree-resume-hint")
 	g.Cursor = false
 	if _, err := g.SetCurrentView("sessions"); err != nil && !isUnknownView(err) {
 		_ = err
