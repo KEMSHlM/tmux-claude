@@ -45,6 +45,10 @@ type Client interface {
 	// The text is NOT interpreted as key names — useful for rune characters.
 	SendKeysLiteral(ctx context.Context, target string, text string) error
 
+	// PasteToPane loads text into a tmux buffer and pastes it to the target.
+	// Uses paste-buffer -p to send bracketed paste sequences.
+	PasteToPane(ctx context.Context, target string, text string) error
+
 	// DisplayPopup opens a popup overlay on a client.
 	DisplayPopup(ctx context.Context, opts PopupOpts) error
 

@@ -309,6 +309,29 @@ func (c *ExecClient) SendKeysLiteral(ctx context.Context, target string, text st
 	return err
 }
 
+func (c *ExecClient) PasteToPane(ctx context.Context, target string, text string) error {
+	f, err := os.CreateTemp("", "lazyclaude-paste-*")
+	if err != nil {
+		return fmt.Errorf("paste temp file: %w", err)
+	}
+	tmpPath := f.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := f.WriteString(text); err != nil {
+		f.Close()
+		return fmt.Errorf("paste write: %w", err)
+	}
+	f.Close()
+
+	if _, err := c.run(ctx, "load-buffer", tmpPath); err != nil {
+		return fmt.Errorf("load-buffer: %w", err)
+	}
+	if _, err := c.run(ctx, "paste-buffer", "-t", target, "-d", "-p"); err != nil {
+		return fmt.Errorf("paste-buffer: %w", err)
+	}
+	return nil
+}
+
 func (c *ExecClient) DisplayPopup(ctx context.Context, opts PopupOpts) error {
 	// Validate and build env prefix before composing command
 	var prefix string

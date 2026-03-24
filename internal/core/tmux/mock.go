@@ -183,6 +183,14 @@ func (m *MockClient) SendKeysLiteral(_ context.Context, target string, text stri
 	return nil
 }
 
+func (m *MockClient) PasteToPane(_ context.Context, target string, text string) error {
+	if m.ErrSendKeys != nil {
+		return m.ErrSendKeys
+	}
+	m.SentKeys[target] = append(m.SentKeys[target], text)
+	return nil
+}
+
 func (m *MockClient) DisplayPopup(_ context.Context, opts PopupOpts) error {
 	if m.ErrDisplayPopup != nil {
 		return m.ErrDisplayPopup
