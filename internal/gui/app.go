@@ -120,6 +120,7 @@ func (a *App) startPasteWatchdog() {
 				// the event loop. Each drain unblocks the channel so more characters
 				// can arrive. The loop exits when inPaste becomes false (paste end
 				// marker was processed by the event loop).
+			drain:
 				for {
 					select {
 					case <-done:
@@ -127,14 +128,14 @@ func (a *App) startPasteWatchdog() {
 					case <-time.After(pasteWatchdogTimeout):
 					}
 					if a.editor == nil {
-						break
+						break drain
 					}
 					a.editor.pasteMu.Lock()
 					stillPasting := a.editor.inPaste
 					hasData := a.editor.pasteBuf.Len() > 0
 					a.editor.pasteMu.Unlock()
 					if !stillPasting {
-						break
+						break drain
 					}
 					if hasData {
 						a.editor.drainPaste()
