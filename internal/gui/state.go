@@ -1,11 +1,5 @@
 package gui
 
-import (
-	"fmt"
-
-	"github.com/jesseduffield/gocui"
-)
-
 // enterFullScreen enters fullscreen mode for the given session.
 func (a *App) enterFullScreen(sessionID string) {
 	a.fullscreen.Enter(sessionID)
@@ -92,7 +86,9 @@ func (a *App) forwardSpecialKey(tmuxKey string) {
 }
 
 // forwardPaste sends text as a bracketed paste to the Claude Code pane.
-// Runs in a goroutine to avoid blocking the gocui event loop.
+// Executes synchronously to serialize tmux load-buffer/paste-buffer calls.
+// Callers (watchdog drainPaste, event loop flushPaste) already run outside
+// the hot gocui event loop, so blocking here is acceptable.
 func (a *App) forwardPaste(text string) {
 	target := a.resolveForwardTarget()
 	if target == "" {
@@ -101,14 +97,7 @@ func (a *App) forwardPaste(text string) {
 	if a.fullscreen.forwarder == nil {
 		return
 	}
-	go func() {
-		if err := a.fullscreen.forwarder.ForwardPaste(target, text); err != nil {
-			a.gui.Update(func(g *gocui.Gui) error {
-				a.setStatus(g, fmt.Sprintf("Paste error: %v", err))
-				return nil
-			})
-		}
-		a.fullscreen.TriggerRefresh()
-	}()
+	_ = a.fullscreen.forwarder.ForwardPaste(target, text)
+	a.fullscreen.TriggerRefresh()
 }
 
