@@ -35,6 +35,18 @@ TOKEN=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['authTok
 
 Then use `$PORT` and `$TOKEN` in the curl commands above.
 
+### Fallback: tmux send-keys
+
+If /msg/send returns "recipient session is not running" (the recipient is
+Detached), bypass the API and paste the message directly into the tmux pane:
+
+```bash
+tmux -L lazyclaude send-keys -l -t <window-id> -- "<message text>"
+tmux -L lazyclaude send-keys -t <window-id> Enter
+```
+
+Use /msg/sessions to find the recipient's `window` field (e.g. `@5`).
+
 ## Review Criteria
 
 Evaluate each PR on the following axes:
