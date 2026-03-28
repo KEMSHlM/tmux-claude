@@ -18,32 +18,7 @@ func (a *App) exitFullScreen() {
 	a.fullscreen.Exit()
 }
 
-// resolveForwardTarget returns the tmux target for key forwarding.
-func (a *App) resolveForwardTarget() string {
-	if !a.fullscreen.IsActive() || a.fullscreen.forwarder == nil || a.hasPopup() || a.sessions == nil {
-		return ""
-	}
-	items := a.sessions.Sessions()
-	if a.cursor < 0 || a.cursor >= len(items) {
-		return ""
-	}
-	t := items[a.cursor].TmuxWindow
-	if t == "" {
-		id := items[a.cursor].ID
-		if id == "" {
-			return ""
-		}
-		windowName := "lc-" + id
-		if len(id) > 8 {
-			windowName = "lc-" + id[:8]
-		}
-		return "lazyclaude:" + windowName
-	}
-	return "lazyclaude:" + t
-}
-
 // resolveSessionTarget returns the tmux target for the selected session.
-// Unlike resolveForwardTarget, this works without fullscreen mode.
 func (a *App) resolveSessionTarget() string {
 	if a.sessions == nil {
 		return ""
@@ -65,6 +40,15 @@ func (a *App) resolveSessionTarget() string {
 		return "lazyclaude:" + windowName
 	}
 	return "lazyclaude:" + t
+}
+
+// resolveForwardTarget returns the tmux target for key forwarding.
+// Returns empty string if not in fullscreen mode or popup is active.
+func (a *App) resolveForwardTarget() string {
+	if !a.fullscreen.IsActive() || a.fullscreen.forwarder == nil || a.hasPopup() {
+		return ""
+	}
+	return a.resolveSessionTarget()
 }
 
 func (a *App) forwardKey(ch rune) {

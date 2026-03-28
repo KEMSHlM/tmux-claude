@@ -102,8 +102,8 @@ func (a *App) setupGlobalKeybindings() error {
 	// 5. Rename input
 	if err := a.gui.SetKeybinding("rename-input", gocui.KeyEnter, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
 		newName := strings.TrimSpace(v.TextArea.GetContent())
-		if newName != "" && a.renameSessionID != "" {
-			if err := a.sessions.Rename(a.renameSessionID, newName); err != nil {
+		if newName != "" && a.dialog.RenameID != "" {
+			if err := a.sessions.Rename(a.dialog.RenameID, newName); err != nil {
 				a.setStatus(g, fmt.Sprintf("Error: %v", err))
 			} else {
 				a.setStatus(g, "Renamed to "+newName)
@@ -194,7 +194,7 @@ func (a *App) setupGlobalKeybindings() error {
 
 	// Tab: switch between branch and prompt fields
 	if err := a.gui.SetKeybinding("worktree-branch", gocui.KeyTab, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
-		a.worktreeActiveField = "worktree-prompt"
+		a.dialog.ActiveField = "worktree-prompt"
 		if _, err := g.SetCurrentView("worktree-prompt"); err != nil && !isUnknownView(err) {
 			return err
 		}
@@ -203,7 +203,7 @@ func (a *App) setupGlobalKeybindings() error {
 		return err
 	}
 	if err := a.gui.SetKeybinding("worktree-prompt", gocui.KeyTab, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
-		a.worktreeActiveField = "worktree-branch"
+		a.dialog.ActiveField = "worktree-branch"
 		if _, err := g.SetCurrentView("worktree-branch"); err != nil && !isUnknownView(err) {
 			return err
 		}
@@ -215,15 +215,15 @@ func (a *App) setupGlobalKeybindings() error {
 	// 7. Worktree chooser bindings (j/k/Enter/Esc)
 	chooserMove := func(delta int) func(*gocui.Gui, *gocui.View) error {
 		return func(g *gocui.Gui, v *gocui.View) error {
-			maxIdx := len(a.worktreeChoices) // last index = "New worktree"
-			a.worktreeCursor += delta
-			if a.worktreeCursor < 0 {
-				a.worktreeCursor = 0
+			maxIdx := len(a.dialog.WorktreeItems) // last index = "New worktree"
+			a.dialog.WorktreeCursor += delta
+			if a.dialog.WorktreeCursor < 0 {
+				a.dialog.WorktreeCursor = 0
 			}
-			if a.worktreeCursor > maxIdx {
-				a.worktreeCursor = maxIdx
+			if a.dialog.WorktreeCursor > maxIdx {
+				a.dialog.WorktreeCursor = maxIdx
 			}
-			renderWorktreeChooser(v, a.worktreeChoices, a.worktreeCursor)
+			renderWorktreeChooser(v, a.dialog.WorktreeItems, a.dialog.WorktreeCursor)
 			return nil
 		}
 	}
@@ -252,8 +252,8 @@ func (a *App) setupGlobalKeybindings() error {
 	}
 
 	if err := a.gui.SetKeybinding("worktree-chooser", gocui.KeyEnter, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
-		idx := a.worktreeCursor
-		items := a.worktreeChoices
+		idx := a.dialog.WorktreeCursor
+		items := a.dialog.WorktreeItems
 		a.closeWorktreeChooser(g)
 
 		if idx >= len(items) {
@@ -263,7 +263,7 @@ func (a *App) setupGlobalKeybindings() error {
 			}
 		} else {
 			// Existing worktree selected
-			a.selectedWorktree = items[idx].Path
+			a.dialog.SelectedPath = items[idx].Path
 			if !a.showWorktreeResumePrompt(g, items[idx].Name) {
 				a.setStatus(g, "Error: could not open prompt dialog")
 			}
@@ -283,7 +283,7 @@ func (a *App) setupGlobalKeybindings() error {
 	// 8. Worktree resume prompt bindings (Enter/Esc/Ctrl+J)
 	if err := a.gui.SetKeybinding("worktree-resume-prompt", gocui.KeyEnter, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
 		userPrompt := v.TextArea.GetContent()
-		wtPath := a.selectedWorktree
+		wtPath := a.dialog.SelectedPath
 		a.closeWorktreeResumePrompt(g)
 
 		go func() {

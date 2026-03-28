@@ -154,12 +154,6 @@ func (m *Manager) Create(ctx context.Context, dirPath, host string) (*Session, e
 		UpdatedAt: time.Now(),
 	}
 
-	// Ensure tmux session exists
-	exists, err := m.tmux.HasSession(ctx, tmuxSessionName)
-	if err != nil {
-		return nil, fmt.Errorf("check session: %w", err)
-	}
-
 	var claudeCmd string
 	if host != "" {
 		mcpPort, token, mcpErr := m.readMCPInfo()
@@ -181,99 +175,90 @@ func (m *Manager) Create(ctx context.Context, dirPath, host string) (*Session, e
 	} else {
 		claudeCmd = m.buildClaudeCommand(sess)
 	}
-	windowName := sess.WindowName()
+
 	absPath, err := filepath.Abs(sess.Path)
 	if err != nil {
 		return nil, fmt.Errorf("resolve path %q: %w", sess.Path, err)
 	}
-	m.log.Debug("create.tmux", "exists", exists, "window", windowName, "dir", absPath)
 
-	env := claudeEnv()
-	width, height := termSize()
-	m.log.Debug("create.termSize", "width", width, "height", height)
+	return m.launchSession(ctx, sess, claudeCmd, absPath)
+}
 
-	if !exists {
-		err = m.tmux.NewSession(ctx, tmux.NewSessionOpts{
-			Name:         tmuxSessionName,
-			WindowName:   windowName,
-			Command:      claudeCmd,
-			StartDir:     absPath,
-			Detached:     true,
-			Width:        width,
-			Height:       height,
-			Env:          env,
-			PostCommands: cleanSessionCommands(),
-		})
-	} else {
-		err = m.tmux.NewWindow(ctx, tmux.NewWindowOpts{
-			Session:  tmuxSessionName,
-			Name:     windowName,
-			Command:  claudeCmd,
-			StartDir: absPath,
-			Env:      env,
-		})
-	}
-	if err != nil {
-		m.log.Error("create.tmux.error", "err", err, "name", name)
-		return nil, fmt.Errorf("create tmux window: %w", err)
+// worktreeOpts configures how a worktree session is created.
+type worktreeOpts struct {
+	Name        string // session/branch name (validated unless SkipGitAdd)
+	WtPath      string // explicit worktree path (set for ResumeWorktree; empty = derive from projectRoot)
+	UserPrompt  string
+	ProjectRoot string
+	Role        Role   // RoleNone for regular worktree, RoleWorker for worker sessions
+	SkipGitAdd  bool   // true for ResumeWorktree (directory already exists)
+}
+
+// createWorktreeSession is the shared implementation for CreateWorktree,
+// ResumeWorktree, and CreateWorkerSession.
+func (m *Manager) createWorktreeSession(ctx context.Context, opts worktreeOpts) (*Session, error) {
+	if !opts.SkipGitAdd {
+		if err := ValidateWorktreeName(opts.Name); err != nil {
+			return nil, fmt.Errorf("invalid worktree name: %w", err)
+		}
 	}
 
-	m.log.Info("create.done", "name", name, "window", windowName)
-	sess.Status = StatusRunning
-	m.store.Add(sess)
-
-	if err := m.store.Save(); err != nil {
-		return nil, fmt.Errorf("save store: %w", err)
+	if opts.SkipGitAdd && opts.WtPath != "" {
+		if _, err := os.Stat(opts.WtPath); err != nil {
+			return nil, fmt.Errorf("worktree path does not exist: %w", err)
+		}
 	}
 
-	return &sess, nil
+	// Read MCP info outside the lock (file I/O).
+	// Worker role requires MCP info; regular worktrees gracefully degrade.
+	mcpPort, mcpToken, mcpErr := m.readMCPInfo()
+	if mcpErr != nil && opts.Role == RoleWorker {
+		return nil, fmt.Errorf("read MCP info for worker session: %w", mcpErr)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if existing := m.store.FindByName(opts.Name); existing != nil {
+		return nil, fmt.Errorf("worktree %q already exists", opts.Name)
+	}
+
+	wtPath := opts.WtPath
+	if wtPath == "" {
+		wtPath = WorktreePath(opts.ProjectRoot, opts.Name)
+	}
+
+	if !opts.SkipGitAdd {
+		if err := createGitWorktree(ctx, opts.ProjectRoot, wtPath, opts.Name); err != nil {
+			return nil, fmt.Errorf("git worktree: %w", err)
+		}
+	}
+
+	return m.launchWorktreeSession(ctx, opts.Name, wtPath, opts.UserPrompt, opts.ProjectRoot, opts.Role, mcpPort, mcpToken)
 }
 
 // CreateWorktree creates a git worktree and launches Claude Code with an initial prompt.
 // The worktree is placed at {projectRoot}/.claude/worktrees/{name}/.
 func (m *Manager) CreateWorktree(ctx context.Context, name, userPrompt, projectRoot string) (*Session, error) {
-	if err := ValidateWorktreeName(name); err != nil {
-		return nil, fmt.Errorf("invalid worktree name: %w", err)
-	}
-
-	// Read MCP info outside the lock (file I/O).
-	mcpPort, mcpToken, _ := m.readMCPInfo()
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if existing := m.store.FindByName(name); existing != nil {
-		return nil, fmt.Errorf("worktree %q already exists", name)
-	}
-
-	wtPath := WorktreePath(projectRoot, name)
-	if err := createGitWorktree(ctx, projectRoot, wtPath, name); err != nil {
-		return nil, fmt.Errorf("git worktree: %w", err)
-	}
-
-	return m.launchWorktreeSession(ctx, name, wtPath, userPrompt, projectRoot, RoleNone, mcpPort, mcpToken)
+	return m.createWorktreeSession(ctx, worktreeOpts{
+		Name:        name,
+		UserPrompt:  userPrompt,
+		ProjectRoot: projectRoot,
+		Role:        RoleNone,
+	})
 }
 
 // ResumeWorktree launches Claude Code in an existing worktree directory.
 // Unlike CreateWorktree, it does not run `git worktree add`.
 func (m *Manager) ResumeWorktree(ctx context.Context, worktreePath, userPrompt, projectRoot string) (*Session, error) {
-	if _, err := os.Stat(worktreePath); err != nil {
-		return nil, fmt.Errorf("worktree path does not exist: %w", err)
-	}
-
-	name := filepath.Base(worktreePath)
-
-	// Read MCP info outside the lock (file I/O).
-	mcpPort, mcpToken, _ := m.readMCPInfo()
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if existing := m.store.FindByName(name); existing != nil {
-		return nil, fmt.Errorf("session %q already exists", name)
-	}
-
-	return m.launchWorktreeSession(ctx, name, worktreePath, userPrompt, projectRoot, RoleNone, mcpPort, mcpToken)
+	return m.createWorktreeSession(ctx, worktreeOpts{
+		Name:        filepath.Base(worktreePath),
+		WtPath:      worktreePath,
+		UserPrompt:  userPrompt,
+		ProjectRoot: projectRoot,
+		Role:        RoleNone,
+		SkipGitAdd:  true,
+	})
 }
 
 // launchSession creates a tmux window for sess using claudeCmd and persists the
@@ -646,28 +631,11 @@ func (m *Manager) CreatePMSession(ctx context.Context, projectRoot string) (*Ses
 // CreateWorkerSession creates a git worktree and launches Claude Code with the
 // Worker role and MCP-integrated system prompt.
 func (m *Manager) CreateWorkerSession(ctx context.Context, name, userPrompt, projectRoot string) (*Session, error) {
-	if err := ValidateWorktreeName(name); err != nil {
-		return nil, fmt.Errorf("invalid worktree name: %w", err)
-	}
-
-	// Read MCP info outside the lock (file I/O).
-	mcpPort, mcpToken, err := m.readMCPInfo()
-	if err != nil {
-		return nil, fmt.Errorf("read MCP info for worker session: %w", err)
-	}
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if existing := m.store.FindByName(name); existing != nil {
-		return nil, fmt.Errorf("worktree %q already exists", name)
-	}
-
-	wtPath := WorktreePath(projectRoot, name)
-	if err := createGitWorktree(ctx, projectRoot, wtPath, name); err != nil {
-		return nil, fmt.Errorf("git worktree: %w", err)
-	}
-
-	return m.launchWorktreeSession(ctx, name, wtPath, userPrompt, projectRoot, RoleWorker, mcpPort, mcpToken)
+	return m.createWorktreeSession(ctx, worktreeOpts{
+		Name:        name,
+		UserPrompt:  userPrompt,
+		ProjectRoot: projectRoot,
+		Role:        RoleWorker,
+	})
 }
 

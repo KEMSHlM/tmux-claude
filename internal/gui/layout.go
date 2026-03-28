@@ -226,7 +226,7 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 			if _, err := g.SetCurrentView(viewName); err != nil && !isUnknownView(err) {
 				return err
 			}
-			if a.activeDialog != DialogWorktreeChooser {
+			if a.dialog.Kind != DialogWorktreeChooser {
 				g.Cursor = true
 			}
 		}
@@ -448,14 +448,14 @@ func (a *App) showRenameInput(g *gocui.Gui, currentName string) bool {
 		return false
 	}
 	g.Cursor = true
-	a.activeDialog = DialogRename
+	a.dialog.Kind = DialogRename
 	return true
 }
 
 // closeRenameInput removes the rename input view and restores focus.
 func (a *App) closeRenameInput(g *gocui.Gui) {
-	a.renameSessionID = ""
-	a.activeDialog = DialogNone
+	a.dialog.RenameID = ""
+	a.dialog.Kind = DialogNone
 	g.DeleteView("rename-input")
 	g.Cursor = false
 	if _, err := g.SetCurrentView("sessions"); err != nil && !isUnknownView(err) {
@@ -531,14 +531,14 @@ func (a *App) showWorktreeDialog(g *gocui.Gui) bool {
 		return false
 	}
 	g.Cursor = true
-	a.activeDialog = DialogWorktree
+	a.dialog.Kind = DialogWorktree
 	return true
 }
 
 // closeWorktreeDialog removes all worktree dialog views and restores focus.
 func (a *App) closeWorktreeDialog(g *gocui.Gui) {
-	a.activeDialog = DialogNone
-	a.worktreeActiveField = ""
+	a.dialog.Kind = DialogNone
+	a.dialog.ActiveField = ""
 	g.DeleteView("worktree-branch")
 	g.DeleteView("worktree-prompt")
 	g.DeleteView("worktree-hint")
@@ -551,8 +551,8 @@ func (a *App) closeWorktreeDialog(g *gocui.Gui) {
 // showWorktreeChooser creates a list view for selecting an existing worktree.
 // The last item is always "+ New worktree".
 func (a *App) showWorktreeChooser(g *gocui.Gui, items []WorktreeInfo) bool {
-	a.worktreeChoices = items
-	a.worktreeCursor = 0
+	a.dialog.WorktreeItems = items
+	a.dialog.WorktreeCursor = 0
 
 	maxX, maxY := g.Size()
 	totalItems := len(items) + 1 // +1 for "New worktree"
@@ -578,19 +578,19 @@ func (a *App) showWorktreeChooser(g *gocui.Gui, items []WorktreeInfo) bool {
 	v.Editable = false
 	v.Highlight = true
 	setRoundedFrame(v)
-	renderWorktreeChooser(v, items, a.worktreeCursor)
+	renderWorktreeChooser(v, items, a.dialog.WorktreeCursor)
 
 	if _, err := g.SetCurrentView("worktree-chooser"); err != nil && !isUnknownView(err) {
 		return false
 	}
-	a.activeDialog = DialogWorktreeChooser
+	a.dialog.Kind = DialogWorktreeChooser
 	return true
 }
 
 // closeWorktreeChooser removes the chooser view and restores focus.
 func (a *App) closeWorktreeChooser(g *gocui.Gui) {
-	a.activeDialog = DialogNone
-	a.worktreeChoices = nil
+	a.dialog.Kind = DialogNone
+	a.dialog.WorktreeItems = nil
 	g.DeleteView("worktree-chooser")
 	if _, err := g.SetCurrentView("sessions"); err != nil && !isUnknownView(err) {
 		_ = err
@@ -646,14 +646,14 @@ func (a *App) showWorktreeResumePrompt(g *gocui.Gui, worktreeName string) bool {
 		return false
 	}
 	g.Cursor = true
-	a.activeDialog = DialogWorktreeResume
+	a.dialog.Kind = DialogWorktreeResume
 	return true
 }
 
 // closeWorktreeResumePrompt removes the resume prompt dialog and restores focus.
 func (a *App) closeWorktreeResumePrompt(g *gocui.Gui) {
-	a.activeDialog = DialogNone
-	a.selectedWorktree = ""
+	a.dialog.Kind = DialogNone
+	a.dialog.SelectedPath = ""
 	g.DeleteView("worktree-resume-prompt")
 	g.DeleteView("worktree-resume-hint")
 	g.Cursor = false

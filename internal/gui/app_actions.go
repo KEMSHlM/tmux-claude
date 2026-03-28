@@ -152,17 +152,17 @@ func (a *App) EnterFullScreen() {
 }
 
 func (a *App) StartRename() {
-	if a.sessions == nil || a.renameSessionID != "" {
+	if a.sessions == nil || a.dialog.RenameID != "" {
 		return
 	}
 	items := a.sessions.Sessions()
 	if a.cursor < 0 || a.cursor >= len(items) {
 		return
 	}
-	a.renameSessionID = items[a.cursor].ID
+	a.dialog.RenameID = items[a.cursor].ID
 	a.gui.Update(func(g *gocui.Gui) error {
 		if !a.showRenameInput(g, items[a.cursor].Name) {
-			a.renameSessionID = ""
+			a.dialog.RenameID = ""
 		}
 		return nil
 	})

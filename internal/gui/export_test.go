@@ -87,7 +87,7 @@ func (a *App) PollNotificationForTest() {
 
 // ActiveDialogForTest returns the current dialog kind.
 func (a *App) ActiveDialogForTest() DialogKind {
-	return a.activeDialog
+	return a.dialog.Kind
 }
 
 // ShowWorktreeDialogForTest opens the worktree dialog for testing.

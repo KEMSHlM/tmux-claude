@@ -92,12 +92,7 @@ type App struct {
 	notify             *NotifyLoop                   // notification delivery (output, broker, tick)
 	quitRequested      bool                         // set by Quit(), checked after Dispatch
 	popupMode          config.PopupMode             // how popups are displayed (auto/tmux/overlay)
-	renameSessionID    string                     // session ID being renamed (empty = no rename in progress)
-	activeDialog       DialogKind                 // current input dialog (DialogNone = no dialog)
-	worktreeActiveField string                    // which worktree dialog field has focus ("worktree-branch" or "worktree-prompt")
-	worktreeChoices    []WorktreeInfo             // items in worktree chooser
-	worktreeCursor     int                        // selected index in chooser (len(choices) = "New")
-	selectedWorktree   string                     // path of chosen existing worktree
+	dialog             DialogState                  // input dialog state (rename, worktree, etc.)
 	editor             *inputEditor               // fullscreen key editor (for paste flush)
 	watchdogDone       chan struct{}               // signals watchdog to stop
 	watchdogStarted    bool                        // prevents multiple watchdog goroutines
@@ -154,6 +149,33 @@ func (a *App) SetPopupMode(mode config.PopupMode) {
 	a.popupMode = mode
 }
 
+// newApp initializes a new App with the given gocui.Gui. Shared by NewApp and NewAppHeadless.
+func newApp(mode AppMode, g *gocui.Gui, enableMouse bool) (*App, error) {
+	app := &App{
+		gui:         g,
+		mode:        mode,
+		popups:      NewPopupController(),
+		preview:     &PreviewCache{},
+		keyRegistry: DefaultKeyRegistry(),
+		logs:        NewLogsState(),
+		notify:      NewNotifyLoop(),
+	}
+	app.fullscreen = NewFullScreenState(app.preview)
+	app.initDispatcher()
+
+	g.SetManagerFunc(app.layout)
+	if enableMouse {
+		g.Mouse = true
+	}
+
+	if err := app.setupGlobalKeybindings(); err != nil {
+		g.Close()
+		return nil, err
+	}
+
+	return app, nil
+}
+
 // NewApp creates a new App. Call Run() to start the event loop.
 func NewApp(mode AppMode) (*App, error) {
 	g, err := gocui.NewGui(gocui.NewGuiOpts{
@@ -163,28 +185,7 @@ func NewApp(mode AppMode) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("init gocui: %w", err)
 	}
-
-	app := &App{
-		gui:          g,
-		mode:         mode,
-		popups:       NewPopupController(),
-		preview:      &PreviewCache{},
-		keyRegistry:  DefaultKeyRegistry(),
-		logs:         NewLogsState(),
-		notify:       NewNotifyLoop(),
-	}
-	app.fullscreen = NewFullScreenState(app.preview)
-	app.initDispatcher()
-
-	g.SetManagerFunc(app.layout)
-	g.Mouse = true
-
-	if err := app.setupGlobalKeybindings(); err != nil {
-		g.Close()
-		return nil, err
-	}
-
-	return app, nil
+	return newApp(mode, g, true)
 }
 
 // NewAppHeadless creates an App in headless mode for testing.
@@ -198,27 +199,7 @@ func NewAppHeadless(mode AppMode, width, height int) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("init gocui headless: %w", err)
 	}
-
-	app := &App{
-		gui:          g,
-		mode:         mode,
-		popups:       NewPopupController(),
-		preview:      &PreviewCache{},
-		keyRegistry:  DefaultKeyRegistry(),
-		logs:         NewLogsState(),
-		notify:       NewNotifyLoop(),
-	}
-	app.fullscreen = NewFullScreenState(app.preview)
-	app.initDispatcher()
-
-	g.SetManagerFunc(app.layout)
-
-	if err := app.setupGlobalKeybindings(); err != nil {
-		g.Close()
-		return nil, err
-	}
-
-	return app, nil
+	return newApp(mode, g, false)
 }
 
 // initDispatcher creates the panel manager and key dispatcher.

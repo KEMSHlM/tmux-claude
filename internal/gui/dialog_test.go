@@ -21,7 +21,7 @@ func TestHasActiveDialog_Rename(t *testing.T) {
 	}
 	defer app.Gui().Close()
 
-	app.activeDialog = DialogRename
+	app.dialog.Kind = DialogRename
 	if !app.HasActiveDialog() {
 		t.Error("should detect active rename dialog")
 	}
@@ -37,7 +37,7 @@ func TestHasActiveDialog_Worktree(t *testing.T) {
 	}
 	defer app.Gui().Close()
 
-	app.activeDialog = DialogWorktree
+	app.dialog.Kind = DialogWorktree
 	if !app.HasActiveDialog() {
 		t.Error("should detect active worktree dialog")
 	}
@@ -52,7 +52,7 @@ func TestDialogFocusView_Mapping(t *testing.T) {
 
 	cases := []struct {
 		dialog DialogKind
-		field  string // worktreeActiveField
+		field  string // ActiveField
 		want   string
 	}{
 		{DialogNone, "", ""},
@@ -63,8 +63,8 @@ func TestDialogFocusView_Mapping(t *testing.T) {
 		{DialogWorktree, "worktree-prompt", "worktree-prompt"}, // after Tab
 	}
 	for _, tc := range cases {
-		app.activeDialog = tc.dialog
-		app.worktreeActiveField = tc.field
+		app.dialog.Kind = tc.dialog
+		app.dialog.ActiveField = tc.field
 		got := app.dialogFocusView()
 		if got != tc.want {
 			t.Errorf("dialogFocusView(dialog=%d, field=%q) = %q, want %q",
