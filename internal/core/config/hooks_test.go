@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/KEMSHlM/lazyclaude/internal/core/config"
@@ -151,32 +152,10 @@ func TestHookCommand_ValidatesLockPID(t *testing.T) {
 
 		// Hook must validate PID of lock file owner before using it.
 		// process.kill(pid, 0) is the Node.js way to check PID liveness.
-		if !containsAny(cmd, "process.kill", "kill(") {
+		if !strings.Contains(cmd, "process.kill") && !strings.Contains(cmd, "kill(") {
 			t.Errorf("%s hook must validate lock PID liveness (process.kill(pid, 0))", hookType)
 		}
 	}
-}
-
-func containsAny(s string, subs ...string) bool {
-	for _, sub := range subs {
-		if contains(s, sub) {
-			return true
-		}
-	}
-	return false
-}
-
-func contains(s, sub string) bool {
-	return len(s) >= len(sub) && (s == sub || len(s) > 0 && containsStr(s, sub))
-}
-
-func containsStr(s, sub string) bool {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
 }
 
 func TestSetLazyClaudeHooks_Roundtrip(t *testing.T) {

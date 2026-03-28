@@ -110,9 +110,9 @@ func (s *Server) handleMsgSend(w http.ResponseWriter, r *http.Request) {
 			wName = "lc-" + recipient.ID[:8]
 		}
 		if windows, err := s.tmux.ListWindows(context.Background(), "lazyclaude"); err == nil {
-			for _, w := range windows {
-				if w.Name == wName {
-					window = w.ID
+			for _, win := range windows {
+				if win.Name == wName {
+					window = win.ID
 					break
 				}
 			}

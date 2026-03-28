@@ -417,6 +417,11 @@ func (s *Server) dispatchToolNotification(window, toolName, input, cwd string) {
 		MaxOption: maxOpt,
 	}
 
+	// NOTE: HasSubscribers() and Publish() acquire separate locks, so a
+	// subscriber could Cancel() between the check and the Publish(). In that
+	// narrow window the event is silently dropped. This is acceptable because
+	// (a) it only happens during TUI shutdown, and (b) Publish is non-blocking
+	// by design — a dropped event during shutdown has no user impact.
 	if s.notifyBroker.HasSubscribers() {
 		// TUI is in-process and subscribed — broker delivers directly.
 		// No display-popup needed (TUI handles overlay in both normal and fullscreen).
