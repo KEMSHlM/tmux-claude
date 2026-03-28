@@ -2,6 +2,7 @@ package tmuxadapter
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"sync"
@@ -133,6 +134,153 @@ func TestPopupQueue_DifferentWindowsConcurrent(t *testing.T) {
 
 	// Release both
 	mock.gates <- struct{}{}
+	mock.gates <- struct{}{}
+}
+
+func TestPopupGlobalLimit_BlocksBeyondMax(t *testing.T) {
+	mock := newMockPopupClient()
+	logger := log.New(os.Stderr, "test: ", 0)
+	p := NewPopupOrchestratorWithMax("lazyclaude", "lazyclaude", os.TempDir(), mock, nil, logger, 2)
+
+	// Spawn popups for 4 different windows
+	p.SpawnToolPopup(context.Background(), "@1", "Tool1", "{}", "/tmp")
+	p.SpawnToolPopup(context.Background(), "@2", "Tool2", "{}", "/tmp")
+	p.SpawnToolPopup(context.Background(), "@3", "Tool3", "{}", "/tmp")
+	p.SpawnToolPopup(context.Background(), "@4", "Tool4", "{}", "/tmp")
+
+	// Only 2 should be spawned (global limit = 2)
+	require.Eventually(t, func() bool {
+		return len(mock.getCalls()) == 2
+	}, time.Second, 10*time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
+	assert.Equal(t, 2, len(mock.getCalls()), "only 2 popups should be active globally")
+
+	// Release one -> third should spawn
+	mock.gates <- struct{}{}
+	require.Eventually(t, func() bool {
+		return len(mock.getCalls()) == 3
+	}, 2*time.Second, 10*time.Millisecond)
+
+	// Release another -> fourth should spawn
+	mock.gates <- struct{}{}
+	require.Eventually(t, func() bool {
+		return len(mock.getCalls()) == 4
+	}, 2*time.Second, 10*time.Millisecond)
+
+	// Release remaining
+	mock.gates <- struct{}{}
+	mock.gates <- struct{}{}
+}
+
+func TestPopupGlobalLimit_DefaultIs3(t *testing.T) {
+	mock := newMockPopupClient()
+	logger := log.New(os.Stderr, "test: ", 0)
+	p := NewPopupOrchestrator("lazyclaude", "lazyclaude", os.TempDir(), mock, nil, logger)
+
+	// Spawn 5 popups for different windows
+	for i := 0; i < 5; i++ {
+		window := fmt.Sprintf("@%d", i+1)
+		p.SpawnToolPopup(context.Background(), window, fmt.Sprintf("Tool%d", i+1), "{}", "/tmp")
+	}
+
+	// Exactly 3 should spawn (default global limit)
+	require.Eventually(t, func() bool {
+		return len(mock.getCalls()) == 3
+	}, time.Second, 10*time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
+	assert.Equal(t, 3, len(mock.getCalls()), "default limit should be 3")
+
+	// Release all
+	for i := 0; i < 5; i++ {
+		mock.gates <- struct{}{}
+		if i < 4 {
+			// Wait for next popup to potentially spawn
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+}
+
+func TestPopupGlobalLimit_PerWindowQueueStillWorks(t *testing.T) {
+	mock := newMockPopupClient()
+	logger := log.New(os.Stderr, "test: ", 0)
+	p := NewPopupOrchestratorWithMax("lazyclaude", "lazyclaude", os.TempDir(), mock, nil, logger, 2)
+
+	// 2 popups for @1, 1 popup for @2
+	p.SpawnToolPopup(context.Background(), "@1", "Tool1a", "{}", "/tmp")
+	p.SpawnToolPopup(context.Background(), "@1", "Tool1b", "{}", "/tmp")
+	p.SpawnToolPopup(context.Background(), "@2", "Tool2", "{}", "/tmp")
+
+	// @1 first popup + @2 popup = 2 global slots used. Tool1b queued per-window.
+	require.Eventually(t, func() bool {
+		return len(mock.getCalls()) == 2
+	}, time.Second, 10*time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
+	assert.Equal(t, 2, len(mock.getCalls()))
+
+	calls := mock.getCalls()
+	names := make([]string, len(calls))
+	for i, c := range calls {
+		names[i] = c.Env["TOOL_NAME"]
+	}
+	assert.Contains(t, names, "Tool1a")
+	assert.Contains(t, names, "Tool2")
+
+	// Release @1 first popup -> Tool1b drains from the per-window queue.
+	// It needs to acquire a global semaphore slot (200ms drain sleep + acquire).
+	mock.gates <- struct{}{}
+	require.Eventually(t, func() bool {
+		return len(mock.getCalls()) == 3
+	}, 5*time.Second, 50*time.Millisecond)
+	calls = mock.getCalls()
+	assert.Equal(t, "Tool1b", calls[2].Env["TOOL_NAME"])
+
+	// Release remaining (Tool1b + Tool2)
+	mock.gates <- struct{}{}
+	mock.gates <- struct{}{}
+}
+
+func TestPopupGlobalLimit_ContextCancel(t *testing.T) {
+	mock := newMockPopupClient()
+	logger := log.New(os.Stderr, "test: ", 0)
+	p := NewPopupOrchestratorWithMax("lazyclaude", "lazyclaude", os.TempDir(), mock, nil, logger, 1)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Fill the single global slot
+	p.SpawnToolPopup(ctx, "@1", "Tool1", "{}", "/tmp")
+	require.Eventually(t, func() bool {
+		return len(mock.getCalls()) == 1
+	}, time.Second, 10*time.Millisecond)
+
+	// This goroutine will block on semaphore acquire
+	p.SpawnToolPopup(ctx, "@2", "Tool2", "{}", "/tmp")
+	time.Sleep(100 * time.Millisecond)
+	assert.Equal(t, 1, len(mock.getCalls()), "Tool2 should be blocked on semaphore")
+
+	// Cancel context — Tool2's goroutine should exit without leaking
+	cancel()
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify @2 is cleaned up (active flag cleared)
+	p.mu.Lock()
+	_, active2 := p.active["@2"]
+	p.mu.Unlock()
+	assert.False(t, active2, "window @2 should not be active after ctx cancel")
+
+	// Release Tool1
+	mock.gates <- struct{}{}
+}
+
+func TestPopupGlobalLimit_ZeroDefaultsToDefault(t *testing.T) {
+	mock := newMockPopupClient()
+	logger := log.New(os.Stderr, "test: ", 0)
+	p := NewPopupOrchestratorWithMax("lazyclaude", "lazyclaude", os.TempDir(), mock, nil, logger, 0)
+
+	// Should use defaultMaxConcurrentPopups (3), not deadlock
+	p.SpawnToolPopup(context.Background(), "@1", "Tool1", "{}", "/tmp")
+	require.Eventually(t, func() bool {
+		return len(mock.getCalls()) == 1
+	}, time.Second, 10*time.Millisecond)
 	mock.gates <- struct{}{}
 }
 

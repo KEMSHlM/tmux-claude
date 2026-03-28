@@ -13,6 +13,13 @@ import (
 
 const dialTimeout = 500 * time.Millisecond // loopback-only, should be instant
 
+// restartDebounce is the minimum age of a port file before RestartServer
+// will kill and restart the server. If the port file was written within this
+// duration and the server is alive, RestartServer reuses it instead.
+// This prevents cascading restart loops when multiple processes call
+// RestartServer simultaneously after a crash.
+const restartDebounce = 3 * time.Second
+
 // EnsureOpts configures how the MCP server is ensured.
 type EnsureOpts struct {
 	Binary   string   // path to lazyclaude binary
@@ -27,11 +34,20 @@ type EnsureResult struct {
 }
 
 // RestartServer kills any existing server and starts a new one.
+// If the port file was recently created (within restartDebounce) and the
+// server is still alive, it reuses the existing server to prevent cascading
+// restart loops from multiple concurrent callers.
 func RestartServer(opts EnsureOpts) (EnsureResult, error) {
-	// Kill existing server by reading port file and finding the process.
 	if data, err := os.ReadFile(opts.PortFile); err == nil {
 		port, parseErr := strconv.Atoi(strings.TrimSpace(string(data)))
 		if parseErr == nil && port > 0 {
+			// Check if port file was recently written and server is alive.
+			if info, statErr := os.Stat(opts.PortFile); statErr == nil {
+				age := time.Since(info.ModTime())
+				if age < restartDebounce && isServerAlive(port) {
+					return EnsureResult{Port: port, Started: false}, nil
+				}
+			}
 			killServerOnPort(port)
 		}
 		os.Remove(opts.PortFile)
