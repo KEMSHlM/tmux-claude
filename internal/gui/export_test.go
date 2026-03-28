@@ -107,8 +107,12 @@ func (a *App) InitEditorForTest() {
 	}
 }
 
-// EditForTest calls the inputEditor's Edit method directly for testing the
-// paste detection state machine. Returns false if no editor is set up.
+// SetIsPastingForTest sets the IsPasting flag on the underlying gocui.Gui.
+func (a *App) SetIsPastingForTest(v bool) {
+	a.gui.IsPasting = v
+}
+
+// EditForTest calls the inputEditor's Edit method directly for testing.
 func (a *App) EditForTest(key gocui.Key, ch rune, mod gocui.Modifier) bool {
 	if a.editor == nil {
 		return false

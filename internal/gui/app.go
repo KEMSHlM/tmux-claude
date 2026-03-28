@@ -100,55 +100,7 @@ type App struct {
 	worktreeChoices    []WorktreeInfo             // items in worktree chooser
 	worktreeCursor     int                        // selected index in chooser (len(choices) = "New")
 	selectedWorktree   string                     // path of chosen existing worktree
-	editor             *inputEditor               // fullscreen key editor (for paste flush)
-	watchdogDone       chan struct{}               // signals watchdog to stop
-	watchdogStarted    bool                        // prevents multiple watchdog goroutines
-}
-
-// startPasteWatchdog starts the watchdog goroutine if not already running.
-// Called from layout when the editor is first created.
-func (a *App) startPasteWatchdog() {
-	if a.watchdogStarted || a.editor == nil || a.watchdogDone == nil {
-		return
-	}
-	a.watchdogStarted = true
-	ch := a.editor.pasteNotify
-	done := a.watchdogDone
-	go func() {
-		for {
-			select {
-			case <-done:
-				return
-			case <-ch:
-				// Drain loop: keep flushing partial content while paste is ongoing.
-				// Large pastes overflow tcell's event channel (256 slots), blocking
-				// the event loop. Each drain unblocks the channel so more characters
-				// can arrive. The loop exits when inPaste becomes false (paste end
-				// marker was processed by the event loop).
-			drain:
-				for {
-					select {
-					case <-done:
-						return
-					case <-time.After(pasteWatchdogTimeout):
-					}
-					if a.editor == nil {
-						break drain
-					}
-					a.editor.pasteMu.Lock()
-					stillPasting := a.editor.inPaste
-					hasData := a.editor.pasteBuf.Len() > 0
-					a.editor.pasteMu.Unlock()
-					if !stillPasting {
-						break drain
-					}
-					if hasData {
-						a.editor.drainPaste()
-					}
-				}
-			}
-		}
-	}()
+	editor *inputEditor // fullscreen key editor
 }
 
 // SetPopupMode sets the popup display mode.
@@ -246,10 +198,6 @@ func (a *App) Run() error {
 	// Serial key forwarder: preserves keystroke order (critical for IME input).
 	done := make(chan struct{})
 	go a.fullscreen.RunKeyForwarder(done)
-
-	// Paste watchdog: started lazily when the editor is first created.
-	// See runPasteWatchdog().
-	a.watchdogDone = done
 
 	// Refresh loop: event-driven via notify channels + ticker fallback.
 	go func() {

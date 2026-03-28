@@ -571,6 +571,7 @@ func cleanSessionCommands() [][]string {
 		{"set-option", "-g", "automatic-rename", "off"},
 		{"set-option", "-g", "remain-on-exit", "on"},
 		{"set-option", "-g", "window-size", "largest"},
+		{"set-option", "-g", "mouse", "on"},
 		{"set-hook", "-g", "pane-died", "detach-client"},
 		{"bind-key", "-T", "root", "C-\\", "detach-client"},
 	}

@@ -254,11 +254,7 @@ func (a *App) layoutFullScreen(g *gocui.Gui, maxX, maxY int) error {
 	v.Wrap = false
 	v.Editable = true
 	if a.editor == nil {
-		a.editor = &inputEditor{
-			app:         a,
-			pasteNotify: make(chan struct{}, 1),
-		}
-		a.startPasteWatchdog()
+		a.editor = &inputEditor{app: a}
 	}
 	v.Editor = a.editor
 	v.Clear()

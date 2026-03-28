@@ -85,11 +85,10 @@ func (a *App) forwardSpecialKey(tmuxKey string) {
 	a.fullscreen.TriggerRefresh()
 }
 
-// forwardPaste sends text as a bracketed paste to the Claude Code pane.
-// Executes synchronously to serialize tmux load-buffer/paste-buffer calls.
-// Callers (watchdog drainPaste, event loop flushPaste) already run outside
-// the hot gocui event loop, so blocking here is acceptable.
-func (a *App) forwardPaste(text string) {
+// pasteFromClipboard reads the system clipboard via pbpaste and injects it
+// into the Claude Code pane via tmux load-buffer/paste-buffer.
+// Runs asynchronously so the gocui event loop is never blocked.
+func (a *App) pasteFromClipboard() {
 	target := a.resolveForwardTarget()
 	if target == "" {
 		return
@@ -97,7 +96,13 @@ func (a *App) forwardPaste(text string) {
 	if a.fullscreen.forwarder == nil {
 		return
 	}
-	_ = a.fullscreen.forwarder.ForwardPaste(target, text)
-	a.fullscreen.TriggerRefresh()
+	go func() {
+		text, err := readClipboard()
+		if err != nil || text == "" {
+			return
+		}
+		_ = a.fullscreen.forwarder.ForwardPaste(target, text)
+		a.fullscreen.TriggerRefresh()
+	}()
 }
 
