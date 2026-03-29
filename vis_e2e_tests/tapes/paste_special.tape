@@ -5,27 +5,31 @@ Set Shell "bash"
 Set Width 1800
 Set Height 1200
 Set FontSize 16
+Set WaitTimeout 60s
 
-# No WaitTimeout — rely on explicit Sleeps only.
+# lazyclaude 起動 (tmux plugin 経由)
+Ctrl+\
+Wait+Screen /No sessions/
 
-Sleep 2s
-Type "lazyclaude --debug" Enter
-Sleep 5s
-
-# Create a session
+# セッション作成
 Type "n"
 Sleep 5s
 
-# Move cursor to session row, then enter fullscreen.
+# セッション行に移動してフルスクリーン
 Type "j"
 Sleep 1s
 Enter
-Sleep 15s
-
-# By now (~28s), entrypoint has sent paste at 20s.
-# Type chars to verify TUI is responsive.
-Type "hello"
 Sleep 3s
 
-# Screenshot should show fullscreen still alive (not frozen).
+# entrypoint が 15 秒後に bracketed paste を TTY に直接送信
+# ペースト処理後も TUI が応答することを確認
+Wait+Screen /exit/
+
+# フルスクリーン解除
+Ctrl+\
 Sleep 2s
+
+Wait+Screen /quit/
+
+Type "q"
+Sleep 1s

@@ -75,9 +75,9 @@ GOEOF
         claude plugins install plugin-dev --scope project 2>/dev/null || true
         ;;
     paste_special)
-        # Bracketed paste E2E: use tmux paste-buffer -p to send proper
-        # bracketed paste (ESC[200~ + text + ESC[201~) through the PTY,
-        # matching how a real Cmd+V would propagate.
+        # Bracketed paste E2E: write ESC[200~ + text + ESC[201~ directly
+        # to the tmux client TTY. This is the exact path a real Cmd+V
+        # takes: terminal → tmux → popup process (lazyclaude) → tcell.
         cat > /tmp/paste-text.txt << 'PASTEEOF'
 七夕
 持明院統の光厳天皇が後醍醐天皇によって廃位される（1333年）
@@ -91,9 +91,25 @@ GOEOF
 ロンドン同時爆破事件（2005年）
 PASTEEOF
         (
-            sleep 20
-            tmux load-buffer - < /tmp/paste-text.txt
-            tmux paste-buffer -t main -d -p
+            sleep 15
+            # Wait for a tmux client to attach (VHS bash wrapper attaches).
+            for i in $(seq 1 30); do
+                TTY=$(tmux list-clients -F '#{client_tty}' 2>/dev/null | head -1)
+                [ -n "$TTY" ] && break
+                sleep 1
+            done
+            if [ -z "$TTY" ]; then
+                echo "paste_special: no tmux client TTY found after 30s" >&2
+                exit 1
+            fi
+            # Send bracketed paste markers + content directly to the PTY.
+            # This is the exact path a real Cmd+V takes:
+            # terminal -> tmux -> popup/pane -> tcell EventPaste.
+            {
+                printf '\e[200~'
+                cat /tmp/paste-text.txt
+                printf '\e[201~'
+            } > "$TTY"
         ) &
         ;;
 esac
