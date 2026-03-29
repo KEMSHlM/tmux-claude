@@ -1,5 +1,7 @@
 package plugin
 
+import "encoding/json"
+
 // InstalledPlugin represents a plugin from `claude plugins list --json`.
 type InstalledPlugin struct {
 	ID          string `json:"id"`          // e.g. "lua-lsp@claude-plugins-official"
@@ -22,12 +24,31 @@ type AvailablePlugin struct {
 }
 
 // Source describes the origin of a plugin.
+// CLI returns either a struct {"source":"url","url":"..."} or a plain string "./path".
 type Source struct {
-	Source string `json:"source"` // "github", "url", "path", "npm"
+	Source string `json:"source"` // "github", "url", "path", "npm", "git-subdir"
 	Repo   string `json:"repo,omitempty"`
 	URL    string `json:"url,omitempty"`
 	Ref    string `json:"ref,omitempty"`
 	SHA    string `json:"sha,omitempty"`
+	Raw    string `json:"-"` // set when source is a plain string (e.g. "./plugins/foo")
+}
+
+// UnmarshalJSON handles both string and object forms of source.
+func (s *Source) UnmarshalJSON(data []byte) error {
+	var str string
+	if err := json.Unmarshal(data, &str); err == nil {
+		s.Source = "path"
+		s.Raw = str
+		return nil
+	}
+	type alias Source
+	var a alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	*s = Source(a)
+	return nil
 }
 
 // ListResult is the output of `claude plugins list --available --json`.

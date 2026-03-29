@@ -98,6 +98,7 @@ func TestInstalledPlugin_JSONParse(t *testing.T) {
 
 func TestListResult_JSONParse(t *testing.T) {
 	// Actual output from: claude plugins list --available --json
+	// Includes both struct source and string source (local path)
 	raw := `{
 		"installed": [
 			{
@@ -122,6 +123,14 @@ func TestListResult_JSONParse(t *testing.T) {
 					"sha": "aa70dbdbbbb843e94a794c10c2b13f5dd66b5e40"
 				},
 				"installCount": 899
+			},
+			{
+				"pluginId": "agent-sdk-dev@claude-plugins-official",
+				"name": "agent-sdk-dev",
+				"description": "Agent SDK development tools",
+				"marketplaceName": "claude-plugins-official",
+				"source": "./plugins/agent-sdk-dev",
+				"installCount": 50
 			}
 		]
 	}`
@@ -134,8 +143,8 @@ func TestListResult_JSONParse(t *testing.T) {
 	if len(result.Installed) != 1 {
 		t.Fatalf("Installed: got %d, want 1", len(result.Installed))
 	}
-	if len(result.Available) != 1 {
-		t.Fatalf("Available: got %d, want 1", len(result.Available))
+	if len(result.Available) != 2 {
+		t.Fatalf("Available: got %d, want 2", len(result.Available))
 	}
 
 	avail := result.Available[0]
@@ -153,6 +162,15 @@ func TestListResult_JSONParse(t *testing.T) {
 	}
 	if avail.Source.SHA != "aa70dbdbbbb843e94a794c10c2b13f5dd66b5e40" {
 		t.Errorf("Source.SHA = %q", avail.Source.SHA)
+	}
+
+	// Second plugin: string source (local path)
+	avail2 := result.Available[1]
+	if avail2.Source.Source != "path" {
+		t.Errorf("avail2 Source.Source = %q, want \"path\"", avail2.Source.Source)
+	}
+	if avail2.Source.Raw != "./plugins/agent-sdk-dev" {
+		t.Errorf("avail2 Source.Raw = %q", avail2.Source.Raw)
 	}
 }
 
