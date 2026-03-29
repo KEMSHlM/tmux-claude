@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/KEMSHlM/lazyclaude/internal/gui/presentation"
 	"github.com/KEMSHlM/lazyclaude/internal/session"
 	"github.com/jesseduffield/gocui"
+	"github.com/mattn/go-runewidth"
 )
 
 const serverLogPath = "/tmp/lazyclaude/server.log"
@@ -183,17 +185,19 @@ func (a *App) renderServerLog(v *gocui.View, logs *LogsState, focused bool) {
 
 	for i, raw := range lines {
 		line := " " + raw
+		line = truncateToWidth(line, w)
 		inSelection := focused && selecting && i >= selStart && i <= selEnd
 		isCursor := focused && i == cursorY
 
+		padded := padRight(line, w)
 		if inSelection && isCursor {
-			fmt.Fprintf(v, "\x1b[48;5;33;1;37m%-*s\x1b[0m\n", w, line)
+			fmt.Fprintf(v, "\x1b[48;5;33;1;37m%s\x1b[0m\n", padded)
 		} else if inSelection {
-			fmt.Fprintf(v, "\x1b[48;5;24;37m%-*s\x1b[0m\n", w, line)
+			fmt.Fprintf(v, "\x1b[48;5;24;37m%s\x1b[0m\n", padded)
 		} else if isCursor && selecting {
-			fmt.Fprintf(v, "\x1b[48;5;238;1m%-*s\x1b[0m\n", w, line)
+			fmt.Fprintf(v, "\x1b[48;5;238;1m%s\x1b[0m\n", padded)
 		} else if isCursor {
-			fmt.Fprintf(v, "\x1b[48;5;240m%-*s\x1b[0m\n", w, line)
+			fmt.Fprintf(v, "\x1b[48;5;240m%s\x1b[0m\n", padded)
 		} else {
 			fmt.Fprintln(v, line)
 		}
@@ -253,4 +257,28 @@ func renderDiffPopup(v *gocui.View, p Popup) {
 			fmt.Fprintln(v, line)
 		}
 	}
+}
+
+// truncateToWidth truncates s so that its display width does not exceed maxW.
+// This prevents gocui line wrapping from breaking cursor/origin tracking.
+func truncateToWidth(s string, maxW int) string {
+	w := 0
+	for i, r := range s {
+		rw := runewidth.RuneWidth(r)
+		if w+rw > maxW {
+			return s[:i]
+		}
+		w += rw
+	}
+	return s
+}
+
+// padRight pads s with spaces so that its display width equals targetW.
+// If s is already at least targetW wide, it is returned unchanged.
+func padRight(s string, targetW int) string {
+	sw := runewidth.StringWidth(s)
+	if sw >= targetW {
+		return s
+	}
+	return s + strings.Repeat(" ", targetW-sw)
 }
