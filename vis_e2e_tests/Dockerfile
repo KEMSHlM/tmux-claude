@@ -50,6 +50,7 @@ RUN mkdir -p /root/.ssh && printf 'Host *\n  StrictHostKeyChecking no\n  UserKno
 WORKDIR /app
 COPY go.mod go.sum ./
 COPY third_party_gocui/go.mod third_party_gocui/go.sum third_party_gocui/
+COPY third_party_tcell/go.mod third_party_tcell/go.sum third_party_tcell/
 RUN go mod download
 COPY . .
 RUN curl -fsSL https://claude.ai/install.sh | bash

@@ -5,17 +5,33 @@
 package gocui
 
 import (
+	"fmt"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
 )
 
+var pasteDebugLog *os.File
+
+func init() {
+	pasteDebugLog, _ = os.OpenFile("/tmp/lazyclaude/paste-events.log",
+		os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+}
+
+func logPasteEvent(format string, args ...any) {
+	if pasteDebugLog != nil {
+		fmt.Fprintf(pasteDebugLog, format+"\n", args...)
+		pasteDebugLog.Sync()
+	}
+}
+
 const (
 	// pasteAccumTimeout is the maximum time to wait for more paste content
 	// before flushing a partial paste. Handles very large pastes that might
 	// stall if we waited indefinitely.
-	pasteAccumTimeout = 500 * time.Millisecond
+	pasteAccumTimeout = 5 * time.Second
 
 	// escSeqTimeout is how long to wait after Esc to determine if it's the
 	// start of a bracketed paste marker or a standalone Esc press.
@@ -443,8 +459,7 @@ func (g *Gui) pollEvent() GocuiEvent {
 			Focused: tev.Focused,
 		}
 	case *tcell.EventPaste:
-		// Pass through to rawEvents → filterPasteEvents, which handles
-		// accumulation with channel-based timeouts (no PollEvent goroutines).
+		logPasteEvent("pollEvent: EventPaste start=%v", tev.Start())
 		return GocuiEvent{
 			Type:  eventPaste,
 			Start: tev.Start(),

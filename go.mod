@@ -4,6 +4,8 @@ go 1.25
 
 replace github.com/jesseduffield/gocui => ./third_party_gocui
 
+replace github.com/gdamore/tcell/v2 => ./third_party_tcell
+
 require (
 	github.com/ActiveState/termtest v0.7.2
 	github.com/charmbracelet/x/ansi v0.11.6

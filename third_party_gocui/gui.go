@@ -254,7 +254,7 @@ func NewGui(opts NewGuiOpts) (*Gui, error) {
 
 	g.stop = make(chan struct{})
 
-	g.gEvents = make(chan GocuiEvent, 20)
+	g.gEvents = make(chan GocuiEvent, 4096)
 	g.rawEvents = make(chan GocuiEvent, 256)
 	g.userEvents = make(chan userEvent, 20)
 	g.taskManager = newTaskManager()
@@ -773,7 +773,11 @@ func (g *Gui) MainLoop() error {
 			case <-g.stop:
 				return
 			default:
-				g.rawEvents <- g.pollEvent()
+				logPasteEvent("pollGoroutine: calling pollEvent... rawEvents len=%d cap=%d", len(g.rawEvents), cap(g.rawEvents))
+				ev := g.pollEvent()
+				logPasteEvent("pollGoroutine: got event type=%d, sending to rawEvents", ev.Type)
+				g.rawEvents <- ev
+				logPasteEvent("pollGoroutine: sent to rawEvents")
 			}
 		}
 	}()
@@ -906,13 +910,13 @@ func (g *Gui) filterPasteEvents() {
 		case ev := <-g.rawEvents:
 			switch {
 			case ev.Type == eventPaste && ev.Start:
-				// Native tcell EventPaste{Start} — accumulate until End.
+				logPasteEvent("filter: eventPaste{Start} → accumulatePasteFromChannel")
 				text := g.accumulatePasteFromChannel()
+				logPasteEvent("filter: accumulated %d bytes", len(text))
 				if text != "" {
 					g.gEvents <- GocuiEvent{Type: eventPasteContent, PasteText: text}
 				}
 			case ev.Type == eventKey && ev.Key == KeyEsc && ev.Mod == 0:
-				// Potential raw ESC[200~ (tmux popup fallback).
 				g.filterEscSequence(ev)
 			default:
 				g.gEvents <- ev
@@ -967,9 +971,11 @@ func (g *Gui) accumulatePasteFromChannel() string {
 	timer := time.NewTimer(pasteAccumTimeout)
 	defer timer.Stop()
 
+	eventCount := 0
 	for {
 		select {
 		case ev := <-g.rawEvents:
+			eventCount++
 			// Reset timer on each received event.
 			if !timer.Stop() {
 				select {
@@ -981,10 +987,12 @@ func (g *Gui) accumulatePasteFromChannel() string {
 
 			// Native paste end marker from tcell.
 			if ev.Type == eventPaste && !ev.Start {
+				logPasteEvent("accumulate: eventPaste{End} after %d events, %d bytes", eventCount, buf.Len())
 				return buf.String()
 			}
 
 			if ev.Type != eventKey {
+				logPasteEvent("accumulate: skip non-key event type=%d", ev.Type)
 				continue // Ignore non-key events during paste.
 			}
 
@@ -1035,7 +1043,7 @@ func (g *Gui) accumulatePasteFromChannel() string {
 			appendGocuiKeyToBuilder(&buf, ev)
 
 		case <-timer.C:
-			// Timeout: flush partial content.
+			logPasteEvent("accumulate: TIMEOUT after %d events, %d bytes, rawEvents len=%d", eventCount, buf.Len(), len(g.rawEvents))
 			if inEsc {
 				buf.WriteRune('\x1b')
 				for _, r := range escBuf {
@@ -1059,6 +1067,8 @@ func appendGocuiKeyToBuilder(buf *strings.Builder, ev GocuiEvent) {
 	}
 	switch ev.Key {
 	case KeyEnter:
+		buf.WriteRune('\n')
+	case Key(tcell.KeyCtrlJ): // \n in raw mode PTY arrives as CtrlJ (0x0A)
 		buf.WriteRune('\n')
 	case KeyTab:
 		buf.WriteRune('\t')
