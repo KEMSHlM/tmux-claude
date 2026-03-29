@@ -195,7 +195,7 @@ func (a *App) currentProjectRoot() string {
 
 // --- Session operations ---
 
-func (a *App) CreateSession()      { a.createSession(a.currentProjectRoot()) }
+func (a *App) CreateSession() { a.createSession(a.currentProjectRoot()) }
 func (a *App) CreateSessionAtCWD() { a.createSession(".") }
 
 // createSession is the shared implementation for CreateSession and CreateSessionAtCWD.

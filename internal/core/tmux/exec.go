@@ -158,10 +158,11 @@ func (c *ExecClient) HasSession(ctx context.Context, name string) (bool, error) 
 		// session genuinely does not exist.
 		stderrStr := stderr.String()
 		if strings.Contains(stderrStr, "can't find session") ||
-			strings.Contains(stderrStr, "no session") {
+			strings.Contains(stderrStr, "no session") ||
+			strings.Contains(stderrStr, "no server running") {
 			return false, nil
 		}
-		// Any other stderr (e.g., "no server running", "error connecting")
+		// Any other stderr (e.g., "error connecting")
 		// is a transient error — propagate it.
 		return false, fmt.Errorf("tmux has-session transient error: %s", strings.TrimSpace(stderrStr))
 	}
