@@ -125,6 +125,9 @@ func (a *App) closeKeybindHelp(g *gocui.Gui) {
 }
 
 // renderKeybindHelpList renders the filtered action list with cursor highlight.
+// Uses manual "> " prefix instead of gocui's native Highlight/SelBgColor because
+// each line contains mixed ANSI styling (key color + description dim) that
+// conflicts with gocui's line-level highlight which applies a uniform SelBgColor.
 func renderKeybindHelpList(v *gocui.View, items []keymap.ActionDef, cursor int) {
 	for i, item := range items {
 		keyLabel := item.HintKeyLabel()
