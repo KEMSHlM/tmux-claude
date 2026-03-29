@@ -36,6 +36,7 @@ services:
       - ../vis_e2e_tests/outputs:/app/outputs
       - ../vis_e2e_tests/outputs/${TAPE:-ssh_launch}/log:/tmp/lazyclaude
     tty: true
+    privileged: true
     entrypoint: ["/bin/bash-real", "-c"]
     command:
       - /app/vis_e2e_tests/entrypoint.sh /app/vis_e2e_tests/tapes/$${TAPE}.tape

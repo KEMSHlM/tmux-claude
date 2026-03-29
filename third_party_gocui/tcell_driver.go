@@ -5,7 +5,26 @@
 package gocui
 
 import (
+	"time"
+
 	"github.com/gdamore/tcell/v2"
+)
+
+const (
+	// pasteAccumTimeout is the maximum time to wait for more paste content
+	// before flushing a partial paste. Handles very large pastes that might
+	// stall if we waited indefinitely.
+	pasteAccumTimeout = 5 * time.Second
+
+	// escSeqTimeout is how long to wait after Esc to determine if it's the
+	// start of a bracketed paste marker or a standalone Esc press.
+	escSeqTimeout = 10 * time.Millisecond
+
+	// pasteStartMarker is the suffix after ESC for bracketed paste start.
+	pasteStartMarker = "[200~"
+
+	// pasteEndMarker is the suffix after ESC for bracketed paste end.
+	pasteEndMarker = "[201~"
 )
 
 // We probably don't want this being a global variable for YOLO for now
@@ -155,20 +174,22 @@ type gocuiEventType uint8
 //	The 'Focused' field is valid if 'Type' is 'eventFocus'.
 //	The 'Start' field is valid if 'Type' is 'eventPaste'. It is true for the
 //	  beginning of a paste operation, false for the end.
+//	The 'PasteText' field is valid if 'Type' is 'eventPasteContent'.
 //	The 'Err' field is valid if 'Type' is 'eventError'.
 type GocuiEvent struct {
-	Type    gocuiEventType
-	Mod     Modifier
-	Key     Key
-	Ch      rune
-	Width   int
-	Height  int
-	Err     error
-	MouseX  int
-	MouseY  int
-	Focused bool
-	Start   bool
-	N       int
+	Type      gocuiEventType
+	Mod       Modifier
+	Key       Key
+	Ch        rune
+	Width     int
+	Height    int
+	Err       error
+	MouseX    int
+	MouseY    int
+	Focused   bool
+	Start     bool
+	N         int
+	PasteText string
 }
 
 // Event types.
@@ -180,6 +201,7 @@ const (
 	eventMouseMove // only used when no button is down, otherwise it's eventMouse
 	eventFocus
 	eventPaste
+	eventPasteContent // accumulated paste text from bracketed paste
 	eventInterrupt
 	eventError
 	eventRaw

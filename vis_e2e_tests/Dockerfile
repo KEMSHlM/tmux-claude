@@ -49,6 +49,8 @@ ENV TERM=xterm-256color LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 RUN mkdir -p /root/.ssh && printf 'Host *\n  StrictHostKeyChecking no\n  UserKnownHostsFile /dev/null\n' > /root/.ssh/config
 WORKDIR /app
 COPY go.mod go.sum ./
+COPY third_party_gocui/go.mod third_party_gocui/go.sum third_party_gocui/
+COPY third_party_tcell/go.mod third_party_tcell/go.sum third_party_tcell/
 RUN go mod download
 COPY . .
 RUN curl -fsSL https://claude.ai/install.sh | bash

@@ -124,6 +124,11 @@ func (a *App) DrainQueueForTest() {
 	a.fullscreen.DrainQueue()
 }
 
+// HandlePasteContentForTest calls the paste content handler directly for testing.
+func (a *App) HandlePasteContentForTest(text string) {
+	a.handlePasteContent(text)
+}
+
 // DrainBrokerForTest drains any pending events from the notify broker subscription
 // and calls showToolPopup for each one. Simulates what the ticker goroutine does
 // when the broker channel has events, without needing to run the event loop.

@@ -75,7 +75,9 @@ GOEOF
         claude plugins install plugin-dev --scope project 2>/dev/null || true
         ;;
     paste_special)
-        # Bracketed paste E2E: send ESC[200~ + multiline text + ESC[201~
+        # Bracketed paste E2E: write ESC[200~ + text + ESC[201~ directly
+        # to the tmux client TTY. This is the exact path a real Cmd+V
+        # takes: terminal → tmux → popup process (lazyclaude) → tcell.
         cat > /tmp/paste-text.txt << 'PASTEEOF'
 七夕
 持明院統の光厳天皇が後醍醐天皇によって廃位される（1333年）
@@ -90,15 +92,32 @@ GOEOF
 PASTEEOF
         (
             sleep 15
-            # ESC[200~ (paste start)
-            tmux send-keys -t main -H 1b 5b 32 30 30 7e
-            # Text body (multiline)
-            while IFS= read -r line; do
-                tmux send-keys -t main -l "$line"
-                tmux send-keys -t main Enter
-            done < /tmp/paste-text.txt
-            # ESC[201~ (paste end)
-            tmux send-keys -t main -H 1b 5b 32 30 31 7e
+            # Wait for a tmux client to attach (VHS bash wrapper attaches).
+            for i in $(seq 1 30); do
+                TTY=$(tmux list-clients -F '#{client_tty}' 2>/dev/null | head -1)
+                [ -n "$TTY" ] && break
+                sleep 1
+            done
+            if [ -z "$TTY" ]; then
+                echo "paste_special: no tmux client TTY found after 30s" >&2
+                exit 1
+            fi
+            echo "paste_special: found TTY=$TTY" >> /tmp/lazyclaude/paste-debug.log
+            # Inject bracketed paste via TIOCSTI ioctl on the client TTY.
+            # TIOCSTI pushes bytes into the TTY input queue — identical to
+            # a real terminal paste. tmux reads them and routes to the
+            # active popup (lazyclaude) → tcell EventPaste → gocui.
+            python3 -c "
+import fcntl, termios, os, sys
+payload = b'\x1b[200~' + open('/tmp/paste-text.txt','rb').read() + b'\x1b[201~'
+fd = os.open('$TTY', os.O_RDWR)
+for b in payload:
+    fcntl.ioctl(fd, termios.TIOCSTI, bytes([b]))
+os.close(fd)
+print(f'paste_special: injected {len(payload)} bytes via TIOCSTI')
+" >> /tmp/lazyclaude/paste-debug.log 2>&1
+            RC=$?
+            echo "paste_special: python3 exit=$RC" >> /tmp/lazyclaude/paste-debug.log
         ) &
         ;;
 esac
