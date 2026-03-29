@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/KEMSHlM/lazyclaude/internal/gui/keymap"
 	"github.com/KEMSHlM/lazyclaude/internal/gui/presentation"
 	"github.com/KEMSHlM/lazyclaude/internal/session"
 	"github.com/jesseduffield/gocui"
@@ -299,10 +300,18 @@ func (a *App) layoutFullScreen(g *gocui.Gui, maxX, maxY int) error {
 	}
 	v2.Frame = false
 	v2.Clear()
+	fsHints := a.keyRegistry.HintsForScope(keymap.ScopeFullScreen)
+	var fsBar string
+	for _, h := range fsHints {
+		if fsBar != "" {
+			fsBar += "  "
+		}
+		fsBar += presentation.StyledKey(h.HintKeyLabel(), h.HintLabel)
+	}
 	fmt.Fprintf(v2, " %s %s %s",
 		items[targetIdx].Name,
 		presentation.FgDimGray+presentation.IconSep+presentation.Reset,
-		presentation.Dim+"Ctrl+\\:exit"+presentation.Reset)
+		fsBar)
 
 	g.Cursor = true
 	if _, err := g.SetCurrentView("main"); err != nil && !isUnknownView(err) {

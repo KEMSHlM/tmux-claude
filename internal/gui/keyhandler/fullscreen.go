@@ -1,35 +1,41 @@
 package keyhandler
 
-import "github.com/jesseduffield/gocui"
+import "github.com/KEMSHlM/lazyclaude/internal/gui/keymap"
 
 // FullScreenHandler handles special keys in full-screen mode.
 // Rune keys are NOT handled here — inputEditor.Edit() handles those.
-type FullScreenHandler struct{}
+type FullScreenHandler struct {
+	reg *keymap.Registry
+}
+
+// NewFullScreenHandler creates a FullScreenHandler with injected registry.
+func NewFullScreenHandler(reg *keymap.Registry) *FullScreenHandler {
+	return &FullScreenHandler{reg: reg}
+}
 
 func (h *FullScreenHandler) HandleKey(ev KeyEvent, actions AppActions) HandlerResult {
 	if !actions.IsFullScreen() {
 		return Unhandled
 	}
 
-	switch {
-	case ev.Key == gocui.KeyCtrlBackslash:
-		actions.ExitFullScreen()
-		return Handled
-	case ev.Key == gocui.KeyCtrlD:
-		actions.ExitFullScreen()
-		return Handled
-	case ev.Key == gocui.KeyEnter:
-		actions.ForwardSpecialKey("Enter")
-		return Handled
-	case ev.Key == gocui.KeyEsc:
-		actions.ForwardSpecialKey("Escape")
-		return Handled
-	case ev.Key == gocui.KeyArrowDown:
-		actions.ForwardSpecialKey("Down")
-		return Handled
-	case ev.Key == gocui.KeyArrowUp:
-		actions.ForwardSpecialKey("Up")
-		return Handled
+	def, ok := h.reg.Match(ev.Rune, ev.Key, ev.Mod, keymap.ScopeFullScreen)
+	if !ok {
+		return Unhandled
 	}
-	return Unhandled
+
+	switch def.Action {
+	case keymap.ActionExitFull:
+		actions.ExitFullScreen()
+	case keymap.ActionForwardEnter:
+		actions.ForwardSpecialKey("Enter")
+	case keymap.ActionForwardEsc:
+		actions.ForwardSpecialKey("Escape")
+	case keymap.ActionForwardDown:
+		actions.ForwardSpecialKey("Down")
+	case keymap.ActionForwardUp:
+		actions.ForwardSpecialKey("Up")
+	default:
+		return Unhandled
+	}
+	return Handled
 }

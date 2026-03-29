@@ -1,62 +1,72 @@
 package keyhandler
 
 import (
+	"github.com/KEMSHlM/lazyclaude/internal/gui/keymap"
 	"github.com/KEMSHlM/lazyclaude/internal/gui/presentation"
-	"github.com/jesseduffield/gocui"
 )
 
 // PluginsPanel handles keys for the plugins view (middle-left).
 // Stateless: all state (including tab index) is managed by App.
 // Tab switching ([/]) is handled by GlobalHandler as a generic panel operation.
-type PluginsPanel struct{}
+type PluginsPanel struct {
+	reg *keymap.Registry
+}
+
+// NewPluginsPanel creates a PluginsPanel with injected registry.
+func NewPluginsPanel(reg *keymap.Registry) *PluginsPanel {
+	return &PluginsPanel{reg: reg}
+}
 
 func (p *PluginsPanel) Name() string  { return "plugins" }
 func (p *PluginsPanel) Label() string { return "Plugins" }
 
 func (p *PluginsPanel) HandleKey(ev KeyEvent, actions AppActions) HandlerResult {
-	switch {
-	case ev.Rune == 'j' || ev.Key == gocui.KeyArrowDown:
-		actions.PluginCursorDown()
-		return Handled
-	case ev.Rune == 'k' || ev.Key == gocui.KeyArrowUp:
-		actions.PluginCursorUp()
-		return Handled
-	case ev.Rune == 'i':
-		actions.PluginInstall()
-		return Handled
-	case ev.Rune == 'd':
-		actions.PluginUninstall()
-		return Handled
-	case ev.Rune == 'e':
-		actions.PluginToggleEnabled()
-		return Handled
-	case ev.Rune == 'u':
-		actions.PluginUpdate()
-		return Handled
-	case ev.Rune == 'r':
-		actions.PluginRefresh()
-		return Handled
+	scope := keymap.ScopePlugins
+	if actions.ActivePanelTabIndex() == 1 {
+		scope = keymap.ScopeMarketplace
 	}
-	return Unhandled
+	def, ok := p.reg.Match(ev.Rune, ev.Key, ev.Mod, scope)
+	if !ok {
+		return Unhandled
+	}
+
+	switch def.Action {
+	case keymap.ActionPluginCursorDown:
+		actions.PluginCursorDown()
+	case keymap.ActionPluginCursorUp:
+		actions.PluginCursorUp()
+	case keymap.ActionPluginInstall:
+		actions.PluginInstall()
+	case keymap.ActionPluginUninstall:
+		actions.PluginUninstall()
+	case keymap.ActionPluginToggleEnabled:
+		actions.PluginToggleEnabled()
+	case keymap.ActionPluginUpdate:
+		actions.PluginUpdate()
+	case keymap.ActionPluginRefresh:
+		actions.PluginRefresh()
+	default:
+		return Unhandled
+	}
+	return Handled
 }
 
 // OptionsBarForTab returns the options bar for the given tab.
-// Tab 0 = Installed, Tab 1 = Marketplace.
+// Tab 0 = Installed (ScopePlugins), Tab 1 = Marketplace (ScopeMarketplace).
 func (p *PluginsPanel) OptionsBarForTab(tabIdx int) string {
+	scope := keymap.ScopePlugins
 	if tabIdx == 1 {
-		return " " +
-			presentation.StyledKey("i", "install") + "  " +
-			presentation.StyledKey("r", "refresh") + "  " +
-			presentation.StyledKey("[/]", "tab") + "  " +
-			presentation.StyledKey("q", "quit")
+		scope = keymap.ScopeMarketplace
 	}
-	return " " +
-		presentation.StyledKey("e", "toggle") + "  " +
-		presentation.StyledKey("d", "uninstall") + "  " +
-		presentation.StyledKey("u", "update") + "  " +
-		presentation.StyledKey("r", "refresh") + "  " +
-		presentation.StyledKey("[/]", "tab") + "  " +
-		presentation.StyledKey("q", "quit")
+	hints := p.reg.HintsForScope(scope)
+	defs := make([]presentation.HintDef, 0, len(hints))
+	for _, d := range hints {
+		defs = append(defs, presentation.HintDef{
+			Key:   d.HintKeyLabel(),
+			Label: d.HintLabel,
+		})
+	}
+	return presentation.BuildOptionsBar(defs)
 }
 
 func (p *PluginsPanel) TabCount() int       { return 2 }

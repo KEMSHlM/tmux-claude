@@ -1,56 +1,73 @@
 package keyhandler
 
-import "github.com/jesseduffield/gocui"
+import (
+	"github.com/KEMSHlM/lazyclaude/internal/gui/keymap"
+	"github.com/KEMSHlM/lazyclaude/internal/gui/presentation"
+	"github.com/jesseduffield/gocui"
+)
 
 // GlobalHandler handles keys that apply regardless of focused panel.
 type GlobalHandler struct {
 	panels *PanelManager
+	reg    *keymap.Registry
 }
 
-// NewGlobalHandler creates a GlobalHandler.
-func NewGlobalHandler(pm *PanelManager) *GlobalHandler {
-	return &GlobalHandler{panels: pm}
+// NewGlobalHandler creates a GlobalHandler with injected registry.
+func NewGlobalHandler(pm *PanelManager, reg *keymap.Registry) *GlobalHandler {
+	return &GlobalHandler{panels: pm, reg: reg}
 }
 
 func (h *GlobalHandler) HandleKey(ev KeyEvent, actions AppActions) HandlerResult {
-	// Ctrl+C: always quit
-	if ev.Key == gocui.KeyCtrlC {
-		actions.Quit()
-		return Handled
-	}
-
-	// Skip global keys in non-main modes
-	if actions.Mode() != 0 {
-		// Esc quits in Diff/Tool mode
-		if ev.Key == gocui.KeyEsc {
+	def, ok := h.reg.Match(ev.Rune, ev.Key, ev.Mod, keymap.ScopeGlobal)
+	if !ok {
+		// Esc quits in non-main modes (Diff/Tool) — not in registry because
+		// Esc has different semantics per mode (popup suspend vs quit).
+		if actions.Mode() != 0 && ev.Key == gocui.KeyEsc {
 			actions.Quit()
 			return Handled
 		}
 		return Unhandled
 	}
 
-	switch {
-	case ev.Rune == 'q':
-		actions.Quit()
-		return Handled
-	case ev.Key == gocui.KeyCtrlBackslash:
-		actions.Quit()
-		return Handled
-	case ev.Key == gocui.KeyTab:
-		h.panels.FocusNext()
-		return Handled
-	case ev.Key == gocui.KeyBacktab:
-		h.panels.FocusPrev()
-		return Handled
-	case ev.Rune == 'p':
-		actions.UnsuspendPopups()
-		return Handled
-	case ev.Rune == ']':
-		actions.PanelNextTab()
-		return Handled
-	case ev.Rune == '[':
-		actions.PanelPrevTab()
-		return Handled
+	// Skip most global keys in non-main modes
+	if actions.Mode() != 0 {
+		switch def.Action {
+		case keymap.ActionQuitCtrlC:
+			actions.Quit()
+			return Handled
+		default:
+			return Unhandled
+		}
 	}
-	return Unhandled
+
+	switch def.Action {
+	case keymap.ActionQuit, keymap.ActionQuitCtrlC, keymap.ActionQuitCtrlBackslash:
+		actions.Quit()
+	case keymap.ActionFocusNextPanel:
+		h.panels.FocusNext()
+	case keymap.ActionFocusPrevPanel:
+		h.panels.FocusPrev()
+	case keymap.ActionUnsuspendPopups:
+		actions.UnsuspendPopups()
+	case keymap.ActionPanelNextTab:
+		actions.PanelNextTab()
+	case keymap.ActionPanelPrevTab:
+		actions.PanelPrevTab()
+	default:
+		return Unhandled
+	}
+	return Handled
+}
+
+// OptionsBar returns the global hint bar from registry.
+func (h *GlobalHandler) OptionsBar() string {
+	hints := h.reg.HintsForScope(keymap.ScopeGlobal)
+	defs := make([]presentation.HintDef, 0, len(hints))
+	for _, d := range hints {
+		defs = append(defs, presentation.HintDef{
+			Key:   d.HintKeyLabel(),
+			Label: d.HintLabel,
+		})
+	}
+	return presentation.BuildOptionsBar(defs)
 }

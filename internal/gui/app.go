@@ -9,6 +9,7 @@ import (
 	"github.com/KEMSHlM/lazyclaude/internal/core/model"
 	"github.com/KEMSHlM/lazyclaude/internal/gui/keydispatch"
 	"github.com/KEMSHlM/lazyclaude/internal/gui/keyhandler"
+	"github.com/KEMSHlM/lazyclaude/internal/gui/keymap"
 	"github.com/jesseduffield/gocui"
 )
 
@@ -92,7 +93,7 @@ type App struct {
 	lastHeight       int
 	popups           PopupManager                  // popup stack management
 	fullscreen       *FullScreenState              // fullscreen mode state + key forwarding
-	keyRegistry        *KeyRegistry                   // single source of truth for key bindings
+	keyRegistry        *keymap.Registry                // single source of truth for key bindings
 	dispatcher         *keydispatch.Dispatcher       // key dispatch chain
 	panelManager       *keyhandler.PanelManager      // panel focus management
 	logs               *LogsState                    // logs panel cursor/selection state
@@ -116,7 +117,7 @@ func newApp(mode AppMode, g *gocui.Gui, enableMouse bool) (*App, error) {
 		mode:        mode,
 		popups:      NewPopupController(),
 		preview:     &PreviewCache{},
-		keyRegistry: DefaultKeyRegistry(),
+		keyRegistry: keymap.Default(),
 		logs:        NewLogsState(),
 		notify:      NewNotifyLoop(),
 		pluginState: NewPluginState(),
@@ -177,13 +178,14 @@ func NewAppHeadless(mode AppMode, width, height int) (*App, error) {
 
 // initDispatcher creates the panel manager and key dispatcher.
 func (a *App) initDispatcher() {
+	reg := a.keyRegistry
 	pm := keyhandler.NewPanelManager(
-		&keyhandler.SessionsPanel{},
-		&keyhandler.PluginsPanel{},
-		&keyhandler.LogsPanel{},
+		keyhandler.NewSessionsPanel(reg),
+		keyhandler.NewPluginsPanel(reg),
+		keyhandler.NewLogsPanel(reg),
 	)
 	a.panelManager = pm
-	a.dispatcher = keydispatch.New(pm)
+	a.dispatcher = keydispatch.New(pm, reg)
 }
 
 // Run starts the main event loop. Blocks until quit.

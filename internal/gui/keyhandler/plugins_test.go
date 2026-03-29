@@ -4,11 +4,13 @@ import (
 	"testing"
 
 	"github.com/KEMSHlM/lazyclaude/internal/gui/keyhandler"
+	"github.com/KEMSHlM/lazyclaude/internal/gui/keymap"
 	"github.com/jesseduffield/gocui"
 )
 
 func TestPluginsPanel_Navigation(t *testing.T) {
-	p := &keyhandler.PluginsPanel{}
+	reg := keymap.Default()
+	p := keyhandler.NewPluginsPanel(reg)
 	tests := []struct {
 		ev   keyhandler.KeyEvent
 		want string
@@ -30,20 +32,20 @@ func TestPluginsPanel_Navigation(t *testing.T) {
 	}
 }
 
-func TestPluginsPanel_Operations(t *testing.T) {
-	p := &keyhandler.PluginsPanel{}
+func TestPluginsPanel_InstalledTabOperations(t *testing.T) {
+	reg := keymap.Default()
+	p := keyhandler.NewPluginsPanel(reg)
 	tests := []struct {
 		ev   keyhandler.KeyEvent
 		want string
 	}{
-		{keyhandler.KeyEvent{Rune: 'i'}, "PluginInstall"},
 		{keyhandler.KeyEvent{Rune: 'd'}, "PluginUninstall"},
 		{keyhandler.KeyEvent{Rune: 'e'}, "PluginToggleEnabled"},
 		{keyhandler.KeyEvent{Rune: 'u'}, "PluginUpdate"},
 		{keyhandler.KeyEvent{Rune: 'r'}, "PluginRefresh"},
 	}
 	for _, tt := range tests {
-		a := newMockActions()
+		a := newMockActions() // tabIndex=0 (Installed)
 		r := p.HandleKey(tt.ev, a)
 		if r != keyhandler.Handled {
 			t.Errorf("key %v: want Handled", tt.ev)
@@ -54,9 +56,42 @@ func TestPluginsPanel_Operations(t *testing.T) {
 	}
 }
 
+func TestPluginsPanel_MarketplaceTabOperations(t *testing.T) {
+	reg := keymap.Default()
+	p := keyhandler.NewPluginsPanel(reg)
+	tests := []struct {
+		ev   keyhandler.KeyEvent
+		want string
+	}{
+		{keyhandler.KeyEvent{Rune: 'i'}, "PluginInstall"},
+		{keyhandler.KeyEvent{Rune: 'r'}, "PluginRefresh"},
+	}
+	for _, tt := range tests {
+		a := &mockActions{tabIndex: 1} // Marketplace tab
+		r := p.HandleKey(tt.ev, a)
+		if r != keyhandler.Handled {
+			t.Errorf("key %v: want Handled", tt.ev)
+		}
+		if a.lastCall() != tt.want {
+			t.Errorf("key %v: got %q, want %q", tt.ev, a.lastCall(), tt.want)
+		}
+	}
+}
+
+func TestPluginsPanel_InstalledTab_RejectsMarketplaceKeys(t *testing.T) {
+	reg := keymap.Default()
+	p := keyhandler.NewPluginsPanel(reg)
+	a := newMockActions() // tabIndex=0 (Installed)
+	// 'i' (install) is Marketplace-only
+	if p.HandleKey(keyhandler.KeyEvent{Rune: 'i'}, a) != keyhandler.Unhandled {
+		t.Error("'i' should be Unhandled on Installed tab")
+	}
+}
+
 func TestPluginsPanel_TabSwitchingHandledByGlobal(t *testing.T) {
 	// [/] keys should NOT be handled by PluginsPanel — they are handled by GlobalHandler
-	p := &keyhandler.PluginsPanel{}
+	reg := keymap.Default()
+	p := keyhandler.NewPluginsPanel(reg)
 	a := newMockActions()
 
 	if p.HandleKey(keyhandler.KeyEvent{Rune: '['}, a) != keyhandler.Unhandled {
@@ -68,7 +103,8 @@ func TestPluginsPanel_TabSwitchingHandledByGlobal(t *testing.T) {
 }
 
 func TestPluginsPanel_Unhandled(t *testing.T) {
-	p := &keyhandler.PluginsPanel{}
+	reg := keymap.Default()
+	p := keyhandler.NewPluginsPanel(reg)
 	a := newMockActions()
 	if p.HandleKey(keyhandler.KeyEvent{Rune: 'x'}, a) != keyhandler.Unhandled {
 		t.Error("'x' should be Unhandled")
@@ -76,7 +112,8 @@ func TestPluginsPanel_Unhandled(t *testing.T) {
 }
 
 func TestPluginsPanel_OptionsBarForTab(t *testing.T) {
-	p := &keyhandler.PluginsPanel{}
+	reg := keymap.Default()
+	p := keyhandler.NewPluginsPanel(reg)
 	installed := p.OptionsBarForTab(0)
 	marketplace := p.OptionsBarForTab(1)
 
@@ -86,7 +123,8 @@ func TestPluginsPanel_OptionsBarForTab(t *testing.T) {
 }
 
 func TestPluginsPanel_Name(t *testing.T) {
-	p := &keyhandler.PluginsPanel{}
+	reg := keymap.Default()
+	p := keyhandler.NewPluginsPanel(reg)
 	if p.Name() != "plugins" {
 		t.Errorf("Name = %q", p.Name())
 	}

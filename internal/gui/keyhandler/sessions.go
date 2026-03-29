@@ -1,92 +1,88 @@
 package keyhandler
 
 import (
+	"github.com/KEMSHlM/lazyclaude/internal/gui/keymap"
 	"github.com/KEMSHlM/lazyclaude/internal/gui/presentation"
-	"github.com/jesseduffield/gocui"
 )
 
 // SessionsPanel handles keys for the sessions list (upper-left).
-type SessionsPanel struct{}
+type SessionsPanel struct {
+	reg *keymap.Registry
+}
+
+// NewSessionsPanel creates a SessionsPanel with injected registry.
+func NewSessionsPanel(reg *keymap.Registry) *SessionsPanel {
+	return &SessionsPanel{reg: reg}
+}
 
 func (p *SessionsPanel) Name() string  { return "sessions" }
 func (p *SessionsPanel) Label() string { return "Sessions" }
 
 func (p *SessionsPanel) HandleKey(ev KeyEvent, actions AppActions) HandlerResult {
-	switch {
-	case ev.Rune == 'j' || ev.Key == gocui.KeyArrowDown:
+	def, ok := p.reg.Match(ev.Rune, ev.Key, ev.Mod, keymap.ScopeSession)
+	if !ok {
+		return Unhandled
+	}
+
+	switch def.Action {
+	case keymap.ActionCursorDown:
 		actions.MoveCursorDown()
-		return Handled
-	case ev.Rune == 'k' || ev.Key == gocui.KeyArrowUp:
+	case keymap.ActionCursorUp:
 		actions.MoveCursorUp()
-		return Handled
-	case ev.Rune == 'h' || ev.Key == gocui.KeyArrowLeft:
+	case keymap.ActionCollapseProject:
 		actions.CollapseProject()
-		return Handled
-	case ev.Rune == 'l' || ev.Key == gocui.KeyArrowRight:
+	case keymap.ActionExpandProject:
 		actions.ExpandProject()
-		return Handled
-	case ev.Rune == 'n':
+	case keymap.ActionNewSession:
 		actions.CreateSession()
-		return Handled
-	case ev.Rune == 'N':
+	case keymap.ActionNewSessionCWD:
 		actions.CreateSessionAtCWD()
-		return Handled
-	case ev.Rune == 'd':
+	case keymap.ActionDeleteSession:
 		actions.DeleteSession()
-		return Handled
-	case ev.Rune == 'a':
+	case keymap.ActionAttachSession:
 		actions.AttachSession()
-		return Handled
-	case ev.Rune == 'g':
+	case keymap.ActionLaunchLazygit:
 		actions.LaunchLazygit()
-		return Handled
-	case ev.Key == gocui.KeyEnter:
+	case keymap.ActionEnterFull:
 		if actions.CursorIsProject() {
 			actions.ToggleProjectExpanded()
 		} else {
 			actions.EnterFullScreen()
 		}
-		return Handled
-	case ev.Rune == 'r':
+	case keymap.ActionEnterFullR:
 		actions.EnterFullScreen()
-		return Handled
-	case ev.Rune == 'R':
+	case keymap.ActionStartRename:
 		actions.StartRename()
-		return Handled
-	case ev.Rune == 'w':
+	case keymap.ActionStartWorktree:
 		actions.StartWorktreeInput()
-		return Handled
-	case ev.Rune == 'W':
+	case keymap.ActionSelectWorktree:
 		actions.SelectWorktree()
-		return Handled
-	case ev.Rune == 'D':
+	case keymap.ActionPurgeOrphans:
 		actions.PurgeOrphans()
-		return Handled
-	case ev.Rune == 'P':
+	case keymap.ActionStartPMSession:
 		actions.StartPMSession()
-		return Handled
-	case ev.Rune == '1' || ev.Rune == '2' || ev.Rune == '3':
-		actions.SendKeyToPane(string(ev.Rune))
-		return Handled
+	case keymap.ActionSendKey1:
+		actions.SendKeyToPane("1")
+	case keymap.ActionSendKey2:
+		actions.SendKeyToPane("2")
+	case keymap.ActionSendKey3:
+		actions.SendKeyToPane("3")
+	default:
+		return Unhandled
 	}
-	return Unhandled
+	return Handled
 }
 
 func (p *SessionsPanel) OptionsBarForTab(_ int) string {
-	return " " +
-		presentation.StyledKey("n", "new") + "  " +
-		presentation.StyledKey("N", "new[cwd]") + "  " +
-		presentation.StyledKey("d", "del") + "  " +
-		presentation.StyledKey("enter", "full") + "  " +
-		presentation.StyledKey("h/l", "fold") + "  " +
-		presentation.StyledKey("a", "attach") + "  " +
-		presentation.StyledKey("g", "lazygit") + "  " +
-		presentation.StyledKey("1/2/3", "send") + "  " +
-		presentation.StyledKey("R", "rename") + "  " +
-		presentation.StyledKey("w", "worktree") + "  " +
-		presentation.StyledKey("W", "select") + "  " +
-		presentation.StyledKey("P", "pm") + "  " +
-		presentation.StyledKey("q", "quit")
+	hints := p.reg.HintsForScope(keymap.ScopeSession)
+	defs := make([]presentation.HintDef, 0, len(hints))
+	for _, d := range hints {
+		defs = append(defs, presentation.HintDef{
+			Key:   d.HintKeyLabel(),
+			Label: d.HintLabel,
+		})
+	}
+	return presentation.BuildOptionsBar(defs)
 }
 
 func (p *SessionsPanel) TabCount() int       { return 1 }
