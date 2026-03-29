@@ -43,6 +43,7 @@ func (m *mockSessionProvider) Projects() []gui.ProjectItem {
 		Sessions: m.sessions,
 	}}
 }
+func (m *mockSessionProvider) RefreshPendingFrom(_ []*model.ToolNotification) {}
 func (m *mockSessionProvider) ToggleProjectExpanded(_ string) {}
 func (m *mockSessionProvider) Create(_, _ string) error { return nil }
 func (m *mockSessionProvider) Delete(_ string) error    { return nil }

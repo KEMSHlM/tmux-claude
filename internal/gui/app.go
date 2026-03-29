@@ -27,6 +27,10 @@ const (
 
 // SessionProvider abstracts session operations for the GUI layer.
 type SessionProvider interface {
+	// RefreshPendingFrom caches the given notifications for badge rendering
+	// in Sessions() and Projects(). Call from the ticker after ReadAll,
+	// before the notification files are consumed by showToolPopup.
+	RefreshPendingFrom([]*model.ToolNotification)
 	Sessions() []SessionItem
 	Projects() []ProjectItem
 	ToggleProjectExpanded(projectID string)
@@ -96,6 +100,8 @@ type App struct {
 	panelTabs          map[string]int               // panel name -> active tab index
 	pluginState        *PluginState                 // plugin panel UI state
 	plugins            PluginProvider               // plugin operations (nil until wired)
+	logCache           logFileCache                 // cached server log file content
+	logRender          logRenderCache               // tracks last rendered log state
 }
 
 
@@ -194,18 +200,21 @@ func (a *App) Run() error {
 
 		brokerCh := a.notify.BrokerCh()
 
+		// Debounce output events: coalesce rapid pane output into a single
+		// preview invalidation per ticker cycle. Without this, every tmux
+		// %output line triggers a CapturePreview goroutine, which spawns
+		// tmux subprocesses and drives CPU to 100%+ over time.
+		outputPending := false
+
 		for {
 			select {
 			case <-done:
 				a.notify.Cancel()
 				return
 			case <-a.notify.OutputCh():
-				a.preview.Lock()
-				if !a.preview.Busy() {
-					a.preview.InvalidateTimestamp()
-				}
-				a.preview.Unlock()
-				a.gui.Update(func(g *gocui.Gui) error { return nil })
+				// Mark that output arrived; the next ticker will
+				// invalidate the preview and trigger a single refresh.
+				outputPending = true
 			case ev, ok := <-brokerCh:
 				if !ok {
 					brokerCh = nil
@@ -218,12 +227,25 @@ func (a *App) Run() error {
 					})
 				}
 			case <-ticker.C:
+				if outputPending {
+					a.preview.Lock()
+					if !a.preview.Busy() {
+						a.preview.InvalidateTimestamp()
+					}
+					a.preview.Unlock()
+					outputPending = false
+				}
 				a.notify.OnTick()
 				a.gui.Update(func(g *gocui.Gui) error {
 					// When broker is wired (in-process server), notifications
 					// arrive via brokerCh — skip file polling to avoid duplicates.
 					if a.sessions != nil && !a.notify.HasBroker() {
-						for _, n := range a.sessions.PendingNotifications() {
+						pending := a.sessions.PendingNotifications()
+						// Cache the pending set for badge rendering in layout.
+						// Must happen before showToolPopup because ReadAll
+						// deletes the notification files.
+						a.sessions.RefreshPendingFrom(pending)
+						for _, n := range pending {
 							a.showToolPopup(n)
 						}
 					}
@@ -308,4 +330,7 @@ func (a *App) setStatus(g *gocui.Gui, msg string) {
 	}
 	v.Clear()
 	fmt.Fprintln(v, "  "+msg)
+	// Invalidate the log render cache so the next layout cycle
+	// re-renders the log content over this status message.
+	a.logRender.modTime = -1
 }
