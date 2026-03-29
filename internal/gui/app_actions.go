@@ -211,14 +211,14 @@ func (a *App) currentProjectRoot() string {
 
 // configDirForSession returns the directory to use for configuration lookups
 // (MCP servers, plugins, settings) for the given session.
-// Worker sessions use their worktree path directly so that configuration
-// is localized to the worktree. All other sessions use InferProjectRoot
-// to resolve back to the parent project root.
+// Worktree sessions use their worktree path directly so that configuration
+// is localized to the worktree. Non-worktree sessions use InferProjectRoot
+// to resolve back to the project root.
 func (a *App) configDirForSession(s *SessionItem) string {
 	if s == nil || s.Path == "" {
 		return ""
 	}
-	if s.Role == "worker" && session.IsWorktreePath(s.Path) {
+	if session.IsWorktreePath(s.Path) {
 		return s.Path
 	}
 	return session.InferProjectRoot(s.Path)

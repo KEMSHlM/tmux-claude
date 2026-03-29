@@ -33,8 +33,8 @@ func TestConfigDirForSession_WorktreeNonWorker(t *testing.T) {
 		Role: "",
 	}
 	got := app.configDirForSession(s)
-	if got != "/project" {
-		t.Errorf("non-worker worktree session: got %q, want project root", got)
+	if got != "/project/.claude/worktrees/feat-y" {
+		t.Errorf("non-worker worktree session: got %q, want worktree path", got)
 	}
 }
 
