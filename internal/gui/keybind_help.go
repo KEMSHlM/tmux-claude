@@ -95,8 +95,8 @@ func (a *App) layoutKeybindHelp(g *gocui.Gui, maxX, maxY int) error {
 	hv.Frame = false
 	hv.Clear()
 	fmt.Fprint(hv, presentation.StyledKey("Esc", "close")+"  "+
-		presentation.StyledKey("j/k", "move")+"  "+
-		presentation.StyledKey("C-j/C-k", "scroll"))
+		presentation.StyledKey("C-j/C-k", "move")+"  "+
+		presentation.StyledKey("Up/Down", "move"))
 
 	// Z-order: border at bottom, then list/preview, input on top.
 	g.SetViewOnTop(helpBorderView)
