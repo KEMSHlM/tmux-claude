@@ -17,8 +17,13 @@ func NewPluginsPanel(reg *keymap.Registry) *PluginsPanel {
 	return &PluginsPanel{reg: reg}
 }
 
-func (p *PluginsPanel) Name() string  { return "plugins" }
-func (p *PluginsPanel) Label() string { return "Plugins" }
+func (p *PluginsPanel) Name() string        { return "plugins" }
+func (p *PluginsPanel) Label() string       { return "Plugins" }
+func (p *PluginsPanel) Scope() keymap.Scope { return keymap.ScopePlugins }
+
+func (p *PluginsPanel) OnTabChanged(newTab int, actions AppActions) {
+	actions.PluginSetTab(newTab)
+}
 
 func (p *PluginsPanel) HandleKey(ev KeyEvent, actions AppActions) HandlerResult {
 	tab := actions.ActivePanelTabIndex()

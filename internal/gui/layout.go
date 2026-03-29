@@ -210,8 +210,8 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 	v3.Clear()
 	previewW := l.Main.Width() - 1
 	previewH := l.Main.Height() - 2
-	if focusedName == "plugins" {
-		a.renderPluginPreview(v3)
+	if render, ok := a.previewByScope[a.panelManager.ActivePanel().Scope()]; ok {
+		render(v3, previewW, previewH)
 	} else {
 		var items []SessionItem
 		if a.sessions != nil {

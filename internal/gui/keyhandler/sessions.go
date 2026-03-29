@@ -15,8 +15,11 @@ func NewSessionsPanel(reg *keymap.Registry) *SessionsPanel {
 	return &SessionsPanel{reg: reg}
 }
 
-func (p *SessionsPanel) Name() string  { return "sessions" }
-func (p *SessionsPanel) Label() string { return "Sessions" }
+func (p *SessionsPanel) Name() string        { return "sessions" }
+func (p *SessionsPanel) Label() string       { return "Sessions" }
+func (p *SessionsPanel) Scope() keymap.Scope { return keymap.ScopeSession }
+
+func (p *SessionsPanel) OnTabChanged(_ int, _ AppActions) {} // single-tab: no-op
 
 func (p *SessionsPanel) HandleKey(ev KeyEvent, actions AppActions) HandlerResult {
 	def, ok := p.reg.Match(ev.Rune, ev.Key, ev.Mod, keymap.ScopeSession)

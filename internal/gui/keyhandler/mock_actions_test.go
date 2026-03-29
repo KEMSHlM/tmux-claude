@@ -66,6 +66,7 @@ func (m *mockActions) CursorIsProject() bool             { return m.cursorIsProj
 func (m *mockActions) PanelNextTab()                     { m.record("PanelNextTab") }
 func (m *mockActions) PanelPrevTab()                     { m.record("PanelPrevTab") }
 func (m *mockActions) ActivePanelTabIndex() int          { return m.tabIndex }
+func (m *mockActions) PluginSetTab(tab int)              { m.record("PluginSetTab") }
 func (m *mockActions) PluginCursorDown()                 { m.record("PluginCursorDown") }
 func (m *mockActions) PluginCursorUp()                   { m.record("PluginCursorUp") }
 func (m *mockActions) PluginInstall()                    { m.record("PluginInstall") }

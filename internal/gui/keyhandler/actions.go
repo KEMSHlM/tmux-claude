@@ -64,6 +64,7 @@ type AppActions interface {
 	ActivePanelTabIndex() int // current tab index of the active panel
 
 	// Plugin panel
+	PluginSetTab(tab int) // set the active plugin tab index
 	PluginCursorDown()
 	PluginCursorUp()
 	PluginInstall()

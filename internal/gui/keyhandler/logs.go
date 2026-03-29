@@ -15,8 +15,11 @@ func NewLogsPanel(reg *keymap.Registry) *LogsPanel {
 	return &LogsPanel{reg: reg}
 }
 
-func (p *LogsPanel) Name() string  { return "logs" }
-func (p *LogsPanel) Label() string { return "Logs" }
+func (p *LogsPanel) Name() string        { return "logs" }
+func (p *LogsPanel) Label() string       { return "Logs" }
+func (p *LogsPanel) Scope() keymap.Scope { return keymap.ScopeLog }
+
+func (p *LogsPanel) OnTabChanged(_ int, _ AppActions) {} // single-tab: no-op
 
 func (p *LogsPanel) HandleKey(ev KeyEvent, actions AppActions) HandlerResult {
 	def, ok := p.reg.Match(ev.Rune, ev.Key, ev.Mod, keymap.ScopeLog)

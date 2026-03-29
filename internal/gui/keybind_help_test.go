@@ -3,6 +3,7 @@ package gui
 import (
 	"testing"
 
+	"github.com/KEMSHlM/lazyclaude/internal/gui/keyhandler"
 	"github.com/KEMSHlM/lazyclaude/internal/gui/keymap"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -72,18 +73,18 @@ func TestFilterKeybindItems_MatchHintLabel(t *testing.T) {
 	assert.Equal(t, keymap.ActionDeleteSession, result[0].Action)
 }
 
-func TestPanelNameToScope(t *testing.T) {
+func TestPanelScope(t *testing.T) {
 	t.Parallel()
+	reg := keymap.Default()
 	tests := []struct {
-		name  string
+		panel keyhandler.Panel
 		scope keymap.Scope
 	}{
-		{"sessions", keymap.ScopeSession},
-		{"plugins", keymap.ScopePlugins},
-		{"logs", keymap.ScopeLog},
-		{"unknown", keymap.ScopeGlobal},
+		{keyhandler.NewSessionsPanel(reg), keymap.ScopeSession},
+		{keyhandler.NewPluginsPanel(reg), keymap.ScopePlugins},
+		{keyhandler.NewLogsPanel(reg), keymap.ScopeLog},
 	}
 	for _, tt := range tests {
-		assert.Equal(t, tt.scope, panelNameToScope(tt.name))
+		assert.Equal(t, tt.scope, tt.panel.Scope(), "panel %s", tt.panel.Name())
 	}
 }

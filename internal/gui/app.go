@@ -109,6 +109,7 @@ type App struct {
 	mcpServers         MCPProvider                  // MCP operations (nil until wired)
 	logCache           logFileCache                 // cached server log file content
 	logRender          logRenderCache               // tracks last rendered log state
+	previewByScope     map[keymap.Scope]func(*gocui.View, int, int) // scope -> preview renderer
 }
 
 
@@ -189,6 +190,12 @@ func (a *App) initDispatcher() {
 	)
 	a.panelManager = pm
 	a.dispatcher = keydispatch.New(pm, reg)
+
+	// Register scope-specific preview renderers.
+	// Scopes not in this map use the default session preview.
+	a.previewByScope = map[keymap.Scope]func(*gocui.View, int, int){
+		keymap.ScopePlugins: func(v *gocui.View, _, _ int) { a.renderPluginPreview(v) },
+	}
 }
 
 // Run starts the main event loop. Blocks until quit.

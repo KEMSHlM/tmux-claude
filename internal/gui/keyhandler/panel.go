@@ -1,13 +1,21 @@
 package keyhandler
 
+import "github.com/KEMSHlM/lazyclaude/internal/gui/keymap"
+
 // Panel represents a focusable area in the TUI.
 // Each panel manages its own key handling and options bar.
 // Panels optionally support tabs (sub-content switching within a panel).
 // Tab state is managed externally by App (panels are stateless).
 type Panel interface {
-	Name() string  // gocui view name ("sessions", "logs", "plugins")
-	Label() string // display label
+	Name() string        // gocui view name ("sessions", "logs", "plugins")
+	Label() string       // display label
+	Scope() keymap.Scope // keybinding scope for this panel
 	HandleKey(ev KeyEvent, actions AppActions) HandlerResult
+
+	// OnTabChanged is called when the panel's active tab changes.
+	// Panels that need side effects (e.g. resetting cursors) implement logic here.
+	// Single-tab panels are no-ops.
+	OnTabChanged(newTab int, actions AppActions)
 
 	// OptionsBarForTab returns the options bar text for the given tab index.
 	// Single-tab panels ignore tabIdx and return a fixed bar.

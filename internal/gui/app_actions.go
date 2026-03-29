@@ -527,8 +527,9 @@ func (a *App) PanelNextTab() {
 	name := panel.Name()
 	cur := a.panelTabs[name]
 	if cur < panel.TabCount()-1 {
-		a.panelTabs[name] = cur + 1
-		a.onPanelTabChanged(name, cur+1)
+		newTab := cur + 1
+		a.panelTabs[name] = newTab
+		panel.OnTabChanged(newTab, a)
 	}
 }
 
@@ -540,8 +541,9 @@ func (a *App) PanelPrevTab() {
 	name := panel.Name()
 	cur := a.panelTabs[name]
 	if cur > 0 {
-		a.panelTabs[name] = cur - 1
-		a.onPanelTabChanged(name, cur-1)
+		newTab := cur - 1
+		a.panelTabs[name] = newTab
+		panel.OnTabChanged(newTab, a)
 	}
 }
 
@@ -553,12 +555,10 @@ func (a *App) ActivePanelTabIndex() int {
 	return a.panelTabs[panel.Name()]
 }
 
-// onPanelTabChanged is called when a panel's tab changes.
-// Panel-specific side effects (e.g. resetting cursors) go here.
-func (a *App) onPanelTabChanged(panelName string, newTab int) {
-	if panelName == "plugins" {
-		a.pluginState.tabIdx = newTab
-	}
+// PluginSetTab sets the active plugin tab index.
+// Called from PluginsPanel.OnTabChanged via AppActions interface.
+func (a *App) PluginSetTab(tab int) {
+	a.pluginState.tabIdx = tab
 }
 
 // --- Plugin panel ---
@@ -742,7 +742,7 @@ func (a *App) ShowKeybindHelp() {
 		return
 	}
 
-	scope := panelNameToScope(a.panelManager.ActivePanel().Name())
+	scope := a.panelManager.ActivePanel().Scope()
 	tab := a.ActivePanelTabIndex()
 
 	items := a.keyRegistry.BindingsForScopeTab(scope, tab)
@@ -756,18 +756,6 @@ func (a *App) ShowKeybindHelp() {
 	a.dialog.HelpScrollY = 0
 }
 
-func panelNameToScope(name string) keymap.Scope {
-	switch name {
-	case "sessions":
-		return keymap.ScopeSession
-	case "plugins":
-		return keymap.ScopePlugins
-	case "logs":
-		return keymap.ScopeLog
-	default:
-		return keymap.ScopeGlobal
-	}
-}
 
 // --- Search ---
 
