@@ -27,11 +27,9 @@ import (
 type Config struct {
 	Port       int
 	Token      string
-	BinaryPath string
 	IDEDir     string // lock files directory
 	PortFile   string // path to write the listening port
 	RuntimeDir string // choice files directory
-	TmuxSocket string // lazyclaude tmux socket name (e.g., "lazyclaude")
 }
 
 // Server is the MCP WebSocket + HTTP server.
@@ -40,7 +38,6 @@ type Server struct {
 	state         *State
 	handler       *Handler
 	lock          *LockManager
-	popupOrch     *tmuxadapter.PopupOrchestrator
 	tmux          tmux.Client
 	log           *log.Logger
 	notifyBroker  *event.Broker[model.Event]
@@ -60,23 +57,11 @@ func New(cfg Config, tmuxClient tmux.Client, logger *log.Logger) *Server {
 	handler.SetRuntimeDir(cfg.RuntimeDir)
 	lockMgr := NewLockManager(cfg.IDEDir)
 
-	// Create a tmux client for the user's tmux (for display-popup).
-	// LAZYCLAUDE_HOST_TMUX contains the user's $TMUX socket path.
-	var hostTmux tmux.Client
-	if hostSocket := os.Getenv("LAZYCLAUDE_HOST_TMUX"); hostSocket != "" {
-		// $TMUX format: "/path/to/socket,pid,session"
-		parts := strings.SplitN(hostSocket, ",", 2)
-		hostTmux = tmux.NewExecClientWithSocket(parts[0])
-	}
-	popupOrch := tmuxadapter.NewPopupOrchestrator(cfg.BinaryPath, cfg.TmuxSocket, cfg.RuntimeDir, tmuxClient, hostTmux, logger)
-	handler.SetPopup(popupOrch)
-
 	s := &Server{
 		config:       cfg,
 		state:        state,
 		handler:      handler,
 		lock:         lockMgr,
-		popupOrch:    popupOrch,
 		tmux:         tmuxClient,
 		log:          logger,
 		notifyBroker: event.NewBroker[model.Event](),
@@ -424,17 +409,15 @@ func (s *Server) dispatchToolNotification(window, toolName, input, cwd string) {
 	// by design — a dropped event during shutdown has no user impact.
 	if s.notifyBroker.HasSubscribers() {
 		// TUI is in-process and subscribed — broker delivers directly.
-		// No display-popup needed (TUI handles overlay in both normal and fullscreen).
 		// No disk enqueue needed (broker bypasses file polling).
 		s.notifyBroker.Publish(model.Event{Notification: &n})
 		s.log.Printf("notify: delivered via broker for window %s", window)
 	} else {
 		// No TUI subscriber — daemon mode or TUI not running.
-		// Enqueue to disk (SSH remote compat) and spawn display-popup.
+		// Enqueue to disk for file-based polling.
 		if err := notify.Enqueue(s.config.RuntimeDir, n); err != nil {
 			s.log.Printf("notify: write notification: %v", err)
 		}
-		s.popupOrch.SpawnToolPopup(context.Background(), window, toolName, input, cwd)
 	}
 }
 

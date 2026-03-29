@@ -49,9 +49,6 @@ type Client interface {
 	// Uses paste-buffer -p to send bracketed paste sequences.
 	PasteToPane(ctx context.Context, target string, text string) error
 
-	// DisplayPopup opens a popup overlay on a client.
-	DisplayPopup(ctx context.Context, opts PopupOpts) error
-
 	// ShowMessage executes display-message with a format string and returns the result.
 	ShowMessage(ctx context.Context, target, format string) (string, error)
 

@@ -12,7 +12,6 @@ type MockClient struct {
 	Clients  []ClientInfo
 	Captured map[string]string // target -> content
 	SentKeys map[string][]string
-	Popups   []PopupOpts
 	Options  map[string]string
 	Messages map[string]string
 
@@ -31,7 +30,6 @@ type MockClient struct {
 	ErrListPanes       error
 	ErrCapture         error
 	ErrSendKeys        error
-	ErrDisplayPopup    error
 	ErrShowMessage     error
 	ErrGetOption       error
 }
@@ -188,14 +186,6 @@ func (m *MockClient) PasteToPane(_ context.Context, target string, text string) 
 		return m.ErrSendKeys
 	}
 	m.SentKeys[target] = append(m.SentKeys[target], text)
-	return nil
-}
-
-func (m *MockClient) DisplayPopup(_ context.Context, opts PopupOpts) error {
-	if m.ErrDisplayPopup != nil {
-		return m.ErrDisplayPopup
-	}
-	m.Popups = append(m.Popups, opts)
 	return nil
 }
 

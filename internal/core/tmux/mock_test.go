@@ -132,22 +132,6 @@ func TestMockClient_SendKeys(t *testing.T) {
 	assert.Equal(t, []string{"1", "y"}, m.SentKeys["claude:lc-test"])
 }
 
-func TestMockClient_DisplayPopup(t *testing.T) {
-	t.Parallel()
-	m := tmux.NewMockClient()
-
-	opts := tmux.PopupOpts{
-		Client: "/dev/ttys001",
-		Width:  80,
-		Height: 60,
-		Cmd:    "lazyclaude diff --window lc-test",
-	}
-	err := m.DisplayPopup(context.Background(), opts)
-	require.NoError(t, err)
-	require.Len(t, m.Popups, 1)
-	assert.Equal(t, opts, m.Popups[0])
-}
-
 func TestMockClient_CapturePaneContent(t *testing.T) {
 	t.Parallel()
 	m := tmux.NewMockClient()
@@ -190,7 +174,6 @@ func TestMockClient_ErrorInjection(t *testing.T) {
 		{"KillWindow", func(m *tmux.MockClient) { m.ErrKillWindow = testErr }, func(m *tmux.MockClient) error { return m.KillWindow(ctx, "x") }},
 		{"RespawnPane", func(m *tmux.MockClient) { m.ErrRespawnPane = testErr }, func(m *tmux.MockClient) error { return m.RespawnPane(ctx, "x", "cmd") }},
 		{"SendKeys", func(m *tmux.MockClient) { m.ErrSendKeys = testErr }, func(m *tmux.MockClient) error { return m.SendKeys(ctx, "x", "y") }},
-		{"DisplayPopup", func(m *tmux.MockClient) { m.ErrDisplayPopup = testErr }, func(m *tmux.MockClient) error { return m.DisplayPopup(ctx, tmux.PopupOpts{}) }},
 		{"CapturePaneContent", func(m *tmux.MockClient) { m.ErrCapture = testErr }, func(m *tmux.MockClient) error { _, e := m.CapturePaneContent(ctx, "x"); return e }},
 		{"ListPanes", func(m *tmux.MockClient) { m.ErrListPanes = testErr }, func(m *tmux.MockClient) error { _, e := m.ListPanes(ctx, ""); return e }},
 		{"ShowMessage", func(m *tmux.MockClient) { m.ErrShowMessage = testErr }, func(m *tmux.MockClient) error { _, e := m.ShowMessage(ctx, "x", "fmt"); return e }},

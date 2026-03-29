@@ -5,7 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/KEMSHlM/lazyclaude/internal/core/config"
 	"github.com/KEMSHlM/lazyclaude/internal/core/event"
 	"github.com/KEMSHlM/lazyclaude/internal/core/model"
 	"github.com/KEMSHlM/lazyclaude/internal/gui/keydispatch"
@@ -23,9 +22,7 @@ func isUnknownView(err error) bool {
 type AppMode int
 
 const (
-	ModeMain AppMode = iota // lazyclaude      -> session list + preview
-	ModeDiff                // lazyclaude diff  -> diff popup viewer
-	ModeTool                // lazyclaude tool  -> tool popup viewer
+	ModeMain AppMode = iota // lazyclaude -> session list + preview
 )
 
 // SessionProvider abstracts session operations for the GUI layer.
@@ -93,7 +90,6 @@ type App struct {
 	logs               *LogsState                    // logs panel cursor/selection state
 	notify             *NotifyLoop                   // notification delivery (output, broker, tick)
 	quitRequested      bool                         // set by Quit(), checked after Dispatch
-	popupMode          config.PopupMode             // how popups are displayed (auto/tmux/overlay)
 	dialog             DialogState                  // input dialog state (rename, worktree, etc.)
 	editor             *inputEditor               // fullscreen key editor (for paste flush)
 	watchdogDone       chan struct{}               // signals watchdog to stop
@@ -145,11 +141,6 @@ func (a *App) startPasteWatchdog() {
 			}
 		}
 	}()
-}
-
-// SetPopupMode sets the popup display mode.
-func (a *App) SetPopupMode(mode config.PopupMode) {
-	a.popupMode = mode
 }
 
 // newApp initializes a new App with the given gocui.Gui. Shared by NewApp and NewAppHeadless.

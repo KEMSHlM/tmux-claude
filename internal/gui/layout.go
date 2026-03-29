@@ -95,21 +95,6 @@ func ComputeFullScreenLayout(width, height int) Layout {
 	}
 }
 
-// ComputePopupLayout calculates view positions for popup (diff/tool) mode.
-// The content area fills all but the last two rows; the actions bar occupies the bottom.
-func ComputePopupLayout(width, height int) Layout {
-	maxX := width
-	maxY := height
-
-	content := Rect{X0: 0, Y0: 0, X1: maxX - 1, Y1: maxY - 3}
-	actions := Rect{X0: 0, Y0: maxY - 2, X1: maxX - 1, Y1: maxY}
-
-	return Layout{
-		Main:    content,
-		Options: actions,
-	}
-}
-
 func (a *App) layout(g *gocui.Gui) error {
 	maxX, maxY := g.Size()
 
@@ -123,22 +108,16 @@ func (a *App) layout(g *gocui.Gui) error {
 		a.lastHeight = maxY
 	}
 
-	switch a.mode {
-	case ModeMain:
-		if a.fullscreen.IsActive() {
-			if err := a.layoutFullScreen(g, maxX, maxY); err != nil {
-				return err
-			}
-		} else {
-			if err := a.layoutMain(g, maxX, maxY); err != nil {
-				return err
-			}
+	if a.fullscreen.IsActive() {
+		if err := a.layoutFullScreen(g, maxX, maxY); err != nil {
+			return err
 		}
-		return a.layoutToolPopup(g, maxX, maxY)
-	case ModeDiff, ModeTool:
-		return a.layoutPopup(g, maxX, maxY)
+	} else {
+		if err := a.layoutMain(g, maxX, maxY); err != nil {
+			return err
+		}
 	}
-	return nil
+	return a.layoutToolPopup(g, maxX, maxY)
 }
 
 func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
@@ -309,33 +288,6 @@ func (a *App) layoutFullScreen(g *gocui.Gui, maxX, maxY int) error {
 		presentation.Dim+"Ctrl+\\:exit"+presentation.Reset)
 
 	if _, err := g.SetCurrentView("main"); err != nil && !isUnknownView(err) {
-		return err
-	}
-	return nil
-}
-
-func (a *App) layoutPopup(g *gocui.Gui, maxX, maxY int) error {
-	l := ComputePopupLayout(maxX, maxY)
-
-	// Content area (top)
-	v, err := g.SetView("content", l.Main.X0, l.Main.Y0, l.Main.X1, l.Main.Y1, 0)
-	if err != nil && !isUnknownView(err) {
-		return err
-	}
-	setRoundedFrame(v)
-	v.Wrap = false
-
-	// Actions bar (bottom)
-	v2, err := g.SetView("actions", l.Options.X0, l.Options.Y0, l.Options.X1, l.Options.Y1, 0)
-	if err != nil && !isUnknownView(err) {
-		return err
-	}
-	v2.Frame = false
-	if isUnknownView(err) {
-		fmt.Fprint(v2, " y: yes  a: allow always  n: no  Esc: cancel")
-	}
-
-	if _, err := g.SetCurrentView("content"); err != nil && !isUnknownView(err) {
 		return err
 	}
 	return nil

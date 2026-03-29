@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/KEMSHlM/lazyclaude/internal/core/shell"
+
 )
 
 const defaultTimeout = 5 * time.Second
@@ -322,48 +322,6 @@ func (c *ExecClient) PasteToPane(ctx context.Context, target string, text string
 	}
 	if _, err := c.run(ctx, "paste-buffer", "-t", target, "-d", "-p"); err != nil {
 		return fmt.Errorf("paste-buffer: %w", err)
-	}
-	return nil
-}
-
-func (c *ExecClient) DisplayPopup(ctx context.Context, opts PopupOpts) error {
-	// Validate and build env prefix before composing command
-	var prefix string
-	for k, v := range opts.Env {
-		if err := validateEnvKey(k); err != nil {
-			return err
-		}
-		prefix += fmt.Sprintf("%s=%s ", k, shell.Quote(v))
-	}
-
-	if err := validateShellSafe(opts.Cmd, "popup command"); err != nil {
-		return err
-	}
-	popupCmd := prefix + opts.Cmd
-
-	args := []string{"display-popup", "-b", "rounded"}
-	if opts.Target != "" {
-		args = append(args, "-t", opts.Target)
-	} else if opts.Client != "" {
-		args = append(args, "-c", opts.Client)
-	}
-	if opts.Width > 0 {
-		args = append(args, fmt.Sprintf("-w%d%%", opts.Width))
-	}
-	if opts.Height > 0 {
-		args = append(args, fmt.Sprintf("-h%d%%", opts.Height))
-	}
-	args = append(args, "-E", popupCmd)
-
-	// display-popup blocks until user dismisses — use the caller's context, not defaultTimeout.
-	fullArgs := c.prependSocket(args)
-	execCmd := exec.CommandContext(ctx, c.tmuxBin, fullArgs...)
-	var stderr strings.Builder
-	execCmd.Stderr = &stderr
-	out, err := execCmd.Output()
-	c.logCmd("DisplayPopup", fullArgs, string(out), err)
-	if err != nil {
-		return fmt.Errorf("display-popup: %w (stderr: %s)", err, strings.TrimSpace(stderr.String()))
 	}
 	return nil
 }

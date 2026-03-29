@@ -181,29 +181,4 @@ func TestComputeFullScreenLayout_Wide(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// ComputePopupLayout
-// ---------------------------------------------------------------------------
-
-func TestComputePopupLayout(t *testing.T) {
-	t.Parallel()
-	// Content fills all but last three rows; actions bar at bottom two rows.
-	l := gui.ComputePopupLayout(80, 24)
-
-	assert.Equal(t, gui.Rect{X0: 0, Y0: 0, X1: 79, Y1: 21}, l.Main,
-		"content ends at maxY-3")
-	assert.Equal(t, gui.Rect{X0: 0, Y0: 22, X1: 79, Y1: 24}, l.Options,
-		"actions bar at maxY-2 to maxY")
-}
-
-func TestComputePopupLayout_NoOverlap(t *testing.T) {
-	t.Parallel()
-	l := gui.ComputePopupLayout(80, 24)
-
-	// Content and actions must not overlap; actions starts immediately after the
-	// gap row that separates them (content ends at maxY-3, actions starts at maxY-2).
-	assert.Equal(t, l.Main.Y1+1, l.Options.Y0,
-		"actions bar starts immediately after content (no overlap)")
-}
-
-// ---------------------------------------------------------------------------
 // Existing tab / bar tests (unchanged)

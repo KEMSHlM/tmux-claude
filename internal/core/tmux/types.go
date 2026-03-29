@@ -48,13 +48,3 @@ type NewWindowOpts struct {
 	Command string
 	Env     map[string]string
 }
-
-// PopupOpts configures a tmux display-popup.
-type PopupOpts struct {
-	Client string
-	Target string            // -t flag (pane/window target)
-	Width  int               // percentage
-	Height int               // percentage
-	Cmd    string
-	Env    map[string]string // env vars prepended to command
-}

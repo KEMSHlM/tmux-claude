@@ -19,14 +19,6 @@ func TestNewAppHeadless_ModeMain(t *testing.T) {
 	assert.NotNil(t, app.Gui())
 }
 
-func TestNewAppHeadless_ModeDiff(t *testing.T) {
-	app, err := gui.NewAppHeadless(gui.ModeDiff, 80, 30)
-	require.NoError(t, err)
-	defer app.Gui().Close()
-
-	assert.Equal(t, gui.ModeDiff, app.AppMode())
-}
-
 func TestNewAppHeadless_Layout_Main_NoError(t *testing.T) {
 	app, err := gui.NewAppHeadless(gui.ModeMain, 120, 40)
 	require.NoError(t, err)
@@ -40,15 +32,3 @@ func TestNewAppHeadless_Layout_Main_NoError(t *testing.T) {
 	// as gocui's internal state may not be fully initialized without MainLoop.
 	// The important thing is that it doesn't panic.
 }
-
-func TestNewAppHeadless_Layout_Popup_NoError(t *testing.T) {
-	app, err := gui.NewAppHeadless(gui.ModeDiff, 80, 30)
-	require.NoError(t, err)
-	defer app.Gui().Close()
-
-	err = app.TestLayout(app.Gui())
-	if err != nil {
-		t.Logf("Layout error (may be expected in headless): %v", err)
-	}
-}
-

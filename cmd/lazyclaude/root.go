@@ -113,12 +113,6 @@ func newRootCmd() *cobra.Command {
 			}
 			app.SetSessions(adapter)
 
-			// Popup mode: tmux display-popup when launched from tmux plugin,
-			// gocui overlay fallback otherwise.
-			if pm := os.Getenv("LAZYCLAUDE_POPUP_MODE"); pm != "" {
-				app.SetPopupMode(config.ParsePopupMode(pm))
-			}
-
 			// Wire the notify broker (nil-safe: falls back to file polling only).
 			app.SetNotifyBroker(notifyBroker)
 
@@ -145,8 +139,6 @@ func newRootCmd() *cobra.Command {
 	cmd.Flags().StringVar(&logFile, "log-file", "/tmp/lazyclaude/debug.log", "log file path (used with --debug)")
 
 	cmd.AddCommand(newServerCmd())
-	cmd.AddCommand(newDiffCmd())
-	cmd.AddCommand(newToolCmd())
 	cmd.AddCommand(newSetupCmd())
 
 	return cmd
@@ -171,11 +163,6 @@ func tryStartInProcessServer(paths config.Paths, tmuxClient tmux.Client, tmuxSoc
 		return nil
 	}
 
-	binaryPath := os.Args[0]
-	if b := os.Getenv("LAZYCLAUDE_POPUP_BINARY"); b != "" {
-		binaryPath = b
-	}
-
 	// Log file lives for the process lifetime (closed on exit).
 	var srvLogger *log.Logger
 	if f, err := os.OpenFile("/tmp/lazyclaude/server.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
@@ -187,11 +174,9 @@ func tryStartInProcessServer(paths config.Paths, tmuxClient tmux.Client, tmuxSoc
 	cfg := server.Config{
 		Port:       0, // random port
 		Token:      token,
-		BinaryPath: binaryPath,
 		IDEDir:     paths.IDEDir,
 		PortFile:   paths.PortFile(),
 		RuntimeDir: paths.RuntimeDir,
-		TmuxSocket: tmuxSocket,
 	}
 
 	srv := server.New(cfg, tmuxClient, srvLogger)

@@ -36,15 +36,7 @@ export LAZYCLAUDE_PANE_PID="${PANE_PID:-}"
 export LAZYCLAUDE_PANE_TTY="${PANE_TTY:-}"
 export LAZYCLAUDE_PANE_PATH="${PANE_PATH:-}"
 
-# If already inside a popup (LAZYCLAUDE_POPUP_MODE set), just exec the binary.
-if [ -n "${LAZYCLAUDE_POPUP_MODE:-}" ]; then
-    exec "$BINARY" "$@"
-fi
-
-# Otherwise, open a display-popup with the binary.
-# Wrap in a script that binds paste inside the popup.
-# tmux display-popup does not forward bracketed paste correctly (tmux #4431),
-# so we intercept Cmd+V by binding the system paste to paste-buffer -p.
+# Open a display-popup with the binary.
 LAZYCLAUDE_HOST_TMUX="$TMUX"
 exec tmux display-popup -b rounded -w 80% -h 80% -d "${PANE_CWD:-.}" \
     -E "LAZYCLAUDE_HOST_TMUX='$LAZYCLAUDE_HOST_TMUX' \
@@ -52,5 +44,4 @@ exec tmux display-popup -b rounded -w 80% -h 80% -d "${PANE_CWD:-.}" \
         LAZYCLAUDE_PANE_PID='$PANE_PID' \
         LAZYCLAUDE_PANE_TTY='$PANE_TTY' \
         LAZYCLAUDE_PANE_PATH='$PANE_PATH' \
-        LAZYCLAUDE_POPUP_MODE=tmux \
         env -u TMUX $BINARY"
