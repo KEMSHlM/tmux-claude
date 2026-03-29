@@ -329,6 +329,8 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 		toolName, input, cwd := s.resolveToolInfo(window, req)
 		if toolName != "" {
 			s.dispatchToolNotification(window, toolName, input, cwd)
+		} else {
+			s.log.Printf("notify: DROPPED — empty toolName for window %s pid=%d (no pending and no tool_name in request)", window, req.PID)
 		}
 	}
 
@@ -374,11 +376,14 @@ func (s *Server) resolveToolInfo(window string, req notifyRequest) (toolName, in
 	input = req.toolInputString()
 	cwd = req.CWD
 	if pending, ok := s.state.GetPending(window); ok {
+		s.log.Printf("notify: resolveToolInfo window=%s using pending tool=%s", window, pending.ToolName)
 		toolName = pending.ToolName
 		input = pending.Input
 		if pending.CWD != "" {
 			cwd = pending.CWD
 		}
+	} else {
+		s.log.Printf("notify: resolveToolInfo window=%s no pending found, req.ToolName=%q", window, req.ToolName)
 	}
 	return toolName, input, cwd
 }

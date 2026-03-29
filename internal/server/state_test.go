@@ -93,6 +93,44 @@ func TestState_Pending_ConsumedOnGet(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestState_Pending_FIFO(t *testing.T) {
+	t.Parallel()
+	s := server.NewState()
+
+	// Enqueue two tools for the same window
+	s.SetPending("@1", server.PendingTool{ToolName: "Bash"})
+	s.SetPending("@1", server.PendingTool{ToolName: "Read"})
+
+	// First get returns the first tool
+	tool, ok := s.GetPending("@1")
+	assert.True(t, ok)
+	assert.Equal(t, "Bash", tool.ToolName)
+
+	// Second get returns the second tool
+	tool, ok = s.GetPending("@1")
+	assert.True(t, ok)
+	assert.Equal(t, "Read", tool.ToolName)
+
+	// Third get returns false (queue empty)
+	_, ok = s.GetPending("@1")
+	assert.False(t, ok)
+}
+
+func TestState_Pending_FIFO_SkipsExpired(t *testing.T) {
+	t.Parallel()
+	s := server.NewState()
+
+	// First entry: expired
+	s.SetPendingWithExpiry("@1", server.PendingTool{ToolName: "Bash"}, time.Now().Add(-1*time.Second))
+	// Second entry: still valid
+	s.SetPending("@1", server.PendingTool{ToolName: "Read"})
+
+	// Should skip the expired entry and return the valid one
+	tool, ok := s.GetPending("@1")
+	assert.True(t, ok)
+	assert.Equal(t, "Read", tool.ToolName)
+}
+
 func TestState_Pending_Expired(t *testing.T) {
 	t.Parallel()
 	s := server.NewState()
