@@ -26,11 +26,15 @@ const (
 )
 
 // SessionProvider abstracts session operations for the GUI layer.
-type SessionProvider interface {
-	// RefreshPendingFrom caches the given notifications for badge rendering
-	// in Sessions() and Projects(). Call from the ticker after ReadAll,
-	// before the notification files are consumed by showToolPopup.
+// NotificationCacher caches pending notifications for badge rendering.
+// Implemented by sessionAdapter to avoid redundant (and destructive)
+// ReadAll calls during layout. Separate from SessionProvider because
+// notification cache management is not a session data concern.
+type NotificationCacher interface {
 	RefreshPendingFrom([]*model.ToolNotification)
+}
+
+type SessionProvider interface {
 	Sessions() []SessionItem
 	Projects() []ProjectItem
 	ToggleProjectExpanded(projectID string)
@@ -244,7 +248,9 @@ func (a *App) Run() error {
 						// Cache the pending set for badge rendering in layout.
 						// Must happen before showToolPopup because ReadAll
 						// deletes the notification files.
-						a.sessions.RefreshPendingFrom(pending)
+						if nc, ok := a.sessions.(NotificationCacher); ok {
+							nc.RefreshPendingFrom(pending)
+						}
 						for _, n := range pending {
 							a.showToolPopup(n)
 						}
