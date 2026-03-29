@@ -9,6 +9,7 @@ type mockActions struct {
 	fullScreen     bool
 	mode           int
 	cursorIsProject bool
+	tabIndex        int
 }
 
 func newMockActions() *mockActions {
@@ -64,7 +65,7 @@ func (m *mockActions) ExpandProject()                    { m.record("ExpandProje
 func (m *mockActions) CursorIsProject() bool             { return m.cursorIsProject }
 func (m *mockActions) PanelNextTab()                     { m.record("PanelNextTab") }
 func (m *mockActions) PanelPrevTab()                     { m.record("PanelPrevTab") }
-func (m *mockActions) ActivePanelTabIndex() int          { return 0 }
+func (m *mockActions) ActivePanelTabIndex() int          { return m.tabIndex }
 func (m *mockActions) PluginCursorDown()                 { m.record("PluginCursorDown") }
 func (m *mockActions) PluginCursorUp()                   { m.record("PluginCursorUp") }
 func (m *mockActions) PluginInstall()                    { m.record("PluginInstall") }

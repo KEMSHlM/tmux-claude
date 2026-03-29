@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/KEMSHlM/lazyclaude/internal/core/model"
+	"github.com/KEMSHlM/lazyclaude/internal/gui/keymap"
 	"github.com/KEMSHlM/lazyclaude/internal/gui/presentation"
 	"github.com/jesseduffield/gocui"
 )
@@ -136,21 +137,34 @@ func (a *App) layoutToolPopup(g *gocui.Gui, maxX, maxY int) error {
 
 		visible := a.popups.VisibleCount()
 		p := focusedEntry.popup
-
 		maxOpt := p.MaxOption()
-		base := " " + presentation.StyledKey("C-y", "yes") + "  " + presentation.StyledKey("C-n", "no")
-		if maxOpt >= 3 {
-			base = " " + presentation.StyledKey("C-y", "yes") + "  " +
-				presentation.StyledKey("C-a", "allow") + "  " +
-				presentation.StyledKey("C-n", "no")
+
+		popupHints := a.keyRegistry.HintsForScope(keymap.ScopePopup)
+		var defs []presentation.HintDef
+		for _, h := range popupHints {
+			// Conditionally skip hints based on popup state
+			switch h.Action {
+			case keymap.ActionPopupAllow:
+				if maxOpt < 3 {
+					continue
+				}
+			case keymap.ActionPopupScrollDown:
+				if !p.IsDiff() {
+					continue
+				}
+			case keymap.ActionPopupAcceptAll:
+				if visible <= 1 {
+					continue
+				}
+			}
+			defs = append(defs, presentation.HintDef{
+				Key:   h.HintKeyLabel(),
+				Label: h.HintLabel,
+			})
 		}
-		if p.IsDiff() {
-			base += "  " + presentation.StyledKey("j/k", "scroll")
-		}
-		base += "  " + presentation.StyledKey("Esc", "hide")
+		base := presentation.BuildOptionsBar(defs)
 		if visible > 1 {
-			base += fmt.Sprintf("  "+presentation.StyledKey("Y", "all")+
-				" "+presentation.Dim+"[%d/%d]"+presentation.Reset,
+			base += fmt.Sprintf(" "+presentation.Dim+"[%d/%d]"+presentation.Reset,
 				a.popups.VisibleIndexOf(a.popups.FocusIndex())+1, visible)
 		}
 		fmt.Fprint(v2, base)

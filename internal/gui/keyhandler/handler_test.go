@@ -4,11 +4,13 @@ import (
 	"testing"
 
 	"github.com/KEMSHlM/lazyclaude/internal/gui/keyhandler"
+	"github.com/KEMSHlM/lazyclaude/internal/gui/keymap"
 	"github.com/jesseduffield/gocui"
 )
 
 func TestSessionsPanel_Keys(t *testing.T) {
-	p := &keyhandler.SessionsPanel{}
+	reg := keymap.Default()
+	p := keyhandler.NewSessionsPanel(reg)
 	tests := []struct {
 		ev   keyhandler.KeyEvent
 		want string
@@ -42,7 +44,8 @@ func TestSessionsPanel_Keys(t *testing.T) {
 }
 
 func TestSessionsPanel_FoldKeys(t *testing.T) {
-	p := &keyhandler.SessionsPanel{}
+	reg := keymap.Default()
+	p := keyhandler.NewSessionsPanel(reg)
 	tests := []struct {
 		ev   keyhandler.KeyEvent
 		want string
@@ -65,7 +68,8 @@ func TestSessionsPanel_FoldKeys(t *testing.T) {
 }
 
 func TestSessionsPanel_UnknownKey(t *testing.T) {
-	p := &keyhandler.SessionsPanel{}
+	reg := keymap.Default()
+	p := keyhandler.NewSessionsPanel(reg)
 	a := newMockActions()
 	r := p.HandleKey(keyhandler.KeyEvent{Rune: 'z'}, a)
 	if r != keyhandler.Unhandled {
@@ -74,7 +78,8 @@ func TestSessionsPanel_UnknownKey(t *testing.T) {
 }
 
 func TestLogsPanel_Keys(t *testing.T) {
-	p := &keyhandler.LogsPanel{}
+	reg := keymap.Default()
+	p := keyhandler.NewLogsPanel(reg)
 	tests := []struct {
 		ev   keyhandler.KeyEvent
 		want string
@@ -99,7 +104,8 @@ func TestLogsPanel_Keys(t *testing.T) {
 }
 
 func TestPopupHandler_ConsumesAllKeys(t *testing.T) {
-	h := &keyhandler.PopupHandler{}
+	reg := keymap.Default()
+	h := keyhandler.NewPopupHandler(reg)
 	a := &mockActions{hasPopup: true}
 
 	r := h.HandleKey(keyhandler.KeyEvent{Key: gocui.KeyCtrlY}, a)
@@ -123,7 +129,8 @@ func TestPopupHandler_ConsumesAllKeys(t *testing.T) {
 }
 
 func TestFullScreenHandler_ExitKeys(t *testing.T) {
-	h := &keyhandler.FullScreenHandler{}
+	reg := keymap.Default()
+	h := keyhandler.NewFullScreenHandler(reg)
 	a := &mockActions{fullScreen: true}
 
 	r := h.HandleKey(keyhandler.KeyEvent{Key: gocui.KeyCtrlD}, a)
@@ -140,8 +147,9 @@ func TestFullScreenHandler_ExitKeys(t *testing.T) {
 }
 
 func TestGlobalHandler_Quit(t *testing.T) {
-	pm := keyhandler.NewPanelManager(&keyhandler.SessionsPanel{})
-	h := keyhandler.NewGlobalHandler(pm)
+	reg := keymap.Default()
+	pm := keyhandler.NewPanelManager(keyhandler.NewSessionsPanel(reg))
+	h := keyhandler.NewGlobalHandler(pm, reg)
 	a := newMockActions()
 
 	r := h.HandleKey(keyhandler.KeyEvent{Rune: 'q'}, a)
@@ -151,8 +159,9 @@ func TestGlobalHandler_Quit(t *testing.T) {
 }
 
 func TestGlobalHandler_Tab(t *testing.T) {
-	pm := keyhandler.NewPanelManager(&keyhandler.SessionsPanel{}, &keyhandler.LogsPanel{})
-	h := keyhandler.NewGlobalHandler(pm)
+	reg := keymap.Default()
+	pm := keyhandler.NewPanelManager(keyhandler.NewSessionsPanel(reg), keyhandler.NewLogsPanel(reg))
+	h := keyhandler.NewGlobalHandler(pm, reg)
 	a := newMockActions()
 
 	if pm.FocusIdx() != 0 {

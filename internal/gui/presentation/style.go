@@ -57,4 +57,29 @@ func StyledKey(key, desc string) string {
 	return Bold + key + Reset + Dim + ":" + desc + Reset
 }
 
+// HintDef is a minimal key/label pair for building options bars from registry data.
+type HintDef struct {
+	Key   string // display key (e.g. "n", "h/l", "C-y")
+	Label string // description (e.g. "new", "fold", "yes")
+}
+
+// BuildOptionsBar generates an options bar string from a slice of HintDefs.
+// Contract: the result always starts with a leading ASCII space (' ')
+// when non-empty, so callers can safely use result[1:] to strip it.
+func BuildOptionsBar(hints []HintDef) string {
+	if len(hints) == 0 {
+		return ""
+	}
+	var b []byte
+	b = append(b, ' ')
+	for i, h := range hints {
+		if i > 0 {
+			b = append(b, ' ', ' ')
+		}
+		b = append(b, []byte(StyledKey(h.Key, h.Label))...)
+	}
+	return string(b)
+}
+
+
 

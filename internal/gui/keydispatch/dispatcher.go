@@ -1,6 +1,9 @@
 package keydispatch
 
-import "github.com/KEMSHlM/lazyclaude/internal/gui/keyhandler"
+import (
+	"github.com/KEMSHlM/lazyclaude/internal/gui/keyhandler"
+	"github.com/KEMSHlM/lazyclaude/internal/gui/keymap"
+)
 
 // Dispatcher routes key events through a priority chain:
 //  1. Popup (highest priority, consumes ALL keys)
@@ -14,18 +17,19 @@ type Dispatcher struct {
 	global     *keyhandler.GlobalHandler
 }
 
-// New creates a Dispatcher with the given PanelManager.
-func New(pm *keyhandler.PanelManager) *Dispatcher {
+// New creates a Dispatcher with the given PanelManager and Registry.
+func New(pm *keyhandler.PanelManager, reg *keymap.Registry) *Dispatcher {
 	return &Dispatcher{
-		popup:      &keyhandler.PopupHandler{},
-		fullscreen: &keyhandler.FullScreenHandler{},
+		popup:      keyhandler.NewPopupHandler(reg),
+		fullscreen: keyhandler.NewFullScreenHandler(reg),
 		panels:     pm,
-		global:     keyhandler.NewGlobalHandler(pm),
+		global:     keyhandler.NewGlobalHandler(pm, reg),
 	}
 }
 
 // Dispatch routes a key event through the priority chain.
 func (d *Dispatcher) Dispatch(ev keyhandler.KeyEvent, actions keyhandler.AppActions) keyhandler.HandlerResult {
+	// DEBUG: trace dispatch
 	// 1. Popup — highest priority, consumes ALL keys
 	if r := d.popup.HandleKey(ev, actions); r == keyhandler.Handled {
 		return keyhandler.Handled
@@ -41,7 +45,7 @@ func (d *Dispatcher) Dispatch(ev keyhandler.KeyEvent, actions keyhandler.AppActi
 		panel := d.panels.ActivePanel()
 		if panel != nil {
 			if r := panel.HandleKey(ev, actions); r == keyhandler.Handled {
-				return keyhandler.Handled
+					return keyhandler.Handled
 			}
 		}
 	}
@@ -54,7 +58,7 @@ func (d *Dispatcher) Dispatch(ev keyhandler.KeyEvent, actions keyhandler.AppActi
 	return keyhandler.Unhandled
 }
 
-// ActiveOptionsBar returns the options bar text for the current focus.
+// ActiveOptionsBar returns the combined options bar: panel hints + global hints.
 func (d *Dispatcher) ActiveOptionsBar(actions keyhandler.AppActions) string {
 	if actions.HasPopup() || actions.IsFullScreen() {
 		return ""
@@ -63,7 +67,17 @@ func (d *Dispatcher) ActiveOptionsBar(actions keyhandler.AppActions) string {
 	if panel == nil {
 		return ""
 	}
-	return panel.OptionsBarForTab(actions.ActivePanelTabIndex())
+	panelBar := panel.OptionsBarForTab(actions.ActivePanelTabIndex())
+	globalBar := d.global.OptionsBar()
+	if panelBar == "" {
+		return globalBar
+	}
+	if globalBar == "" {
+		return panelBar
+	}
+	// globalBar starts with a leading ASCII space (see BuildOptionsBar contract).
+	// Strip it to avoid double space when concatenating.
+	return panelBar + " " + globalBar[1:]
 }
 
 // PanelManager returns the underlying PanelManager.

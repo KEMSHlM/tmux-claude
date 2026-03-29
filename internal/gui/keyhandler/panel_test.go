@@ -4,10 +4,12 @@ import (
 	"testing"
 
 	"github.com/KEMSHlM/lazyclaude/internal/gui/keyhandler"
+	"github.com/KEMSHlM/lazyclaude/internal/gui/keymap"
 )
 
 func TestPanelManager_FocusNext_Wraps(t *testing.T) {
-	pm := keyhandler.NewPanelManager(&keyhandler.SessionsPanel{}, &keyhandler.LogsPanel{})
+	reg := keymap.Default()
+	pm := keyhandler.NewPanelManager(keyhandler.NewSessionsPanel(reg), keyhandler.NewLogsPanel(reg))
 
 	if pm.FocusIdx() != 0 || pm.ActivePanel().Name() != "sessions" {
 		t.Fatal("initial state wrong")
@@ -23,7 +25,8 @@ func TestPanelManager_FocusNext_Wraps(t *testing.T) {
 }
 
 func TestPanelManager_FocusPrev_Wraps(t *testing.T) {
-	pm := keyhandler.NewPanelManager(&keyhandler.SessionsPanel{}, &keyhandler.LogsPanel{})
+	reg := keymap.Default()
+	pm := keyhandler.NewPanelManager(keyhandler.NewSessionsPanel(reg), keyhandler.NewLogsPanel(reg))
 
 	pm.FocusPrev()
 	if pm.FocusIdx() != 1 {
@@ -36,14 +39,16 @@ func TestPanelManager_FocusPrev_Wraps(t *testing.T) {
 }
 
 func TestPanelManager_PanelCount(t *testing.T) {
-	pm := keyhandler.NewPanelManager(&keyhandler.SessionsPanel{}, &keyhandler.LogsPanel{})
+	reg := keymap.Default()
+	pm := keyhandler.NewPanelManager(keyhandler.NewSessionsPanel(reg), keyhandler.NewLogsPanel(reg))
 	if pm.PanelCount() != 2 {
 		t.Fatalf("PanelCount = %d, want 2", pm.PanelCount())
 	}
 }
 
 func TestPanel_TabSupport(t *testing.T) {
-	s := &keyhandler.SessionsPanel{}
+	reg := keymap.Default()
+	s := keyhandler.NewSessionsPanel(reg)
 	if s.TabCount() != 1 {
 		t.Errorf("SessionsPanel TabCount = %d, want 1", s.TabCount())
 	}

@@ -2,39 +2,26 @@ package keymap
 
 import "github.com/jesseduffield/gocui"
 
-// ActionDef defines a logical action with its key bindings and valid states.
-type ActionDef struct {
-	Action      KeyAction
-	Name        string       // human-readable name (for help screen)
-	Description string       // tooltip
-	Bindings    []KeyBinding // physical keys
-	States      []AppState   // which states this action is active in
-}
-
 // Registry is the single source of truth for all key bindings.
-// It supports lookup by key event + state, and enumeration for help screens.
+// Created once at startup and injected into all handlers via DI.
 type Registry struct {
-	defs  []ActionDef       // ordered list (registration order)
-	index map[KeyAction]int // maps action to index in defs (stable across appends)
+	defs []ActionDef
 }
 
 // NewRegistry creates an empty registry.
 func NewRegistry() *Registry {
-	return &Registry{
-		index: make(map[KeyAction]int),
-	}
+	return &Registry{}
 }
 
 // Register adds an action definition to the registry.
 func (r *Registry) Register(def ActionDef) {
 	r.defs = append(r.defs, def)
-	r.index[def.Action] = len(r.defs) - 1
 }
 
-// Match finds an action matching the key event in the given state.
-func (r *Registry) Match(ch rune, key gocui.Key, mod gocui.Modifier, state AppState) (ActionDef, bool) {
+// Match finds an action matching the key event in the given scope.
+func (r *Registry) Match(ch rune, key gocui.Key, mod gocui.Modifier, scope Scope) (ActionDef, bool) {
 	for _, def := range r.defs {
-		if !stateMatch(def.States, state) {
+		if def.Scope != scope {
 			continue
 		}
 		for _, b := range def.Bindings {
@@ -46,6 +33,64 @@ func (r *Registry) Match(ch rune, key gocui.Key, mod gocui.Modifier, state AppSt
 	return ActionDef{}, false
 }
 
+// MatchTab finds an action matching the key event in the given scope and tab.
+// Actions with Tab == TabAll match any tab.
+func (r *Registry) MatchTab(ch rune, key gocui.Key, mod gocui.Modifier, scope Scope, tab int) (ActionDef, bool) {
+	for _, def := range r.defs {
+		if def.Scope != scope {
+			continue
+		}
+		if def.Tab != TabAll && def.Tab != tab {
+			continue
+		}
+		for _, b := range def.Bindings {
+			if b.Matches(key, ch, mod) {
+				return def, true
+			}
+		}
+	}
+	return ActionDef{}, false
+}
+
+// HintsForScope returns all actions with non-empty HintLabel for the given scope,
+// in registration order. Used to generate the options bar.
+func (r *Registry) HintsForScope(scope Scope) []ActionDef {
+	var result []ActionDef
+	for _, def := range r.defs {
+		if def.Scope == scope && def.HintLabel != "" {
+			result = append(result, def)
+		}
+	}
+	return result
+}
+
+// HintsForScopeTab returns hints filtered by scope and tab index.
+// Actions with Tab == TabAll are included for any tab.
+func (r *Registry) HintsForScopeTab(scope Scope, tab int) []ActionDef {
+	var result []ActionDef
+	for _, def := range r.defs {
+		if def.Scope != scope || def.HintLabel == "" {
+			continue
+		}
+		if def.Tab != TabAll && def.Tab != tab {
+			continue
+		}
+		result = append(result, def)
+	}
+	return result
+}
+
+// BindingsForScope returns all actions registered under the given scope.
+func (r *Registry) BindingsForScope(scope Scope) []ActionDef {
+	var result []ActionDef
+	for _, def := range r.defs {
+		if def.Scope == scope {
+			result = append(result, def)
+		}
+	}
+	return result
+}
+
 // AllActions returns all registered actions in registration order.
 func (r *Registry) AllActions() []ActionDef {
 	result := make([]ActionDef, len(r.defs))
@@ -53,129 +98,345 @@ func (r *Registry) AllActions() []ActionDef {
 	return result
 }
 
-// BindingsFor returns the key bindings for a specific action.
-func (r *Registry) BindingsFor(action KeyAction) []KeyBinding {
-	idx, ok := r.index[action]
-	if !ok {
-		return nil
+// HintKeyLabel returns the display key for this action's hint.
+// If HintKey is set, it is used; otherwise auto-generated from the first binding.
+func (def ActionDef) HintKeyLabel() string {
+	if def.HintKey != "" {
+		return def.HintKey
 	}
-	src := r.defs[idx].Bindings
-	result := make([]KeyBinding, len(src))
-	copy(result, src)
-	return result
+	if len(def.Bindings) > 0 {
+		return def.Bindings[0].HintKey()
+	}
+	return "?"
 }
 
-// FirstRune returns the first rune binding for an action, or 0 if none.
-func (r *Registry) FirstRune(action KeyAction) rune {
-	idx, ok := r.index[action]
-	if !ok {
-		return 0
-	}
-	for _, b := range r.defs[idx].Bindings {
-		if b.Rune != 0 {
-			return b.Rune
-		}
-	}
-	return 0
-}
-
-// FirstKey returns the first gocui.Key binding for an action, or 0 if none.
-func (r *Registry) FirstKey(action KeyAction) gocui.Key {
-	idx, ok := r.index[action]
-	if !ok {
-		return 0
-	}
-	for _, b := range r.defs[idx].Bindings {
-		if b.Rune == 0 {
-			return b.Key
-		}
-	}
-	return 0
-}
-
-func stateMatch(states []AppState, target AppState) bool {
-	for _, s := range states {
-		if s == target {
-			return true
-		}
-	}
-	return false
-}
-
-// AllAppStates returns all valid AppState values.
-func AllAppStates() []AppState {
-	return []AppState{StateMain, StateFullScreen}
-}
-
-// Default returns the default lazyclaude key registry.
+// Default returns the default lazyclaude key registry with all actions.
 func Default() *Registry {
 	r := NewRegistry()
 
+	// --- Global ---
 	r.Register(ActionDef{
-		Action:   ActionQuit,
-		Name:     "Quit",
-		Bindings: []KeyBinding{{Rune: 'q'}},
-		States:   []AppState{StateMain},
+		Action:    ActionQuit,
+		Bindings:  []KeyBinding{{Rune: 'q'}},
+		Scope:     ScopeGlobal,
+		HintLabel: "quit",
 	})
 	r.Register(ActionDef{
-		Action:   ActionEnterFull,
-		Name:     "Enter Full Screen",
-		Bindings: []KeyBinding{{Key: gocui.KeyEnter}},
-		States:   []AppState{StateMain},
+		Action:   ActionQuitCtrlC,
+		Bindings: []KeyBinding{{Key: gocui.KeyCtrlC}},
+		Scope:    ScopeGlobal,
 	})
 	r.Register(ActionDef{
-		Action:   ActionExitFull,
-		Name:     "Exit Full Screen",
-		Bindings: []KeyBinding{{Key: gocui.KeyCtrlD}, {Key: gocui.KeyCtrlBackslash}},
-		States:   []AppState{StateFullScreen},
+		Action:   ActionQuitCtrlBackslash,
+		Bindings: []KeyBinding{{Key: gocui.KeyCtrlBackslash}},
+		Scope:    ScopeGlobal,
+	})
+	r.Register(ActionDef{
+		Action:    ActionFocusNextPanel,
+		Bindings:  []KeyBinding{{Key: gocui.KeyTab}},
+		Scope:     ScopeGlobal,
+		HintLabel: "panel",
+	})
+	r.Register(ActionDef{
+		Action:   ActionFocusPrevPanel,
+		Bindings: []KeyBinding{{Key: gocui.KeyBacktab}},
+		Scope:    ScopeGlobal,
+	})
+	r.Register(ActionDef{
+		Action:    ActionUnsuspendPopups,
+		Bindings:  []KeyBinding{{Rune: 'p'}},
+		Scope:     ScopeGlobal,
+		HintLabel: "notif",
+	})
+	r.Register(ActionDef{
+		Action:    ActionPanelNextTab,
+		Bindings:  []KeyBinding{{Rune: ']'}},
+		Scope:     ScopeGlobal,
+		HintLabel: "tab",
+		HintKey:   "[/]",
+	})
+	r.Register(ActionDef{
+		Action:   ActionPanelPrevTab,
+		Bindings: []KeyBinding{{Rune: '['}},
+		Scope:    ScopeGlobal,
+	})
+
+	// --- Session panel ---
+	r.Register(ActionDef{
+		Action:   ActionCursorDown,
+		Bindings: []KeyBinding{{Rune: 'j'}, {Key: gocui.KeyArrowDown}},
+		Scope:    ScopeSession,
 	})
 	r.Register(ActionDef{
 		Action:   ActionCursorUp,
-		Name:     "Cursor Up",
 		Bindings: []KeyBinding{{Rune: 'k'}, {Key: gocui.KeyArrowUp}},
-		States:   AllAppStates(),
+		Scope:    ScopeSession,
 	})
 	r.Register(ActionDef{
-		Action:   ActionCursorDown,
-		Name:     "Cursor Down",
-		Bindings: []KeyBinding{{Rune: 'j'}, {Key: gocui.KeyArrowDown}},
-		States:   AllAppStates(),
+		Action:   ActionCollapseProject,
+		Bindings: []KeyBinding{{Rune: 'h'}, {Key: gocui.KeyArrowLeft}},
+		Scope:    ScopeSession,
 	})
 	r.Register(ActionDef{
-		Action:   ActionNewSession,
-		Name:     "New Session",
-		Bindings: []KeyBinding{{Rune: 'n'}},
-		States:   []AppState{StateMain},
+		Action:   ActionExpandProject,
+		Bindings: []KeyBinding{{Rune: 'l'}, {Key: gocui.KeyArrowRight}},
+		Scope:    ScopeSession,
 	})
 	r.Register(ActionDef{
-		Action:   ActionDeleteSession,
-		Name:     "Delete Session",
-		Bindings: []KeyBinding{{Rune: 'd'}},
-		States:   []AppState{StateMain},
+		Action:    ActionNewSession,
+		Bindings:  []KeyBinding{{Rune: 'n'}},
+		Scope:     ScopeSession,
+		HintLabel: "new",
 	})
 	r.Register(ActionDef{
-		Action:   ActionPopupAccept,
-		Name:     "Accept",
-		Bindings: []KeyBinding{{Rune: 'y'}, {Rune: '1'}},
-		States:   AllAppStates(),
+		Action:    ActionNewSessionCWD,
+		Bindings:  []KeyBinding{{Rune: 'N'}},
+		Scope:     ScopeSession,
+		HintLabel: "new[cwd]",
 	})
 	r.Register(ActionDef{
-		Action:   ActionPopupAllow,
-		Name:     "Allow Always",
-		Bindings: []KeyBinding{{Rune: 'a'}, {Rune: '2'}},
-		States:   AllAppStates(),
+		Action:    ActionDeleteSession,
+		Bindings:  []KeyBinding{{Rune: 'd'}},
+		Scope:     ScopeSession,
+		HintLabel: "del",
 	})
 	r.Register(ActionDef{
-		Action:   ActionPopupReject,
-		Name:     "Reject",
+		Action:    ActionAttachSession,
+		Bindings:  []KeyBinding{{Rune: 'a'}},
+		Scope:     ScopeSession,
+		HintLabel: "attach",
+	})
+	r.Register(ActionDef{
+		Action:    ActionLaunchLazygit,
+		Bindings:  []KeyBinding{{Rune: 'g'}},
+		Scope:     ScopeSession,
+		HintLabel: "lazygit",
+	})
+	r.Register(ActionDef{
+		Action:    ActionEnterFull,
+		Bindings:  []KeyBinding{{Key: gocui.KeyEnter}},
+		Scope:     ScopeSession,
+		HintLabel: "full",
+		HintKey:   "enter",
+	})
+	r.Register(ActionDef{
+		Action:   ActionEnterFullR,
+		Bindings: []KeyBinding{{Rune: 'r'}},
+		Scope:    ScopeSession,
+	})
+	r.Register(ActionDef{
+		Action:    ActionStartRename,
+		Bindings:  []KeyBinding{{Rune: 'R'}},
+		Scope:     ScopeSession,
+		HintLabel: "rename",
+	})
+	r.Register(ActionDef{
+		Action:    ActionStartWorktree,
+		Bindings:  []KeyBinding{{Rune: 'w'}},
+		Scope:     ScopeSession,
+		HintLabel: "worktree",
+	})
+	r.Register(ActionDef{
+		Action:    ActionSelectWorktree,
+		Bindings:  []KeyBinding{{Rune: 'W'}},
+		Scope:     ScopeSession,
+		HintLabel: "select",
+	})
+	r.Register(ActionDef{
+		Action:    ActionStartPMSession,
+		Bindings:  []KeyBinding{{Rune: 'P'}},
+		Scope:     ScopeSession,
+		HintLabel: "pm",
+	})
+	r.Register(ActionDef{
+		Action:    ActionSendKey1,
+		Bindings:  []KeyBinding{{Rune: '1'}},
+		Scope:     ScopeSession,
+		HintLabel: "send",
+		HintKey:   "1/2/3",
+	})
+	r.Register(ActionDef{
+		Action:   ActionSendKey2,
+		Bindings: []KeyBinding{{Rune: '2'}},
+		Scope:    ScopeSession,
+	})
+	r.Register(ActionDef{
+		Action:   ActionSendKey3,
 		Bindings: []KeyBinding{{Rune: '3'}},
-		States:   AllAppStates(),
+		Scope:    ScopeSession,
 	})
 	r.Register(ActionDef{
-		Action:   ActionPopupCancel,
-		Name:     "Cancel / Suspend",
+		Action:   ActionPurgeOrphans,
+		Bindings: []KeyBinding{{Rune: 'D'}},
+		Scope:    ScopeSession,
+	})
+
+	// --- Plugins panel ---
+	// Tab: TabAll = both tabs, 0 = Installed only, 1 = Marketplace only
+	r.Register(ActionDef{
+		Action:   ActionPluginCursorDown,
+		Bindings: []KeyBinding{{Rune: 'j'}, {Key: gocui.KeyArrowDown}},
+		Scope:    ScopePlugins,
+		Tab:      TabAll,
+	})
+	r.Register(ActionDef{
+		Action:   ActionPluginCursorUp,
+		Bindings: []KeyBinding{{Rune: 'k'}, {Key: gocui.KeyArrowUp}},
+		Scope:    ScopePlugins,
+		Tab:      TabAll,
+	})
+	r.Register(ActionDef{
+		Action:    ActionPluginToggleEnabled,
+		Bindings:  []KeyBinding{{Rune: 'e'}},
+		Scope:     ScopePlugins,
+		Tab:       0,
+		HintLabel: "toggle",
+	})
+	r.Register(ActionDef{
+		Action:    ActionPluginUninstall,
+		Bindings:  []KeyBinding{{Rune: 'd'}},
+		Scope:     ScopePlugins,
+		Tab:       0,
+		HintLabel: "uninstall",
+	})
+	r.Register(ActionDef{
+		Action:    ActionPluginUpdate,
+		Bindings:  []KeyBinding{{Rune: 'u'}},
+		Scope:     ScopePlugins,
+		Tab:       0,
+		HintLabel: "update",
+	})
+	r.Register(ActionDef{
+		Action:    ActionPluginRefresh,
+		Bindings:  []KeyBinding{{Rune: 'r'}},
+		Scope:     ScopePlugins,
+		Tab:       TabAll,
+		HintLabel: "refresh",
+	})
+	r.Register(ActionDef{
+		Action:    ActionPluginInstall,
+		Bindings:  []KeyBinding{{Rune: 'i'}},
+		Scope:     ScopePlugins,
+		Tab:       1,
+		HintLabel: "install",
+	})
+
+	// --- Logs panel ---
+	r.Register(ActionDef{
+		Action:   ActionLogsCursorDown,
+		Bindings: []KeyBinding{{Rune: 'j'}, {Key: gocui.KeyArrowDown}},
+		Scope:    ScopeLog,
+	})
+	r.Register(ActionDef{
+		Action:   ActionLogsCursorUp,
+		Bindings: []KeyBinding{{Rune: 'k'}, {Key: gocui.KeyArrowUp}},
+		Scope:    ScopeLog,
+	})
+	r.Register(ActionDef{
+		Action:    ActionLogsCursorToEnd,
+		Bindings:  []KeyBinding{{Rune: 'G'}},
+		Scope:     ScopeLog,
+		HintLabel: "end",
+	})
+	r.Register(ActionDef{
+		Action:   ActionLogsCursorToTop,
+		Bindings: []KeyBinding{{Rune: 'g'}},
+		Scope:    ScopeLog,
+	})
+	r.Register(ActionDef{
+		Action:    ActionLogsToggleSelect,
+		Bindings:  []KeyBinding{{Rune: 'v'}},
+		Scope:     ScopeLog,
+		HintLabel: "select",
+	})
+	r.Register(ActionDef{
+		Action:    ActionLogsCopySelection,
+		Bindings:  []KeyBinding{{Rune: 'y'}},
+		Scope:     ScopeLog,
+		HintLabel: "copy",
+	})
+
+	// --- Popup ---
+	r.Register(ActionDef{
+		Action:    ActionPopupAccept,
+		Bindings:  []KeyBinding{{Key: gocui.KeyCtrlY}, {Rune: '1'}},
+		Scope:     ScopePopup,
+		HintLabel: "yes",
+	})
+	r.Register(ActionDef{
+		Action:    ActionPopupAllow,
+		Bindings:  []KeyBinding{{Key: gocui.KeyCtrlA}, {Rune: '2'}},
+		Scope:     ScopePopup,
+		HintLabel: "allow",
+	})
+	r.Register(ActionDef{
+		Action:    ActionPopupReject,
+		Bindings:  []KeyBinding{{Key: gocui.KeyCtrlN}, {Rune: '3'}},
+		Scope:     ScopePopup,
+		HintLabel: "no",
+	})
+	r.Register(ActionDef{
+		Action:    ActionPopupAcceptAll,
+		Bindings:  []KeyBinding{{Rune: 'Y'}},
+		Scope:     ScopePopup,
+		HintLabel: "all",
+	})
+	r.Register(ActionDef{
+		Action:    ActionPopupSuspend,
+		Bindings:  []KeyBinding{{Key: gocui.KeyEsc}},
+		Scope:     ScopePopup,
+		HintLabel: "hide",
+	})
+	r.Register(ActionDef{
+		Action:   ActionPopupFocusNext,
+		Bindings: []KeyBinding{{Key: gocui.KeyArrowDown}},
+		Scope:    ScopePopup,
+	})
+	r.Register(ActionDef{
+		Action:   ActionPopupFocusPrev,
+		Bindings: []KeyBinding{{Key: gocui.KeyArrowUp}},
+		Scope:    ScopePopup,
+	})
+	r.Register(ActionDef{
+		Action:    ActionPopupScrollDown,
+		Bindings:  []KeyBinding{{Rune: 'j'}},
+		Scope:     ScopePopup,
+		HintLabel: "scroll",
+		HintKey:   "j/k",
+	})
+	r.Register(ActionDef{
+		Action:   ActionPopupScrollUp,
+		Bindings: []KeyBinding{{Rune: 'k'}},
+		Scope:    ScopePopup,
+	})
+
+	// --- FullScreen ---
+	r.Register(ActionDef{
+		Action:    ActionExitFull,
+		Bindings:  []KeyBinding{{Key: gocui.KeyCtrlBackslash}, {Key: gocui.KeyCtrlD}},
+		Scope:     ScopeFullScreen,
+		HintLabel: "exit",
+		HintKey:   "C-\\",
+	})
+	r.Register(ActionDef{
+		Action:   ActionForwardEnter,
+		Bindings: []KeyBinding{{Key: gocui.KeyEnter}},
+		Scope:    ScopeFullScreen,
+	})
+	r.Register(ActionDef{
+		Action:   ActionForwardEsc,
 		Bindings: []KeyBinding{{Key: gocui.KeyEsc}},
-		States:   AllAppStates(),
+		Scope:    ScopeFullScreen,
+	})
+	r.Register(ActionDef{
+		Action:   ActionForwardDown,
+		Bindings: []KeyBinding{{Key: gocui.KeyArrowDown}},
+		Scope:    ScopeFullScreen,
+	})
+	r.Register(ActionDef{
+		Action:   ActionForwardUp,
+		Bindings: []KeyBinding{{Key: gocui.KeyArrowUp}},
+		Scope:    ScopeFullScreen,
 	})
 
 	return r

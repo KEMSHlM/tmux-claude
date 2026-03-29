@@ -6,6 +6,7 @@ import (
 	"github.com/KEMSHlM/lazyclaude/internal/core/choice"
 	"github.com/KEMSHlM/lazyclaude/internal/gui/keydispatch"
 	"github.com/KEMSHlM/lazyclaude/internal/gui/keyhandler"
+	"github.com/KEMSHlM/lazyclaude/internal/gui/keymap"
 	"github.com/jesseduffield/gocui"
 )
 
@@ -74,8 +75,9 @@ func (m *mockActions) PluginUpdate()                     { m.record("PluginUpdat
 func (m *mockActions) PluginRefresh()                    { m.record("PluginRefresh") }
 
 func newDispatcher() *keydispatch.Dispatcher {
-	pm := keyhandler.NewPanelManager(&keyhandler.SessionsPanel{}, &keyhandler.LogsPanel{})
-	return keydispatch.New(pm)
+	reg := keymap.Default()
+	pm := keyhandler.NewPanelManager(keyhandler.NewSessionsPanel(reg), keyhandler.NewLogsPanel(reg))
+	return keydispatch.New(pm, reg)
 }
 
 func TestDispatcher_PopupPriority(t *testing.T) {
