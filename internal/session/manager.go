@@ -23,13 +23,19 @@ import (
 
 const tmuxSessionName = "lazyclaude"
 
+// syncFailThreshold is the number of consecutive HasSession failures
+// required before marking all sessions as orphans. This prevents a single
+// transient tmux error from cascading into full session teardown.
+const syncFailThreshold = 3
+
 // Manager handles session lifecycle (CRUD + tmux synchronization).
 type Manager struct {
-	store *Store
-	tmux  tmux.Client
-	paths config.Paths
-	log   *slog.Logger
-	mu    sync.Mutex // guards Create/Delete/Sync against concurrent GC
+	store         *Store
+	tmux          tmux.Client
+	paths         config.Paths
+	log           *slog.Logger
+	mu            sync.Mutex // guards Create/Delete/Sync against concurrent GC
+	syncFailCount int        // consecutive Sync calls where HasSession returned false
 }
 
 // NewManager creates a session manager.
@@ -70,10 +76,19 @@ func (m *Manager) Sync(ctx context.Context) error {
 	}
 	m.log.Debug("sync.hasSession", "exists", exists)
 	if !exists {
+		m.syncFailCount++
+		m.log.Debug("sync.noSession",
+			"failCount", m.syncFailCount,
+			"threshold", syncFailThreshold,
+			"sessionCount", len(m.store.All()))
+		if m.syncFailCount < syncFailThreshold {
+			return nil
+		}
 		m.log.Debug("sync.noSession", "action", "markAllOrphan", "count", len(m.store.All()))
 		m.store.MarkAllStatus(StatusOrphan)
 		return nil
 	}
+	m.syncFailCount = 0
 
 	windows, err := m.tmux.ListWindows(ctx, tmuxSessionName)
 	if err != nil {
@@ -559,6 +574,7 @@ func cleanSessionCommands() [][]string {
 		{"set-option", "-g", "automatic-rename", "off"},
 		{"set-option", "-g", "remain-on-exit", "on"},
 		{"set-option", "-g", "window-size", "largest"},
+		{"set-option", "-g", "exit-empty", "off"},
 		{"set-hook", "-g", "pane-died", "detach-client"},
 		{"bind-key", "-T", "root", "C-\\", "detach-client"},
 	}

@@ -136,13 +136,34 @@ func (c *ExecClient) FindActiveClient(ctx context.Context) (*ClientInfo, error) 
 }
 
 func (c *ExecClient) HasSession(ctx context.Context, name string) (bool, error) {
-	_, err := c.run(ctx, "has-session", "-t", name)
+	ctx, cancel := context.WithTimeout(ctx, defaultTimeout)
+	defer cancel()
+
+	fullArgs := c.prependSocket([]string{"has-session", "-t", name})
+	cmd := exec.CommandContext(ctx, c.tmuxBin, fullArgs...)
+
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	c.logCmd("hasSession", fullArgs, "", err)
 	if err != nil {
 		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
+		if !errors.As(err, &exitErr) {
+			// Non-exit error (e.g., binary not found, context cancelled).
+			return false, fmt.Errorf("tmux has-session: %w", err)
+		}
+		// Exit code 1: distinguish "session not found" from transient errors
+		// by checking stderr. tmux writes "can't find session" when the
+		// session genuinely does not exist.
+		stderrStr := stderr.String()
+		if strings.Contains(stderrStr, "can't find session") ||
+			strings.Contains(stderrStr, "no session") {
 			return false, nil
 		}
-		return false, err
+		// Any other stderr (e.g., "no server running", "error connecting")
+		// is a transient error — propagate it.
+		return false, fmt.Errorf("tmux has-session transient error: %s", strings.TrimSpace(stderrStr))
 	}
 	return true, nil
 }

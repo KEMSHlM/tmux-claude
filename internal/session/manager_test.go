@@ -3,6 +3,7 @@ package session_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -193,6 +194,126 @@ func TestManager_Sync_WithTmux(t *testing.T) {
 	require.Len(t, all, 1)
 	assert.Equal(t, session.StatusRunning, all[0].Status)
 	assert.Equal(t, 5555, all[0].PID)
+}
+
+func TestManager_Sync_HasSessionError_DoesNotOrphan(t *testing.T) {
+	t.Parallel()
+	mgr, mock := newTestManager(t)
+	ctx := context.Background()
+
+	// Create a session
+	_, err := mgr.Create(ctx, "/home/user/app", "")
+	require.NoError(t, err)
+
+	// Inject a transient error into HasSession
+	mock.ErrHasSession = errors.New("tmux server temporarily unavailable")
+
+	err = mgr.Sync(ctx)
+	assert.Error(t, err, "Sync should propagate HasSession errors")
+
+	// Sessions must NOT be marked as orphan
+	all := mgr.Sessions()
+	require.Len(t, all, 1)
+	assert.Equal(t, session.StatusRunning, all[0].Status)
+}
+
+func TestManager_Sync_ConsecutiveFailCount(t *testing.T) {
+	t.Parallel()
+	mgr, mock := newTestManager(t)
+	ctx := context.Background()
+
+	_, err := mgr.Create(ctx, "/home/user/app", "")
+	require.NoError(t, err)
+
+	// Remove the lazyclaude session from mock so HasSession returns false
+	delete(mock.Sessions, "lazyclaude")
+
+	all := mgr.Sessions()
+	require.Len(t, all, 1)
+	assert.Equal(t, session.StatusRunning, all[0].Status)
+
+	// First Sync: failCount=1 → no orphan
+	err = mgr.Sync(ctx)
+	require.NoError(t, err)
+	all = mgr.Sessions()
+	require.Len(t, all, 1)
+	assert.Equal(t, session.StatusRunning, all[0].Status, "1st failure should not orphan")
+
+	// Second Sync: failCount=2 → no orphan
+	err = mgr.Sync(ctx)
+	require.NoError(t, err)
+	all = mgr.Sessions()
+	require.Len(t, all, 1)
+	assert.Equal(t, session.StatusRunning, all[0].Status, "2nd failure should not orphan")
+
+	// Third Sync: failCount=3 → orphan
+	err = mgr.Sync(ctx)
+	require.NoError(t, err)
+	all = mgr.Sessions()
+	require.Len(t, all, 1)
+	assert.Equal(t, session.StatusOrphan, all[0].Status, "3rd failure should orphan")
+}
+
+func TestManager_Sync_FailCountResetsOnSuccess(t *testing.T) {
+	t.Parallel()
+	mgr, mock := newTestManager(t)
+	ctx := context.Background()
+
+	sess, err := mgr.Create(ctx, "/home/user/app", "")
+	require.NoError(t, err)
+
+	// Remove session so HasSession returns false
+	delete(mock.Sessions, "lazyclaude")
+
+	// Two failures (below threshold)
+	err = mgr.Sync(ctx)
+	require.NoError(t, err)
+	err = mgr.Sync(ctx)
+	require.NoError(t, err)
+
+	// Success resets counter
+	windowName := sess.WindowName()
+	mock.Sessions["lazyclaude"] = []tmux.WindowInfo{
+		{ID: "@1", Name: windowName, Session: "lazyclaude"},
+	}
+	mock.Panes["lazyclaude"] = []tmux.PaneInfo{
+		{ID: "%1", Window: "@1", PID: 1234, Dead: false},
+	}
+	err = mgr.Sync(ctx)
+	require.NoError(t, err)
+
+	// Remove session again → counter starts from 0
+	delete(mock.Sessions, "lazyclaude")
+	delete(mock.Panes, "lazyclaude")
+
+	// Two more failures — still below threshold
+	err = mgr.Sync(ctx)
+	require.NoError(t, err)
+	err = mgr.Sync(ctx)
+	require.NoError(t, err)
+
+	all := mgr.Sessions()
+	require.Len(t, all, 1)
+	assert.Equal(t, session.StatusRunning, all[0].Status, "counter should have reset")
+}
+
+func TestManager_CleanSessionCommands_ExitEmpty(t *testing.T) {
+	t.Parallel()
+	mgr, mock := newTestManager(t)
+
+	// Create a session to trigger cleanSessionCommands via PostCommands
+	_, err := mgr.Create(context.Background(), "/home/user/app", "")
+	require.NoError(t, err)
+
+	// Verify exit-empty off is in PostCommands
+	found := false
+	for _, cmd := range mock.LastNewSessionOpts.PostCommands {
+		if len(cmd) >= 4 && cmd[0] == "set-option" && cmd[2] == "exit-empty" && cmd[3] == "off" {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "cleanSessionCommands should include exit-empty off")
 }
 
 func TestManager_Create_PostCommands_NoWindowFlag(t *testing.T) {
