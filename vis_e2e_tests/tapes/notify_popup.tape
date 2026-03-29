@@ -7,28 +7,27 @@ Set Height 1200
 Set FontSize 16
 Set WaitTimeout 60s
 
-# lazyclaude 起動
-Type "lazyclaude" Enter
+# lazyclaude 起動 (tmux plugin 経由)
+Ctrl+\
 Wait+Screen /No sessions/
 
 # n でセッション作成
 Type "n"
 Wait+Screen /app/
 
-# フルスクリーン
-Enter
+# セッションに移動してフルスクリーン
+Down Enter
 Wait+Screen /Sonnet/
 
 # Claude にファイル作成を依頼 (Write ツールは許可が必要)
 Type "create a file /tmp/hello.txt with content 'hello world'" Enter
 
-# すぐに lazyclaude を閉じる
+# フルスクリーンを抜けてセッション一覧に戻る
 Sleep 3s
-Ctrl+\ Sleep 1s
-Type "q" Sleep 1s
+Ctrl+\
 
-# popup が閉じた状態で通知 popup が来るか待機 (Write or Bash)
-Wait+Screen /Do you want/
+# gocui overlay popup が表示されるのを待つ
+Wait+Screen /C-y/
 
-# y で承認 (通知 popup が出ていれば)
-Type "y" Sleep 3s
+# Ctrl+y で承認
+Ctrl+y Sleep 3s
