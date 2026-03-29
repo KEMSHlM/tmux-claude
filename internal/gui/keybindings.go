@@ -154,7 +154,8 @@ func (a *App) setupGlobalKeybindings() error {
 				})
 				return
 			}
-			if err := a.sessions.CreateWorktree(branchName, userPrompt, abs); err != nil {
+			projectRoot := session.InferProjectRoot(abs)
+			if err := a.sessions.CreateWorktree(branchName, userPrompt, projectRoot); err != nil {
 				a.gui.Update(func(g *gocui.Gui) error {
 					a.setStatus(g, fmt.Sprintf("Error: %v", err))
 					return nil
@@ -298,7 +299,8 @@ func (a *App) setupGlobalKeybindings() error {
 				})
 				return
 			}
-			if err := a.sessions.ResumeWorktree(wtPath, userPrompt, abs); err != nil {
+			projectRoot := session.InferProjectRoot(abs)
+			if err := a.sessions.ResumeWorktree(wtPath, userPrompt, projectRoot); err != nil {
 				a.gui.Update(func(g *gocui.Gui) error {
 					a.setStatus(g, fmt.Sprintf("Error: %v", err))
 					return nil

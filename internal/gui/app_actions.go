@@ -6,6 +6,7 @@ import (
 
 	"github.com/KEMSHlM/lazyclaude/internal/core/choice"
 	"github.com/KEMSHlM/lazyclaude/internal/gui/keyhandler"
+	"github.com/KEMSHlM/lazyclaude/internal/session"
 	"github.com/jesseduffield/gocui"
 )
 
@@ -233,7 +234,8 @@ func (a *App) StartPMSession() {
 		if err != nil {
 			return
 		}
-		err = a.sessions.CreatePMSession(abs)
+		projectRoot := session.InferProjectRoot(abs)
+		err = a.sessions.CreatePMSession(projectRoot)
 		a.gui.Update(func(g *gocui.Gui) error {
 			if err != nil {
 				a.setStatus(g, fmt.Sprintf("PM error: %v", err))
@@ -266,7 +268,8 @@ func (a *App) SelectWorktree() {
 		if err != nil {
 			return
 		}
-		items, err := a.sessions.ListWorktrees(abs)
+		projectRoot := session.InferProjectRoot(abs)
+		items, err := a.sessions.ListWorktrees(projectRoot)
 		a.gui.Update(func(g *gocui.Gui) error {
 			if err != nil {
 				a.setStatus(g, fmt.Sprintf("Error: %v", err))
