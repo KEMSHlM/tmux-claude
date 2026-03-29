@@ -86,9 +86,9 @@ func (s *Server) handleMsgCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.mu.Lock()
+	s.mu.RLock()
 	sc := s.sessionCreator
-	s.mu.Unlock()
+	s.mu.RUnlock()
 
 	if sc == nil {
 		http.Error(w, "session creator not available", http.StatusServiceUnavailable)
@@ -114,7 +114,7 @@ func (s *Server) handleMsgCreate(w http.ResponseWriter, r *http.Request) {
 
 	project := sc.FindProjectForSession(req.From)
 	if project == nil {
-		http.Error(w, fmt.Sprintf("session not found: %s", req.From), http.StatusNotFound)
+		http.Error(w, "caller session not found", http.StatusNotFound)
 		return
 	}
 
@@ -127,10 +127,13 @@ func (s *Server) handleMsgCreate(w http.ResponseWriter, r *http.Request) {
 		result, err = sc.CreateWorkerSession(ctx, req.Name, req.Prompt, project.Path)
 	case "local":
 		result, err = sc.CreateLocalSession(ctx, req.Name, project.Path)
+	default:
+		http.Error(w, "unsupported type", http.StatusBadRequest)
+		return
 	}
 	if err != nil {
 		s.log.Printf("msg/create: %v", err)
-		http.Error(w, fmt.Sprintf("create session failed: %v", err), http.StatusInternalServerError)
+		http.Error(w, "create session failed", http.StatusInternalServerError)
 		return
 	}
 
@@ -207,9 +210,9 @@ func (s *Server) handleMsgSend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Resolve sessions from the lister.
-	s.mu.Lock()
+	s.mu.RLock()
 	sl := s.sessionLister
-	s.mu.Unlock()
+	s.mu.RUnlock()
 
 	var sessions []SessionInfo
 	if sl != nil {
@@ -307,9 +310,9 @@ func (s *Server) handleMsgSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.mu.Lock()
+	s.mu.RLock()
 	sl := s.sessionLister
-	s.mu.Unlock()
+	s.mu.RUnlock()
 
 	var sessions []SessionInfo
 	if sl != nil {

@@ -47,7 +47,7 @@ type Server struct {
 	listener net.Listener
 	httpSrv  *http.Server
 
-	mu       sync.Mutex
+	mu       sync.RWMutex
 	shutdown bool
 }
 
