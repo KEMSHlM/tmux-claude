@@ -50,6 +50,15 @@ func TestHasLazyClaudeHooks_Empty(t *testing.T) {
 
 func TestHasLazyClaudeHooks_Present(t *testing.T) {
 	t.Parallel()
+	// Use SetLazyClaudeHooks to generate current-version hooks, then verify detection
+	settings := config.SetLazyClaudeHooks(map[string]any{})
+	assert.True(t, config.HasLazyClaudeHooks(settings))
+}
+
+func TestHasLazyClaudeHooks_OldVersion(t *testing.T) {
+	t.Parallel()
+	// Old hooks have /notify but lack process.kill (PID liveness check).
+	// HasLazyClaudeHooks should return false so setup upgrades them.
 	settings := map[string]any{
 		"hooks": map[string]any{
 			"PreToolUse": []any{
@@ -60,9 +69,17 @@ func TestHasLazyClaudeHooks_Present(t *testing.T) {
 					},
 				},
 			},
+			"Notification": []any{
+				map[string]any{
+					"matcher": "*",
+					"hooks": []any{
+						map[string]any{"type": "command", "command": "node -e \"fetch('/notify')\""},
+					},
+				},
+			},
 		},
 	}
-	assert.True(t, config.HasLazyClaudeHooks(settings))
+	assert.False(t, config.HasLazyClaudeHooks(settings))
 }
 
 func TestHasLazyClaudeHooks_OtherHooks(t *testing.T) {

@@ -7,8 +7,12 @@ import (
 	"strings"
 )
 
-// Hook marker: commands containing this path are identified as lazyclaude hooks.
+// hookMarker identifies lazyclaude hooks. Commands containing this are ours.
 const hookMarker = "/notify"
+
+// hookVersionMarker identifies the current hook version. Old hooks that lack
+// PID liveness checking don't contain this string and must be upgraded.
+const hookVersionMarker = "process.kill"
 
 // findAliveLockJS is shared JavaScript that reads all lock files, validates PID
 // liveness via process.kill(pid, 0), and picks the highest port (most recent).
@@ -47,16 +51,19 @@ func ReadClaudeSettings(path string) (map[string]any, error) {
 	return settings, nil
 }
 
-// HasLazyClaudeHooks checks if lazyclaude hooks are already registered.
+// HasLazyClaudeHooks checks if the current version of lazyclaude hooks are registered.
+// Returns false when hooks exist but are outdated (missing PID liveness check).
 func HasLazyClaudeHooks(settings map[string]any) bool {
 	hooks, ok := settings["hooks"].(map[string]any)
 	if !ok {
 		return false
 	}
-	return containsHookMarker(hooks, "PreToolUse") || containsHookMarker(hooks, "Notification")
+	// Both hook types must be present AND up-to-date (contain version marker).
+	return containsCurrentHook(hooks, "PreToolUse") && containsCurrentHook(hooks, "Notification")
 }
 
-func containsHookMarker(hooks map[string]any, hookType string) bool {
+// containsCurrentHook checks that the hook type has a lazyclaude hook with the current version marker.
+func containsCurrentHook(hooks map[string]any, hookType string) bool {
 	entries, ok := hooks[hookType].([]any)
 	if !ok {
 		return false
@@ -76,7 +83,7 @@ func containsHookMarker(hooks map[string]any, hookType string) bool {
 				continue
 			}
 			cmd, _ := hMap["command"].(string)
-			if strings.Contains(cmd, hookMarker) {
+			if strings.Contains(cmd, hookMarker) && strings.Contains(cmd, hookVersionMarker) {
 				return true
 			}
 		}

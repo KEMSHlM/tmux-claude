@@ -28,10 +28,10 @@ type diffChoice struct {
 // State manages shared server state across connections.
 type State struct {
 	mu          sync.RWMutex
-	connections map[string]*ConnState  // connID -> state
-	pidToWindow map[int]string         // pid -> window ID
-	pending     map[string]PendingTool // window -> pending tool info
-	diffChoices map[string]diffChoice  // window -> diff choice (consumed on read)
+	connections map[string]*ConnState    // connID -> state
+	pidToWindow map[int]string           // pid -> window ID
+	pending     map[string][]PendingTool // window -> FIFO queue of pending tool info
+	diffChoices map[string]diffChoice    // window -> diff choice (consumed on read)
 }
 
 // NewState creates an empty State.
@@ -39,7 +39,7 @@ func NewState() *State {
 	return &State{
 		connections: make(map[string]*ConnState),
 		pidToWindow: make(map[int]string),
-		pending:     make(map[string]PendingTool),
+		pending:     make(map[string][]PendingTool),
 		diffChoices: make(map[string]diffChoice),
 	}
 }
@@ -80,35 +80,44 @@ func (s *State) WindowForPID(pid int) string {
 
 const pendingTTL = 15 * time.Second
 
-// SetPending stores pending tool info for a window with a TTL.
+// SetPending appends pending tool info to the FIFO queue for a window.
+// Multiple tools can be pending concurrently for the same window.
 func (s *State) SetPending(window string, tool PendingTool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	tool.Expiry = time.Now().Add(pendingTTL)
-	s.pending[window] = tool
+	s.pending[window] = append(s.pending[window], tool)
 }
 
-// SetPendingWithExpiry stores pending tool info with an explicit expiry (for testing).
+// SetPendingWithExpiry appends pending tool info with an explicit expiry (for testing).
 func (s *State) SetPendingWithExpiry(window string, tool PendingTool, expiry time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	tool.Expiry = expiry
-	s.pending[window] = tool
+	s.pending[window] = append(s.pending[window], tool)
 }
 
-// GetPending retrieves and removes pending tool info (if not expired).
+// GetPending pops the oldest non-expired pending tool info from the FIFO queue.
 func (s *State) GetPending(window string) (PendingTool, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	tool, ok := s.pending[window]
-	if !ok {
-		return PendingTool{}, false
+	queue := s.pending[window]
+	now := time.Now()
+	for len(queue) > 0 {
+		tool := queue[0]
+		queue = queue[1:]
+		if now.After(tool.Expiry) {
+			continue // skip expired entries
+		}
+		if len(queue) == 0 {
+			delete(s.pending, window)
+		} else {
+			s.pending[window] = queue
+		}
+		return tool, true
 	}
 	delete(s.pending, window)
-	if time.Now().After(tool.Expiry) {
-		return PendingTool{}, false
-	}
-	return tool, true
+	return PendingTool{}, false
 }
 
 // SetDiffChoice stores a diff popup choice for a window with default TTL.
@@ -152,10 +161,16 @@ func (s *State) LastPendingWindow() string {
 	defer s.mu.RUnlock()
 	var latest string
 	var latestExpiry time.Time
-	for w, p := range s.pending {
-		if p.Expiry.After(latestExpiry) {
-			latest = w
-			latestExpiry = p.Expiry
+	now := time.Now()
+	for w, queue := range s.pending {
+		for _, p := range queue {
+			if now.After(p.Expiry) {
+				continue
+			}
+			if p.Expiry.After(latestExpiry) {
+				latest = w
+				latestExpiry = p.Expiry
+			}
 		}
 	}
 	return latest
