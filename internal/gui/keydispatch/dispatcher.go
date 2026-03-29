@@ -63,6 +63,13 @@ func (d *Dispatcher) ActiveOptionsBar(actions keyhandler.AppActions) string {
 	if panel == nil {
 		return ""
 	}
+	// PluginsPanel has tab-dependent options bar
+	if pp, ok := panel.(*keyhandler.PluginsPanel); ok {
+		if actions.PluginTabIndex() == 1 {
+			return pp.MarketplaceOptionsBar()
+		}
+		return pp.InstalledOptionsBar()
+	}
 	return panel.OptionsBar()
 }
 

@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 
@@ -381,6 +382,131 @@ func (a *App) LogsCopySelection() {
 		copyToClipboard(text)
 	}
 	a.logs.ClearSelection()
+}
+
+// --- Plugin panel ---
+
+func (a *App) PluginCursorDown() {
+	max := a.pluginItemCount() - 1
+	cur := a.pluginState.Cursor()
+	if cur < max {
+		a.pluginState.SetCursor(cur + 1)
+	}
+}
+
+func (a *App) PluginCursorUp() {
+	cur := a.pluginState.Cursor()
+	if cur > 0 {
+		a.pluginState.SetCursor(cur - 1)
+	}
+}
+
+func (a *App) PluginNextTab() {
+	if a.pluginState.tabIdx < 1 {
+		a.pluginState.tabIdx = 1
+	}
+}
+
+func (a *App) PluginPrevTab() {
+	if a.pluginState.tabIdx > 0 {
+		a.pluginState.tabIdx = 0
+	}
+}
+
+func (a *App) PluginInstall() {
+	if a.plugins == nil || a.pluginState.tabIdx != 1 {
+		return
+	}
+	avail := a.plugins.Available()
+	if a.pluginState.marketCursor >= len(avail) {
+		return
+	}
+	pluginID := avail[a.pluginState.marketCursor].PluginID
+	a.runPluginAsync(func(ctx context.Context) error {
+		return a.plugins.Install(ctx, pluginID)
+	})
+}
+
+func (a *App) PluginUninstall() {
+	if a.plugins == nil || a.pluginState.tabIdx != 0 {
+		return
+	}
+	installed := a.plugins.Installed()
+	if a.pluginState.installedCursor >= len(installed) {
+		return
+	}
+	pluginID := installed[a.pluginState.installedCursor].ID
+	a.runPluginAsync(func(ctx context.Context) error {
+		return a.plugins.Uninstall(ctx, pluginID)
+	})
+}
+
+func (a *App) PluginToggleEnabled() {
+	if a.plugins == nil || a.pluginState.tabIdx != 0 {
+		return
+	}
+	installed := a.plugins.Installed()
+	if a.pluginState.installedCursor >= len(installed) {
+		return
+	}
+	pluginID := installed[a.pluginState.installedCursor].ID
+	a.runPluginAsync(func(ctx context.Context) error {
+		return a.plugins.ToggleEnabled(ctx, pluginID)
+	})
+}
+
+func (a *App) PluginUpdate() {
+	if a.plugins == nil || a.pluginState.tabIdx != 0 {
+		return
+	}
+	installed := a.plugins.Installed()
+	if a.pluginState.installedCursor >= len(installed) {
+		return
+	}
+	pluginID := installed[a.pluginState.installedCursor].ID
+	a.runPluginAsync(func(ctx context.Context) error {
+		return a.plugins.Update(ctx, pluginID)
+	})
+}
+
+func (a *App) PluginRefresh() {
+	if a.plugins == nil {
+		return
+	}
+	a.runPluginAsync(func(ctx context.Context) error {
+		return a.plugins.Refresh(ctx)
+	})
+}
+
+func (a *App) PluginTabIndex() int {
+	return a.pluginState.tabIdx
+}
+
+// runPluginAsync runs a plugin operation asynchronously with loading state management.
+func (a *App) runPluginAsync(fn func(ctx context.Context) error) {
+	a.pluginState.loading = true
+	a.pluginState.errMsg = ""
+	go func() {
+		err := fn(context.Background())
+		a.gui.Update(func(g *gocui.Gui) error {
+			a.pluginState.loading = false
+			if err != nil {
+				a.pluginState.errMsg = err.Error()
+			}
+			return nil
+		})
+	}()
+}
+
+// pluginItemCount returns the number of items in the active plugin tab.
+func (a *App) pluginItemCount() int {
+	if a.plugins == nil {
+		return 0
+	}
+	if a.pluginState.tabIdx == 0 {
+		return len(a.plugins.Installed())
+	}
+	return len(a.plugins.Available())
 }
 
 // --- Application ---

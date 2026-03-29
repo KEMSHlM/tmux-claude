@@ -55,6 +55,18 @@ type AppActions interface {
 	LogsToggleSelect()
 	LogsCopySelection()
 
+	// Plugin panel
+	PluginCursorDown()
+	PluginCursorUp()
+	PluginNextTab()     // ] — switch Installed -> Marketplace within plugin panel
+	PluginPrevTab()     // [ — switch Marketplace -> Installed within plugin panel
+	PluginInstall()
+	PluginUninstall()
+	PluginToggleEnabled()
+	PluginUpdate()
+	PluginRefresh()
+	PluginTabIndex() int // 0=Installed, 1=Marketplace
+
 	// Application
 	Quit()
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/KEMSHlM/lazyclaude/internal/core/tmux"
 	"github.com/KEMSHlM/lazyclaude/internal/gui"
 	"github.com/KEMSHlM/lazyclaude/internal/notify"
+	"github.com/KEMSHlM/lazyclaude/internal/plugin"
 	"github.com/KEMSHlM/lazyclaude/internal/server"
 	"github.com/KEMSHlM/lazyclaude/internal/session"
 	"github.com/charmbracelet/x/ansi"
@@ -112,6 +113,11 @@ func newRootCmd() *cobra.Command {
 				return fmt.Errorf("init TUI: %w", err)
 			}
 			app.SetSessions(adapter)
+
+			// Plugin manager: wraps `claude plugins` CLI (project scope only)
+			pluginCLI := plugin.NewExecCLI()
+			pluginMgr := plugin.NewManager(pluginCLI, logger)
+			app.SetPlugins(&pluginAdapter{mgr: pluginMgr})
 
 			// Wire the notify broker (nil-safe: falls back to file polling only).
 			app.SetNotifyBroker(notifyBroker)
@@ -502,4 +508,59 @@ func (m *controlManager) close() {
 	if m.client != nil {
 		m.client.Close()
 	}
+}
+
+// pluginAdapter converts between plugin.Manager types and gui types.
+type pluginAdapter struct {
+	mgr *plugin.Manager
+}
+
+func (a *pluginAdapter) Refresh(ctx context.Context) error {
+	return a.mgr.Refresh(ctx)
+}
+
+func (a *pluginAdapter) Installed() []gui.PluginItem {
+	installed := a.mgr.Installed()
+	items := make([]gui.PluginItem, len(installed))
+	for i, p := range installed {
+		items[i] = gui.PluginItem{
+			ID:          p.ID,
+			Version:     p.Version,
+			Scope:       p.Scope,
+			Enabled:     p.Enabled,
+			InstalledAt: p.InstalledAt,
+		}
+	}
+	return items
+}
+
+func (a *pluginAdapter) Available() []gui.AvailablePluginItem {
+	available := a.mgr.Available()
+	items := make([]gui.AvailablePluginItem, len(available))
+	for i, p := range available {
+		items[i] = gui.AvailablePluginItem{
+			PluginID:        p.PluginID,
+			Name:            p.Name,
+			Description:     p.Description,
+			MarketplaceName: p.MarketplaceName,
+			InstallCount:    p.InstallCount,
+		}
+	}
+	return items
+}
+
+func (a *pluginAdapter) Install(ctx context.Context, pluginID string) error {
+	return a.mgr.Install(ctx, pluginID, "project")
+}
+
+func (a *pluginAdapter) Uninstall(ctx context.Context, pluginID string) error {
+	return a.mgr.Uninstall(ctx, pluginID)
+}
+
+func (a *pluginAdapter) ToggleEnabled(ctx context.Context, pluginID string) error {
+	return a.mgr.ToggleEnabled(ctx, pluginID)
+}
+
+func (a *pluginAdapter) Update(ctx context.Context, pluginID string) error {
+	return a.mgr.Update(ctx, pluginID)
 }

@@ -95,6 +95,8 @@ type App struct {
 	watchdogDone       chan struct{}               // signals watchdog to stop
 	watchdogStarted    bool                        // prevents multiple watchdog goroutines
 	cachedNodes        []TreeNode                   // rebuilt once per layout cycle
+	pluginState        *PluginState                 // plugin panel UI state
+	plugins            PluginProvider               // plugin operations (nil until wired)
 }
 
 // startPasteWatchdog starts the watchdog goroutine if not already running.
@@ -153,6 +155,7 @@ func newApp(mode AppMode, g *gocui.Gui, enableMouse bool) (*App, error) {
 		keyRegistry: DefaultKeyRegistry(),
 		logs:        NewLogsState(),
 		notify:      NewNotifyLoop(),
+		pluginState: NewPluginState(),
 	}
 	app.fullscreen = NewFullScreenState(app.preview)
 	app.initDispatcher()
@@ -200,6 +203,7 @@ func NewAppHeadless(mode AppMode, width, height int) (*App, error) {
 func (a *App) initDispatcher() {
 	pm := keyhandler.NewPanelManager(
 		&keyhandler.SessionsPanel{},
+		&keyhandler.PluginsPanel{},
 		&keyhandler.LogsPanel{},
 	)
 	a.panelManager = pm
@@ -288,6 +292,11 @@ func (a *App) Mode() int {
 // SetSessions sets the session provider for the main screen.
 func (a *App) SetSessions(sp SessionProvider) {
 	a.sessions = sp
+}
+
+// SetPlugins sets the plugin provider for the plugins panel.
+func (a *App) SetPlugins(pp PluginProvider) {
+	a.plugins = pp
 }
 
 // SetInputForwarder sets the input forwarder for full-screen mode.

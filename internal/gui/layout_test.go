@@ -40,11 +40,12 @@ func TestComputeLayout_NormalSize(t *testing.T) {
 	// Standard 80x24 terminal.
 	l := gui.ComputeLayout(80, 24)
 
-	// splitX = 80/3 = 26, which is >= 20 and < 80-10=70, so stays 26.
-	// leftMidY = (24-2)*2/3 = 22*2/3 = 14
+	// splitX = 80/3 = 26. leftH = 22, thirdH = 7.
+	// sessions: Y0=0, Y1=7. plugins: Y0=8, Y1=14. logs: Y0=15, Y1=22.
 	require.False(t, l.Compact, "80-wide should not be compact")
 
-	assert.Equal(t, gui.Rect{X0: 0, Y0: 0, X1: 25, Y1: 14}, l.Sessions)
+	assert.Equal(t, gui.Rect{X0: 0, Y0: 0, X1: 25, Y1: 7}, l.Sessions)
+	assert.Equal(t, gui.Rect{X0: 0, Y0: 8, X1: 25, Y1: 14}, l.Plugins)
 	assert.Equal(t, gui.Rect{X0: 0, Y0: 15, X1: 25, Y1: 22}, l.Server)
 	assert.Equal(t, gui.Rect{X0: 26, Y0: 0, X1: 79, Y1: 22}, l.Main)
 	assert.Equal(t, gui.Rect{X0: 0, Y0: 22, X1: 79, Y1: 24}, l.Options)
@@ -55,11 +56,12 @@ func TestComputeLayout_WideTerminal(t *testing.T) {
 	// 200x50 terminal.
 	l := gui.ComputeLayout(200, 50)
 
-	// splitX = 200/3 = 66, >= 20 and < 200-10=190, so stays 66.
-	// leftMidY = (50-2)*2/3 = 48*2/3 = 32
+	// splitX=66. leftH=48, thirdH=16.
+	// sessions: Y1=16. plugins: Y0=17, Y1=32. logs: Y0=33, Y1=48.
 	require.False(t, l.Compact)
 
-	assert.Equal(t, gui.Rect{X0: 0, Y0: 0, X1: 65, Y1: 32}, l.Sessions)
+	assert.Equal(t, gui.Rect{X0: 0, Y0: 0, X1: 65, Y1: 16}, l.Sessions)
+	assert.Equal(t, gui.Rect{X0: 0, Y0: 17, X1: 65, Y1: 32}, l.Plugins)
 	assert.Equal(t, gui.Rect{X0: 0, Y0: 33, X1: 65, Y1: 48}, l.Server)
 	assert.Equal(t, gui.Rect{X0: 66, Y0: 0, X1: 199, Y1: 48}, l.Main)
 	assert.Equal(t, gui.Rect{X0: 0, Y0: 48, X1: 199, Y1: 50}, l.Options)
@@ -67,14 +69,13 @@ func TestComputeLayout_WideTerminal(t *testing.T) {
 
 func TestComputeLayout_NarrowTerminal(t *testing.T) {
 	t.Parallel()
-	// 50x24 — below CompactThreshold (60), compact mode.
+	// 50x24. splitX=20. leftH=22, thirdH=7.
 	l := gui.ComputeLayout(50, 24)
 
 	require.True(t, l.Compact, "50-wide terminal should be compact")
 
-	// splitX = 50/3 = 16, clamped to 20. 20 < 50-10=40, stays 20.
-	// leftMidY = (24-2)*2/3 = 14
-	assert.Equal(t, gui.Rect{X0: 0, Y0: 0, X1: 19, Y1: 14}, l.Sessions)
+	assert.Equal(t, gui.Rect{X0: 0, Y0: 0, X1: 19, Y1: 7}, l.Sessions)
+	assert.Equal(t, gui.Rect{X0: 0, Y0: 8, X1: 19, Y1: 14}, l.Plugins)
 	assert.Equal(t, gui.Rect{X0: 0, Y0: 15, X1: 19, Y1: 22}, l.Server)
 	assert.Equal(t, gui.Rect{X0: 20, Y0: 0, X1: 49, Y1: 22}, l.Main)
 	assert.Equal(t, gui.Rect{X0: 0, Y0: 22, X1: 49, Y1: 24}, l.Options)
@@ -82,14 +83,13 @@ func TestComputeLayout_NarrowTerminal(t *testing.T) {
 
 func TestComputeLayout_VeryNarrow(t *testing.T) {
 	t.Parallel()
-	// 30x24 — extreme compact.
+	// 30x24. splitX=15. leftH=22, thirdH=7.
 	l := gui.ComputeLayout(30, 24)
 
 	require.True(t, l.Compact)
 
-	// splitX = 30/3 = 10, clamped to 20. 20 >= 30-10=20, so clamped to 30/2=15.
-	// leftMidY = (24-2)*2/3 = 14
-	assert.Equal(t, gui.Rect{X0: 0, Y0: 0, X1: 14, Y1: 14}, l.Sessions)
+	assert.Equal(t, gui.Rect{X0: 0, Y0: 0, X1: 14, Y1: 7}, l.Sessions)
+	assert.Equal(t, gui.Rect{X0: 0, Y0: 8, X1: 14, Y1: 14}, l.Plugins)
 	assert.Equal(t, gui.Rect{X0: 0, Y0: 15, X1: 14, Y1: 22}, l.Server)
 	assert.Equal(t, gui.Rect{X0: 15, Y0: 0, X1: 29, Y1: 22}, l.Main)
 	assert.Equal(t, gui.Rect{X0: 0, Y0: 22, X1: 29, Y1: 24}, l.Options)
@@ -97,14 +97,13 @@ func TestComputeLayout_VeryNarrow(t *testing.T) {
 
 func TestComputeLayout_MinimumSize(t *testing.T) {
 	t.Parallel()
-	// 10x5 — very small terminal, should not panic.
+	// 10x5. splitX=5. leftH=3, thirdH=1.
 	l := gui.ComputeLayout(10, 5)
 
 	require.True(t, l.Compact)
 
-	// splitX = 10/3 = 3, clamped to 20. 20 >= 10-10=0, so clamped to 10/2=5.
-	// leftMidY = (5-2)*2/3 = 2
-	assert.Equal(t, gui.Rect{X0: 0, Y0: 0, X1: 4, Y1: 2}, l.Sessions)
+	assert.Equal(t, gui.Rect{X0: 0, Y0: 0, X1: 4, Y1: 1}, l.Sessions)
+	assert.Equal(t, gui.Rect{X0: 0, Y0: 2, X1: 4, Y1: 2}, l.Plugins)
 	assert.Equal(t, gui.Rect{X0: 0, Y0: 3, X1: 4, Y1: 3}, l.Server)
 	assert.Equal(t, gui.Rect{X0: 5, Y0: 0, X1: 9, Y1: 3}, l.Main)
 	assert.Equal(t, gui.Rect{X0: 0, Y0: 3, X1: 9, Y1: 5}, l.Options)
@@ -144,12 +143,22 @@ func TestComputeLayout_OptionsBar(t *testing.T) {
 
 func TestComputeLayout_ServerPanel(t *testing.T) {
 	t.Parallel()
-	// Server panel must start just below the sessions panel.
+	// Server panel must start just below the plugins panel.
 	l := gui.ComputeLayout(80, 24)
 
-	assert.Equal(t, l.Sessions.Y1+1, l.Server.Y0, "server starts one row below sessions")
+	assert.Equal(t, l.Plugins.Y1+1, l.Server.Y0, "server starts one row below plugins")
 	assert.Equal(t, l.Sessions.X0, l.Server.X0, "server shares left edge")
 	assert.Equal(t, l.Sessions.X1, l.Server.X1, "server shares right edge")
+}
+
+func TestComputeLayout_PluginsPanel(t *testing.T) {
+	t.Parallel()
+	// Plugins panel must start just below sessions.
+	l := gui.ComputeLayout(80, 24)
+
+	assert.Equal(t, l.Sessions.Y1+1, l.Plugins.Y0, "plugins starts one row below sessions")
+	assert.Equal(t, l.Sessions.X0, l.Plugins.X0, "plugins shares left edge")
+	assert.Equal(t, l.Sessions.X1, l.Plugins.X1, "plugins shares right edge")
 }
 
 func TestComputeLayout_SessionsAndMainShareTopEdge(t *testing.T) {
