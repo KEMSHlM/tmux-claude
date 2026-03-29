@@ -39,6 +39,7 @@ func (r Rect) Height() int {
 // Layout holds pre-computed view positions for the main screen.
 type Layout struct {
 	Sessions Rect // upper-left panel
+	Plugins  Rect // middle-left panel
 	Server   Rect // lower-left panel
 	Main     Rect // right panel (preview)
 	Options  Rect // bottom bar
@@ -64,15 +65,24 @@ func ComputeLayout(width, height int) Layout {
 
 	compact := width < CompactThreshold
 
-	leftMidY := (maxY - 2) * 2 / 3
+	// Left side: 3 panels split into thirds
+	leftH := maxY - 2 // available height (minus options bar)
+	thirdH := leftH / 3
 
-	sessions := Rect{X0: 0, Y0: 0, X1: splitX - 1, Y1: leftMidY}
-	server := Rect{X0: 0, Y0: leftMidY + 1, X1: splitX - 1, Y1: maxY - 2}
+	sessY1 := thirdH
+	plugY0 := sessY1 + 1
+	plugY1 := sessY1 + thirdH
+	logsY0 := plugY1 + 1
+
+	sessions := Rect{X0: 0, Y0: 0, X1: splitX - 1, Y1: sessY1}
+	plugins := Rect{X0: 0, Y0: plugY0, X1: splitX - 1, Y1: plugY1}
+	server := Rect{X0: 0, Y0: logsY0, X1: splitX - 1, Y1: maxY - 2}
 	main := Rect{X0: splitX, Y0: 0, X1: maxX - 1, Y1: maxY - 2}
 	options := Rect{X0: 0, Y0: maxY - 2, X1: maxX - 1, Y1: maxY}
 
 	return Layout{
 		Sessions: sessions,
+		Plugins:  plugins,
 		Server:   server,
 		Main:     main,
 		Options:  options,
@@ -100,6 +110,9 @@ func (a *App) layout(g *gocui.Gui) error {
 
 	// Rebuild tree nodes once per layout cycle for consistency.
 	a.refreshTreeNodes()
+
+	// Sync plugin panel with current project (lazy init on first layout).
+	a.syncPluginProjectOnce()
 
 	// Detect terminal resize -> clear preview cache
 	if maxX != a.lastWidth || maxY != a.lastHeight {
@@ -156,6 +169,20 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 	}
 	renderTree(v, nodes, a.cursor)
 
+	// Plugins view (middle left)
+	vp, err := g.SetView("plugins", l.Plugins.X0, l.Plugins.Y0, l.Plugins.X1, l.Plugins.Y1, 0)
+	if err != nil && !isUnknownView(err) {
+		return err
+	}
+	setRoundedFrame(vp)
+	if focusedName == "plugins" {
+		vp.FrameColor = gocui.ColorCyan
+	} else {
+		vp.FrameColor = gocui.ColorDefault
+	}
+	vp.Clear()
+	a.renderPluginPanel(vp, l.Plugins.Width()-2)
+
 	// Logs view (lower left)
 	v2, err := g.SetView("logs", l.Server.X0, l.Server.Y0, l.Server.X1, l.Server.Y1, 0)
 	if err != nil && !isUnknownView(err) {
@@ -172,7 +199,7 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 	v2.Clear()
 	renderServerLog(v2, a.logs, focusedName == "logs")
 
-	// Main panel (right side)
+	// Main panel (right side) — content depends on focused panel
 	v3, err := g.SetView("main", l.Main.X0, l.Main.Y0, l.Main.X1, l.Main.Y1, 0)
 	if err != nil && !isUnknownView(err) {
 		return err
@@ -183,12 +210,15 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 	v3.Clear()
 	previewW := l.Main.Width() - 1
 	previewH := l.Main.Height() - 2
-	// Build flat session items for preview from current tree nodes
-	var items []SessionItem
-	if a.sessions != nil {
-		items = a.sessions.Sessions()
+	if focusedName == "plugins" {
+		a.renderPluginPreview(v3)
+	} else {
+		var items []SessionItem
+		if a.sessions != nil {
+			items = a.sessions.Sessions()
+		}
+		a.renderPreview(v3, items, previewW, previewH)
 	}
-	a.renderPreview(v3, items, previewW, previewH)
 
 	// Options bar (bottom, frameless) — dynamic per focused panel
 	v4, err := g.SetView("options", l.Options.X0, l.Options.Y0, l.Options.X1, l.Options.Y1, 0)

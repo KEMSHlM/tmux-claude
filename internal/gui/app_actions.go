@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 
@@ -80,12 +81,51 @@ func (a *App) MoveCursorDown() {
 	if a.cursor < len(nodes)-1 {
 		a.cursor++
 	}
+	a.syncPluginProject()
 }
 
 func (a *App) MoveCursorUp() {
 	if a.cursor > 0 {
 		a.cursor--
 	}
+	a.syncPluginProject()
+}
+
+// syncPluginProjectOnce triggers the first project sync during layout.
+// After the first sync, cursor movements handle subsequent changes.
+func (a *App) syncPluginProjectOnce() {
+	if a.plugins == nil || a.pluginState.projectDir != "" {
+		return
+	}
+	a.syncPluginProject()
+}
+
+// syncPluginProject updates the plugin panel's project context
+// based on the currently selected session/project in the tree.
+func (a *App) syncPluginProject() {
+	if a.plugins == nil {
+		return
+	}
+	node := a.currentNode()
+	if node == nil {
+		return
+	}
+	var projectPath string
+	if node.Kind == ProjectNode && node.Project != nil {
+		projectPath = node.Project.Path
+	} else if node.Session != nil {
+		projectPath = node.Session.Path
+	}
+	if projectPath == "" || projectPath == a.pluginState.projectDir {
+		return
+	}
+	a.pluginState.projectDir = projectPath
+	a.pluginState.installedCursor = 0
+	a.pluginState.marketCursor = 0
+	a.plugins.SetProjectDir(projectPath)
+	a.runPluginAsync(func(ctx context.Context) error {
+		return a.plugins.Refresh(ctx)
+	})
 }
 
 // --- Session operations ---
@@ -381,6 +421,159 @@ func (a *App) LogsCopySelection() {
 		copyToClipboard(text)
 	}
 	a.logs.ClearSelection()
+}
+
+// --- Panel tab switching (generic) ---
+
+func (a *App) PanelNextTab() {
+	panel := a.panelManager.ActivePanel()
+	if panel == nil || panel.TabCount() <= 1 {
+		return
+	}
+	name := panel.Name()
+	cur := a.panelTabs[name]
+	if cur < panel.TabCount()-1 {
+		a.panelTabs[name] = cur + 1
+		a.onPanelTabChanged(name, cur+1)
+	}
+}
+
+func (a *App) PanelPrevTab() {
+	panel := a.panelManager.ActivePanel()
+	if panel == nil || panel.TabCount() <= 1 {
+		return
+	}
+	name := panel.Name()
+	cur := a.panelTabs[name]
+	if cur > 0 {
+		a.panelTabs[name] = cur - 1
+		a.onPanelTabChanged(name, cur-1)
+	}
+}
+
+func (a *App) ActivePanelTabIndex() int {
+	panel := a.panelManager.ActivePanel()
+	if panel == nil {
+		return 0
+	}
+	return a.panelTabs[panel.Name()]
+}
+
+// onPanelTabChanged is called when a panel's tab changes.
+// Panel-specific side effects (e.g. resetting cursors) go here.
+func (a *App) onPanelTabChanged(panelName string, newTab int) {
+	if panelName == "plugins" {
+		a.pluginState.tabIdx = newTab
+	}
+}
+
+// --- Plugin panel ---
+
+func (a *App) PluginCursorDown() {
+	max := a.pluginItemCount() - 1
+	cur := a.pluginState.Cursor()
+	if cur < max {
+		a.pluginState.SetCursor(cur + 1)
+	}
+}
+
+func (a *App) PluginCursorUp() {
+	cur := a.pluginState.Cursor()
+	if cur > 0 {
+		a.pluginState.SetCursor(cur - 1)
+	}
+}
+
+func (a *App) PluginInstall() {
+	if a.plugins == nil || a.pluginState.tabIdx != 1 {
+		return
+	}
+	avail := a.plugins.Available()
+	if a.pluginState.marketCursor >= len(avail) {
+		return
+	}
+	pluginID := avail[a.pluginState.marketCursor].PluginID
+	a.runPluginAsync(func(ctx context.Context) error {
+		return a.plugins.Install(ctx, pluginID)
+	})
+}
+
+func (a *App) PluginUninstall() {
+	if a.plugins == nil || a.pluginState.tabIdx != 0 {
+		return
+	}
+	installed := a.plugins.Installed()
+	if a.pluginState.installedCursor >= len(installed) {
+		return
+	}
+	pluginID := installed[a.pluginState.installedCursor].ID
+	a.runPluginAsync(func(ctx context.Context) error {
+		return a.plugins.Uninstall(ctx, pluginID)
+	})
+}
+
+func (a *App) PluginToggleEnabled() {
+	if a.plugins == nil || a.pluginState.tabIdx != 0 {
+		return
+	}
+	installed := a.plugins.Installed()
+	if a.pluginState.installedCursor >= len(installed) {
+		return
+	}
+	pluginID := installed[a.pluginState.installedCursor].ID
+	a.runPluginAsync(func(ctx context.Context) error {
+		return a.plugins.ToggleEnabled(ctx, pluginID)
+	})
+}
+
+func (a *App) PluginUpdate() {
+	if a.plugins == nil || a.pluginState.tabIdx != 0 {
+		return
+	}
+	installed := a.plugins.Installed()
+	if a.pluginState.installedCursor >= len(installed) {
+		return
+	}
+	pluginID := installed[a.pluginState.installedCursor].ID
+	a.runPluginAsync(func(ctx context.Context) error {
+		return a.plugins.Update(ctx, pluginID)
+	})
+}
+
+func (a *App) PluginRefresh() {
+	if a.plugins == nil {
+		return
+	}
+	a.runPluginAsync(func(ctx context.Context) error {
+		return a.plugins.Refresh(ctx)
+	})
+}
+
+// runPluginAsync runs a plugin operation asynchronously with loading state management.
+func (a *App) runPluginAsync(fn func(ctx context.Context) error) {
+	a.pluginState.loading = true
+	a.pluginState.errMsg = ""
+	go func() {
+		err := fn(context.Background())
+		a.gui.Update(func(g *gocui.Gui) error {
+			a.pluginState.loading = false
+			if err != nil {
+				a.pluginState.errMsg = err.Error()
+			}
+			return nil
+		})
+	}()
+}
+
+// pluginItemCount returns the number of items in the active plugin tab.
+func (a *App) pluginItemCount() int {
+	if a.plugins == nil {
+		return 0
+	}
+	if a.pluginState.tabIdx == 0 {
+		return len(a.plugins.Installed())
+	}
+	return len(a.plugins.Available())
 }
 
 // --- Application ---

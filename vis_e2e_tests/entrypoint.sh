@@ -66,6 +66,14 @@ GOEOF
         # msg API テストは Claude Code セッション内から自律実行される
         # (人間はプロンプトを送るだけ。API は Claude Code が叩く)
         ;;
+    plugin_mode)
+        # プラグインモード E2E: プラグインの install/toggle/uninstall を実演
+        # 1. 公式マーケットプレイスを追加
+        claude plugins marketplace add anthropics/claude-plugins-official 2>/dev/null || true
+        # 2. テスト用プラグインを2つインストール (ローカルパス参照で git clone 不要)
+        claude plugins install agent-sdk-dev --scope project 2>/dev/null || true
+        claude plugins install plugin-dev --scope project 2>/dev/null || true
+        ;;
     paste_special)
         # Bracketed paste E2E: send ESC[200~ + multiline text + ESC[201~
         cat > /tmp/paste-text.txt << 'PASTEEOF'

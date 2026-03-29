@@ -95,6 +95,9 @@ type App struct {
 	watchdogDone       chan struct{}               // signals watchdog to stop
 	watchdogStarted    bool                        // prevents multiple watchdog goroutines
 	cachedNodes        []TreeNode                   // rebuilt once per layout cycle
+	panelTabs          map[string]int               // panel name -> active tab index
+	pluginState        *PluginState                 // plugin panel UI state
+	plugins            PluginProvider               // plugin operations (nil until wired)
 }
 
 // startPasteWatchdog starts the watchdog goroutine if not already running.
@@ -153,6 +156,8 @@ func newApp(mode AppMode, g *gocui.Gui, enableMouse bool) (*App, error) {
 		keyRegistry: DefaultKeyRegistry(),
 		logs:        NewLogsState(),
 		notify:      NewNotifyLoop(),
+		pluginState: NewPluginState(),
+		panelTabs:   make(map[string]int),
 	}
 	app.fullscreen = NewFullScreenState(app.preview)
 	app.initDispatcher()
@@ -200,6 +205,7 @@ func NewAppHeadless(mode AppMode, width, height int) (*App, error) {
 func (a *App) initDispatcher() {
 	pm := keyhandler.NewPanelManager(
 		&keyhandler.SessionsPanel{},
+		&keyhandler.PluginsPanel{},
 		&keyhandler.LogsPanel{},
 	)
 	a.panelManager = pm
@@ -209,6 +215,9 @@ func (a *App) initDispatcher() {
 // Run starts the main event loop. Blocks until quit.
 func (a *App) Run() error {
 	defer a.gui.Close()
+
+	// Plugin data is loaded lazily by syncPluginProjectOnce() in layout()
+	// when session data becomes available and a project context is determined.
 
 	// Serial key forwarder: preserves keystroke order (critical for IME input).
 	done := make(chan struct{})
@@ -288,6 +297,11 @@ func (a *App) Mode() int {
 // SetSessions sets the session provider for the main screen.
 func (a *App) SetSessions(sp SessionProvider) {
 	a.sessions = sp
+}
+
+// SetPlugins sets the plugin provider for the plugins panel.
+func (a *App) SetPlugins(pp PluginProvider) {
+	a.plugins = pp
 }
 
 // SetInputForwarder sets the input forwarder for full-screen mode.

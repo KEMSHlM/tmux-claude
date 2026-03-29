@@ -63,7 +63,7 @@ func (d *Dispatcher) ActiveOptionsBar(actions keyhandler.AppActions) string {
 	if panel == nil {
 		return ""
 	}
-	return panel.OptionsBar()
+	return panel.OptionsBarForTab(actions.ActivePanelTabIndex())
 }
 
 // PanelManager returns the underlying PanelManager.

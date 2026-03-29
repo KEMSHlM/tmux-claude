@@ -55,6 +55,20 @@ type AppActions interface {
 	LogsToggleSelect()
 	LogsCopySelection()
 
+	// Panel tab switching (generic — works for any multi-tab panel)
+	PanelNextTab() // ] — next tab within active panel
+	PanelPrevTab() // [ — prev tab within active panel
+	ActivePanelTabIndex() int // current tab index of the active panel
+
+	// Plugin panel
+	PluginCursorDown()
+	PluginCursorUp()
+	PluginInstall()
+	PluginUninstall()
+	PluginToggleEnabled()
+	PluginUpdate()
+	PluginRefresh()
+
 	// Application
 	Quit()
 }
