@@ -36,7 +36,7 @@ type PluginProvider interface {
 
 // PluginState holds the UI state for the plugins panel.
 type PluginState struct {
-	tabIdx          int    // 0=Installed, 1=Marketplace
+	tabIdx          int    // 0=MCP, 1=Plugins, 2=Marketplace
 	installedCursor int
 	marketCursor    int
 	loading         bool
@@ -51,7 +51,7 @@ func NewPluginState() *PluginState {
 
 // Cursor returns the cursor for the active tab.
 func (ps *PluginState) Cursor() int {
-	if ps.tabIdx == 1 {
+	if ps.tabIdx == 2 {
 		return ps.marketCursor
 	}
 	return ps.installedCursor
@@ -59,7 +59,7 @@ func (ps *PluginState) Cursor() int {
 
 // SetCursor sets the cursor for the active tab.
 func (ps *PluginState) SetCursor(n int) {
-	if ps.tabIdx == 1 {
+	if ps.tabIdx == 2 {
 		ps.marketCursor = n
 	} else {
 		ps.installedCursor = n
