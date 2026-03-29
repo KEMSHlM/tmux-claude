@@ -163,12 +163,12 @@ func TestLockManager_CleanAllExcept_RemovesLazyclaudeLocks(t *testing.T) {
 		[]byte(data2), 0o600,
 	))
 
-	// Lock 3: non-lazyclaude (IDE) lock (should be kept).
+	// Lock 3: non-lazyclaude (IDE) lock with explicit app field (should be kept).
 	ln3, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	defer ln3.Close()
 	idePort := ln3.Addr().(*net.TCPAddr).Port
-	data3 := fmt.Sprintf(`{"pid":%d,"authToken":"t3","transport":"ws"}`, os.Getpid())
+	data3 := fmt.Sprintf(`{"pid":%d,"authToken":"t3","transport":"ws","app":"vscode"}`, os.Getpid())
 	require.NoError(t, os.WriteFile(
 		filepath.Join(ideDir, fmt.Sprintf("%d.lock", idePort)),
 		[]byte(data3), 0o600,
@@ -177,6 +177,53 @@ func TestLockManager_CleanAllExcept_RemovesLazyclaudeLocks(t *testing.T) {
 	removed := lm.CleanAllExcept(selfPort)
 	assert.Equal(t, 1, removed, "should remove 1 lazyclaude lock (not self, not IDE)")
 	assert.False(t, lm.Exists(port1), "other lazyclaude lock should be removed")
+	assert.True(t, lm.Exists(selfPort), "self lock should remain")
+	assert.True(t, lm.Exists(idePort), "IDE lock should remain")
+}
+
+func TestLockManager_CleanAllExcept_RemovesLegacyLocks(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	ideDir := filepath.Join(dir, "ide")
+	lm := server.NewLockManager(ideDir)
+	require.NoError(t, os.MkdirAll(ideDir, 0o700))
+
+	// Legacy lock without app field (created by binaries before #33).
+	ln1, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer ln1.Close()
+	legacyPort := ln1.Addr().(*net.TCPAddr).Port
+	legacyData := fmt.Sprintf(`{"pid":%d,"authToken":"t1","transport":"ws"}`, os.Getpid())
+	require.NoError(t, os.WriteFile(
+		filepath.Join(ideDir, fmt.Sprintf("%d.lock", legacyPort)),
+		[]byte(legacyData), 0o600,
+	))
+
+	// Current lazyclaude lock — the "self" port (should be kept).
+	ln2, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer ln2.Close()
+	selfPort := ln2.Addr().(*net.TCPAddr).Port
+	selfData := fmt.Sprintf(`{"pid":%d,"authToken":"t2","transport":"ws","app":"lazyclaude"}`, os.Getpid())
+	require.NoError(t, os.WriteFile(
+		filepath.Join(ideDir, fmt.Sprintf("%d.lock", selfPort)),
+		[]byte(selfData), 0o600,
+	))
+
+	// IDE lock with explicit app (should be kept).
+	ln3, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer ln3.Close()
+	idePort := ln3.Addr().(*net.TCPAddr).Port
+	ideData := fmt.Sprintf(`{"pid":%d,"authToken":"t3","transport":"ws","app":"vscode"}`, os.Getpid())
+	require.NoError(t, os.WriteFile(
+		filepath.Join(ideDir, fmt.Sprintf("%d.lock", idePort)),
+		[]byte(ideData), 0o600,
+	))
+
+	removed := lm.CleanAllExcept(selfPort)
+	assert.Equal(t, 1, removed, "should remove legacy lock without app field")
+	assert.False(t, lm.Exists(legacyPort), "legacy lock should be removed")
 	assert.True(t, lm.Exists(selfPort), "self lock should remain")
 	assert.True(t, lm.Exists(idePort), "IDE lock should remain")
 }

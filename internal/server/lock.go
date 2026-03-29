@@ -159,8 +159,10 @@ func (m *LockManager) CleanAllExcept(exceptPort int) int {
 		if json.Unmarshal(data, &lock) != nil {
 			continue
 		}
-		// Only remove locks created by lazyclaude.
-		if lock.App != lockApp {
+		// Only remove locks created by lazyclaude (app=="lazyclaude" or
+		// app=="" for locks from binaries before #33). Keep locks with any
+		// other app value (e.g. VS Code, JetBrains).
+		if lock.App != "" && lock.App != lockApp {
 			continue
 		}
 		// Send SIGINT so the server can clean up gracefully.
