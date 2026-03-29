@@ -649,10 +649,10 @@ func (a *App) pluginItemCount() int {
 	if a.plugins == nil {
 		return 0
 	}
-	if a.pluginState.tabIdx == 1 {
-		return len(a.plugins.Installed())
+	if a.pluginState.tabIdx == 2 {
+		return len(a.plugins.Available())
 	}
-	return len(a.plugins.Available())
+	return len(a.plugins.Installed())
 }
 
 // --- MCP panel ---
