@@ -143,6 +143,7 @@ type Gui struct {
 	viewMouseBindings []*ViewMouseBinding
 	lastClick         *clickInfo
 	gEvents           chan GocuiEvent
+	rawEvents         chan GocuiEvent // intermediate: pollEvent → filter → gEvents
 	userEvents        chan userEvent
 	views             []*View
 	currentView       *View
@@ -195,6 +196,11 @@ type Gui struct {
 	PrevSearchMatchKey any
 
 	ErrorHandler func(error) error
+
+	// OnPasteContent is called when a complete bracketed paste is received.
+	// The full paste text is accumulated in the pollEvent goroutine before
+	// reaching the event loop, so the gEvents channel never overflows.
+	OnPasteContent func(text string) error
 
 	ShouldHandleMouseEvent func(view *View, key Key) bool
 
@@ -249,6 +255,7 @@ func NewGui(opts NewGuiOpts) (*Gui, error) {
 	g.stop = make(chan struct{})
 
 	g.gEvents = make(chan GocuiEvent, 20)
+	g.rawEvents = make(chan GocuiEvent, 256)
 	g.userEvents = make(chan userEvent, 20)
 	g.taskManager = newTaskManager()
 
@@ -759,16 +766,21 @@ func (g *Gui) SetManagerFunc(manager func(*Gui) error) {
 // MainLoop runs the main loop until an error is returned. A successful
 // finish should return ErrQuit.
 func (g *Gui) MainLoop() error {
+	// Stage 1: poll tcell events into rawEvents.
 	go func() {
 		for {
 			select {
 			case <-g.stop:
 				return
 			default:
-				g.gEvents <- g.pollEvent()
+				g.rawEvents <- g.pollEvent()
 			}
 		}
 	}()
+
+	// Stage 2: filter rawEvents for ESC[200~ paste markers (tmux popup
+	// fallback) and forward to gEvents.
+	go g.filterPasteEvents()
 
 	Screen.EnableFocus()
 	Screen.EnablePaste()
@@ -863,6 +875,12 @@ func (g *Gui) handleEvent(ev *GocuiEvent) error {
 	case eventPaste:
 		g.IsPasting = ev.Start
 		return nil
+	case eventPasteContent:
+		g.IsPasting = false
+		if g.OnPasteContent != nil {
+			return g.OnPasteContent(ev.PasteText)
+		}
+		return nil
 	default:
 		return nil
 	}
@@ -871,6 +889,168 @@ func (g *Gui) handleEvent(ev *GocuiEvent) error {
 func (g *Gui) onResize() {
 	// not sure if we actually need this
 	// g.screen.Sync()
+}
+
+// filterPasteEvents reads from rawEvents, detects ESC[200~ paste markers
+// (for tmux display-popup where tcell doesn't emit EventPaste), and forwards
+// events to gEvents. Native EventPaste is already handled in pollEvent via
+// accumulatePasteNative, so this filter only handles the raw ESC sequence case.
+func (g *Gui) filterPasteEvents() {
+	for {
+		select {
+		case <-g.stop:
+			return
+		case ev := <-g.rawEvents:
+			if ev.Type == eventKey && ev.Key == KeyEsc && ev.Mod == 0 {
+				g.filterEscSequence(ev)
+			} else {
+				g.gEvents <- ev
+			}
+		}
+	}
+}
+
+// filterEscSequence handles an Esc event by checking whether it's the start
+// of a bracketed paste marker (ESC[200~). If so, accumulates paste content
+// and sends a single eventPasteContent. Otherwise, forwards the Esc and any
+// consumed events as normal.
+func (g *Gui) filterEscSequence(esc GocuiEvent) {
+	consumed := []GocuiEvent{esc}
+
+	for i := 0; i < len(pasteStartMarker); i++ {
+		select {
+		case ev := <-g.rawEvents:
+			consumed = append(consumed, ev)
+			if ev.Type != eventKey || ev.Ch != rune(pasteStartMarker[i]) {
+				// Not a paste marker — forward all consumed events as normal.
+				for _, c := range consumed {
+					g.gEvents <- c
+				}
+				return
+			}
+		case <-time.After(escSeqTimeout):
+			// Timeout — standalone Esc or partial sequence.
+			for _, c := range consumed {
+				g.gEvents <- c
+			}
+			return
+		case <-g.stop:
+			return
+		}
+	}
+
+	// Full match: ESC[200~ detected. Accumulate paste content.
+	text := g.accumulatePasteFromChannel()
+	if text != "" {
+		g.gEvents <- GocuiEvent{Type: eventPasteContent, PasteText: text}
+	}
+}
+
+// accumulatePasteFromChannel reads GocuiEvents from rawEvents until it
+// detects the paste end marker (ESC[201~) or times out. Returns the
+// accumulated paste text.
+func (g *Gui) accumulatePasteFromChannel() string {
+	var buf strings.Builder
+	var escBuf []rune
+	inEsc := false
+	timer := time.NewTimer(pasteAccumTimeout)
+	defer timer.Stop()
+
+	for {
+		select {
+		case ev := <-g.rawEvents:
+			// Reset timer on each received event.
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			timer.Reset(pasteAccumTimeout)
+
+			if ev.Type != eventKey {
+				continue // Ignore non-key events during paste.
+			}
+
+			// Check for Esc (potential start of end marker).
+			if ev.Key == KeyEsc && ev.Mod == 0 {
+				if inEsc {
+					// Previous Esc + partial was paste content.
+					buf.WriteRune('\x1b')
+					for _, r := range escBuf {
+						buf.WriteRune(r)
+					}
+				}
+				escBuf = escBuf[:0]
+				inEsc = true
+				continue
+			}
+
+			if inEsc {
+				if ev.Ch != 0 {
+					escBuf = append(escBuf, ev.Ch)
+					seq := string(escBuf)
+					if seq == pasteEndMarker {
+						return buf.String()
+					}
+					if len(seq) < len(pasteEndMarker) && pasteEndMarker[:len(seq)] == seq {
+						continue // Still matching end marker prefix.
+					}
+					// Not the end marker — flush as paste content.
+					buf.WriteRune('\x1b')
+					for _, r := range escBuf {
+						buf.WriteRune(r)
+					}
+					escBuf = escBuf[:0]
+					inEsc = false
+				} else {
+					// Non-rune key breaks the pattern.
+					buf.WriteRune('\x1b')
+					for _, r := range escBuf {
+						buf.WriteRune(r)
+					}
+					escBuf = escBuf[:0]
+					inEsc = false
+					appendGocuiKeyToBuilder(&buf, ev)
+				}
+				continue
+			}
+
+			appendGocuiKeyToBuilder(&buf, ev)
+
+		case <-timer.C:
+			// Timeout: flush partial content.
+			if inEsc {
+				buf.WriteRune('\x1b')
+				for _, r := range escBuf {
+					buf.WriteRune(r)
+				}
+			}
+			return buf.String()
+
+		case <-g.stop:
+			return buf.String()
+		}
+	}
+}
+
+// appendGocuiKeyToBuilder appends the character representation of a gocui key
+// event to a strings.Builder.
+func appendGocuiKeyToBuilder(buf *strings.Builder, ev GocuiEvent) {
+	if ev.Ch != 0 {
+		buf.WriteRune(ev.Ch)
+		return
+	}
+	switch ev.Key {
+	case KeyEnter:
+		buf.WriteRune('\n')
+	case KeyTab:
+		buf.WriteRune('\t')
+	case KeySpace:
+		buf.WriteRune(' ')
+	case KeyEsc:
+		buf.WriteRune('\x1b')
+	}
 }
 
 // drawFrameEdges draws the horizontal and vertical edges of a view.

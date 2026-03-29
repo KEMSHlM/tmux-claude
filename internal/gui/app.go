@@ -91,60 +91,13 @@ type App struct {
 	notify             *NotifyLoop                   // notification delivery (output, broker, tick)
 	quitRequested      bool                         // set by Quit(), checked after Dispatch
 	dialog             DialogState                  // input dialog state (rename, worktree, etc.)
-	editor             *inputEditor               // fullscreen key editor (for paste flush)
-	watchdogDone       chan struct{}               // signals watchdog to stop
-	watchdogStarted    bool                        // prevents multiple watchdog goroutines
+	editor             *inputEditor               // fullscreen key editor
 	cachedNodes        []TreeNode                   // rebuilt once per layout cycle
 	panelTabs          map[string]int               // panel name -> active tab index
 	pluginState        *PluginState                 // plugin panel UI state
 	plugins            PluginProvider               // plugin operations (nil until wired)
 }
 
-// startPasteWatchdog starts the watchdog goroutine if not already running.
-// Called from layout when the editor is first created.
-func (a *App) startPasteWatchdog() {
-	if a.watchdogStarted || a.editor == nil || a.watchdogDone == nil {
-		return
-	}
-	a.watchdogStarted = true
-	ch := a.editor.pasteNotify
-	done := a.watchdogDone
-	go func() {
-		for {
-			select {
-			case <-done:
-				return
-			case <-ch:
-				// Drain loop: keep flushing partial content while paste is ongoing.
-				// Large pastes overflow tcell's event channel (256 slots), blocking
-				// the event loop. Each drain unblocks the channel so more characters
-				// can arrive. The loop exits when inPaste becomes false (paste end
-				// marker was processed by the event loop).
-			drain:
-				for {
-					select {
-					case <-done:
-						return
-					case <-time.After(pasteWatchdogTimeout):
-					}
-					if a.editor == nil {
-						break drain
-					}
-					a.editor.pasteMu.Lock()
-					stillPasting := a.editor.inPaste
-					hasData := a.editor.pasteBuf.Len() > 0
-					a.editor.pasteMu.Unlock()
-					if !stillPasting {
-						break drain
-					}
-					if hasData {
-						a.editor.drainPaste()
-					}
-				}
-			}
-		}
-	}()
-}
 
 // newApp initializes a new App with the given gocui.Gui. Shared by NewApp and NewAppHeadless.
 func newApp(mode AppMode, g *gocui.Gui, enableMouse bool) (*App, error) {
@@ -165,6 +118,14 @@ func newApp(mode AppMode, g *gocui.Gui, enableMouse bool) (*App, error) {
 	g.SetManagerFunc(app.layout)
 	if enableMouse {
 		g.Mouse = true
+	}
+
+	// Register paste callback: when gocui detects a complete bracketed paste
+	// (either via native EventPaste or raw ESC[200~ fallback), the full text
+	// arrives here as a single string, bypassing the per-character event loop.
+	g.OnPasteContent = func(text string) error {
+		app.handlePasteContent(text)
+		return nil
 	}
 
 	if err := app.setupGlobalKeybindings(); err != nil {
@@ -222,10 +183,6 @@ func (a *App) Run() error {
 	// Serial key forwarder: preserves keystroke order (critical for IME input).
 	done := make(chan struct{})
 	go a.fullscreen.RunKeyForwarder(done)
-
-	// Paste watchdog: started lazily when the editor is first created.
-	// See runPasteWatchdog().
-	a.watchdogDone = done
 
 	// Refresh loop: event-driven via notify channels + ticker fallback.
 	go func() {
