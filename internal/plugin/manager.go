@@ -29,6 +29,12 @@ func NewManager(cli *ExecCLI, log *slog.Logger) *Manager {
 	}
 }
 
+// SetProjectDir changes the project context for all CLI operations.
+// Subsequent Refresh/Install/Enable/Disable calls will operate on this project.
+func (m *Manager) SetProjectDir(dir string) {
+	m.cli.SetProjectDir(dir)
+}
+
 // Refresh reloads all plugin data from the CLI.
 func (m *Manager) Refresh(ctx context.Context) error {
 	result, err := m.cli.ListAll(ctx)

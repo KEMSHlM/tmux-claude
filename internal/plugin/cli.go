@@ -11,7 +11,9 @@ import (
 
 // Runner executes a command and returns its stdout.
 type Runner interface {
-	Run(ctx context.Context, args ...string) (string, error)
+	// Run executes a command with the given working directory.
+	// dir may be empty to use the current process's working directory.
+	Run(ctx context.Context, dir string, args ...string) (string, error)
 }
 
 // execRunner is the default Runner that spawns OS processes.
@@ -19,8 +21,11 @@ type execRunner struct {
 	claudePath string
 }
 
-func (r *execRunner) Run(ctx context.Context, args ...string) (string, error) {
+func (r *execRunner) Run(ctx context.Context, dir string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, r.claudePath, args...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
 	// Force non-interactive mode to prevent ANSI escape sequences in output.
 	cmd.Env = append(os.Environ(), "TERM=dumb", "NO_COLOR=1")
 	var stdout, stderr bytes.Buffer
@@ -34,7 +39,15 @@ func (r *execRunner) Run(ctx context.Context, args ...string) (string, error) {
 
 // ExecCLI implements plugin CLI operations by spawning `claude plugins` subprocesses.
 type ExecCLI struct {
-	runner Runner
+	runner     Runner
+	projectDir string // working directory for CLI commands (project root)
+}
+
+// SetProjectDir sets the working directory for all CLI commands.
+// When set, `claude plugins` runs in the context of this project,
+// so project-scoped plugins and settings are used.
+func (c *ExecCLI) SetProjectDir(dir string) {
+	c.projectDir = dir
 }
 
 // Option configures ExecCLI.
@@ -67,7 +80,7 @@ func NewExecCLI(opts ...Option) *ExecCLI {
 
 // ListInstalled returns installed plugins via `claude plugins list --json`.
 func (c *ExecCLI) ListInstalled(ctx context.Context) ([]InstalledPlugin, error) {
-	out, err := c.runner.Run(ctx, "plugins", "list", "--json")
+	out, err := c.runner.Run(ctx, c.projectDir, "plugins", "list", "--json")
 	if err != nil {
 		return nil, fmt.Errorf("list installed: %w", err)
 	}
@@ -81,7 +94,7 @@ func (c *ExecCLI) ListInstalled(ctx context.Context) ([]InstalledPlugin, error) 
 
 // ListAll returns installed and available plugins via `claude plugins list --available --json`.
 func (c *ExecCLI) ListAll(ctx context.Context) (*ListResult, error) {
-	out, err := c.runner.Run(ctx, "plugins", "list", "--available", "--json")
+	out, err := c.runner.Run(ctx, c.projectDir, "plugins", "list", "--available", "--json")
 	if err != nil {
 		return nil, fmt.Errorf("list all: %w", err)
 	}
@@ -95,7 +108,7 @@ func (c *ExecCLI) ListAll(ctx context.Context) (*ListResult, error) {
 
 // ListMarketplaces returns configured marketplaces via `claude plugins marketplace list --json`.
 func (c *ExecCLI) ListMarketplaces(ctx context.Context) ([]MarketplaceInfo, error) {
-	out, err := c.runner.Run(ctx, "plugins", "marketplace", "list", "--json")
+	out, err := c.runner.Run(ctx, c.projectDir, "plugins", "marketplace", "list", "--json")
 	if err != nil {
 		return nil, fmt.Errorf("list marketplaces: %w", err)
 	}
@@ -109,7 +122,7 @@ func (c *ExecCLI) ListMarketplaces(ctx context.Context) ([]MarketplaceInfo, erro
 
 // Install installs a plugin via `claude plugins install <plugin> --scope <scope>`.
 func (c *ExecCLI) Install(ctx context.Context, pluginID string, scope string) error {
-	_, err := c.runner.Run(ctx, "plugins", "install", pluginID, "--scope", scope)
+	_, err := c.runner.Run(ctx, c.projectDir, "plugins", "install", pluginID, "--scope", scope)
 	if err != nil {
 		return fmt.Errorf("install %s: %w", pluginID, err)
 	}
@@ -118,25 +131,25 @@ func (c *ExecCLI) Install(ctx context.Context, pluginID string, scope string) er
 
 // Uninstall removes a plugin via `claude plugins uninstall <plugin>`.
 func (c *ExecCLI) Uninstall(ctx context.Context, pluginID string) error {
-	_, err := c.runner.Run(ctx, "plugins", "uninstall", pluginID)
+	_, err := c.runner.Run(ctx, c.projectDir, "plugins", "uninstall", pluginID)
 	if err != nil {
 		return fmt.Errorf("uninstall %s: %w", pluginID, err)
 	}
 	return nil
 }
 
-// Enable activates a disabled plugin via `claude plugins enable <plugin>`.
+// Enable activates a disabled plugin via `claude plugins enable <plugin> --scope project`.
 func (c *ExecCLI) Enable(ctx context.Context, pluginID string) error {
-	_, err := c.runner.Run(ctx, "plugins", "enable", pluginID)
+	_, err := c.runner.Run(ctx, c.projectDir, "plugins", "enable", pluginID, "--scope", "project")
 	if err != nil {
 		return fmt.Errorf("enable %s: %w", pluginID, err)
 	}
 	return nil
 }
 
-// Disable deactivates a plugin via `claude plugins disable <plugin>`.
+// Disable deactivates a plugin via `claude plugins disable <plugin> --scope project`.
 func (c *ExecCLI) Disable(ctx context.Context, pluginID string) error {
-	_, err := c.runner.Run(ctx, "plugins", "disable", pluginID)
+	_, err := c.runner.Run(ctx, c.projectDir, "plugins", "disable", pluginID, "--scope", "project")
 	if err != nil {
 		return fmt.Errorf("disable %s: %w", pluginID, err)
 	}
@@ -145,7 +158,7 @@ func (c *ExecCLI) Disable(ctx context.Context, pluginID string) error {
 
 // Update updates a plugin via `claude plugins update <plugin>`.
 func (c *ExecCLI) Update(ctx context.Context, pluginID string) error {
-	_, err := c.runner.Run(ctx, "plugins", "update", pluginID)
+	_, err := c.runner.Run(ctx, c.projectDir, "plugins", "update", pluginID)
 	if err != nil {
 		return fmt.Errorf("update %s: %w", pluginID, err)
 	}
@@ -154,7 +167,7 @@ func (c *ExecCLI) Update(ctx context.Context, pluginID string) error {
 
 // MarketplaceAdd adds a marketplace via `claude plugins marketplace add <source>`.
 func (c *ExecCLI) MarketplaceAdd(ctx context.Context, source string) error {
-	_, err := c.runner.Run(ctx, "plugins", "marketplace", "add", source)
+	_, err := c.runner.Run(ctx, c.projectDir, "plugins", "marketplace", "add", source)
 	if err != nil {
 		return fmt.Errorf("marketplace add %s: %w", source, err)
 	}
@@ -163,7 +176,7 @@ func (c *ExecCLI) MarketplaceAdd(ctx context.Context, source string) error {
 
 // MarketplaceRemove removes a marketplace via `claude plugins marketplace remove <name>`.
 func (c *ExecCLI) MarketplaceRemove(ctx context.Context, name string) error {
-	_, err := c.runner.Run(ctx, "plugins", "marketplace", "remove", name)
+	_, err := c.runner.Run(ctx, c.projectDir, "plugins", "marketplace", "remove", name)
 	if err != nil {
 		return fmt.Errorf("marketplace remove %s: %w", name, err)
 	}
@@ -176,7 +189,7 @@ func (c *ExecCLI) MarketplaceUpdate(ctx context.Context, name string) error {
 	if name != "" {
 		args = append(args, name)
 	}
-	_, err := c.runner.Run(ctx, args...)
+	_, err := c.runner.Run(ctx, c.projectDir, args...)
 	if err != nil {
 		return fmt.Errorf("marketplace update: %w", err)
 	}

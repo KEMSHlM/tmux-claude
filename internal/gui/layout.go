@@ -111,6 +111,9 @@ func (a *App) layout(g *gocui.Gui) error {
 	// Rebuild tree nodes once per layout cycle for consistency.
 	a.refreshTreeNodes()
 
+	// Sync plugin panel with current project (lazy init on first layout).
+	a.syncPluginProjectOnce()
+
 	// Detect terminal resize -> clear preview cache
 	if maxX != a.lastWidth || maxY != a.lastHeight {
 		a.preview.Invalidate()

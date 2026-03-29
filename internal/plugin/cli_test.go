@@ -14,7 +14,7 @@ type mockRunner struct {
 	called [][]string
 }
 
-func (m *mockRunner) Run(_ context.Context, args ...string) (string, error) {
+func (m *mockRunner) Run(_ context.Context, _ string, args ...string) (string, error) {
 	m.called = append(m.called, args)
 	return m.output, m.err
 }

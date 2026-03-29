@@ -12,7 +12,7 @@ type fakeRunner struct {
 	handlers map[string]func(args []string) (string, error)
 }
 
-func (f *fakeRunner) Run(_ context.Context, args ...string) (string, error) {
+func (f *fakeRunner) Run(_ context.Context, _ string, args ...string) (string, error) {
 	key := ""
 	for _, a := range args {
 		if key != "" {

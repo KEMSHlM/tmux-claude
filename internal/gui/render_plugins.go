@@ -2,6 +2,7 @@ package gui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/KEMSHlM/lazyclaude/internal/gui/presentation"
@@ -11,10 +12,15 @@ import (
 // renderPluginPanel renders the plugins list view with tab header.
 func (a *App) renderPluginPanel(v *gocui.View, maxWidth int) {
 	// Tab header in title (plain text — gocui Title does not support ANSI)
+	// Tab header with project context
+	projectLabel := ""
+	if a.pluginState.projectDir != "" {
+		projectLabel = " (" + filepath.Base(a.pluginState.projectDir) + ")"
+	}
 	if a.pluginState.tabIdx == 0 {
-		v.Title = " [Installed] | Marketplace "
+		v.Title = " [Installed] | Marketplace" + projectLabel + " "
 	} else {
-		v.Title = " Installed | [Marketplace] "
+		v.Title = " Installed | [Marketplace]" + projectLabel + " "
 	}
 
 	if a.pluginState.loading {

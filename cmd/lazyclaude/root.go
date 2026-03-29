@@ -515,6 +515,10 @@ type pluginAdapter struct {
 	mgr *plugin.Manager
 }
 
+func (a *pluginAdapter) SetProjectDir(dir string) {
+	a.mgr.SetProjectDir(dir)
+}
+
 func (a *pluginAdapter) Refresh(ctx context.Context) error {
 	return a.mgr.Refresh(ctx)
 }

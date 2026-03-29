@@ -22,6 +22,9 @@ type AvailablePluginItem struct {
 
 // PluginProvider abstracts plugin operations for the GUI layer.
 type PluginProvider interface {
+	// SetProjectDir switches the project context. Subsequent operations
+	// (Refresh, Install, Enable, Disable) apply to this project.
+	SetProjectDir(dir string)
 	Refresh(ctx context.Context) error
 	Installed() []PluginItem
 	Available() []AvailablePluginItem
@@ -33,11 +36,12 @@ type PluginProvider interface {
 
 // PluginState holds the UI state for the plugins panel.
 type PluginState struct {
-	tabIdx          int // 0=Installed, 1=Marketplace
+	tabIdx          int    // 0=Installed, 1=Marketplace
 	installedCursor int
 	marketCursor    int
 	loading         bool
 	errMsg          string
+	projectDir      string // current project context (from Sessions cursor)
 }
 
 // NewPluginState creates a new PluginState.

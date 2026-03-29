@@ -1,7 +1,6 @@
 package gui
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -217,16 +216,8 @@ func (a *App) initDispatcher() {
 func (a *App) Run() error {
 	defer a.gui.Close()
 
-	// Load plugin data in background (must be after gui is running).
-	if a.plugins != nil {
-		go func() {
-			ctx := context.Background()
-			if err := a.plugins.Refresh(ctx); err != nil {
-				a.pluginState.errMsg = err.Error()
-			}
-			a.gui.Update(func(g *gocui.Gui) error { return nil })
-		}()
-	}
+	// Plugin data is loaded lazily by syncPluginProjectOnce() in layout()
+	// when session data becomes available and a project context is determined.
 
 	// Serial key forwarder: preserves keystroke order (critical for IME input).
 	done := make(chan struct{})

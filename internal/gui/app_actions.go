@@ -81,12 +81,51 @@ func (a *App) MoveCursorDown() {
 	if a.cursor < len(nodes)-1 {
 		a.cursor++
 	}
+	a.syncPluginProject()
 }
 
 func (a *App) MoveCursorUp() {
 	if a.cursor > 0 {
 		a.cursor--
 	}
+	a.syncPluginProject()
+}
+
+// syncPluginProjectOnce triggers the first project sync during layout.
+// After the first sync, cursor movements handle subsequent changes.
+func (a *App) syncPluginProjectOnce() {
+	if a.plugins == nil || a.pluginState.projectDir != "" {
+		return
+	}
+	a.syncPluginProject()
+}
+
+// syncPluginProject updates the plugin panel's project context
+// based on the currently selected session/project in the tree.
+func (a *App) syncPluginProject() {
+	if a.plugins == nil {
+		return
+	}
+	node := a.currentNode()
+	if node == nil {
+		return
+	}
+	var projectPath string
+	if node.Kind == ProjectNode && node.Project != nil {
+		projectPath = node.Project.Path
+	} else if node.Session != nil {
+		projectPath = node.Session.Path
+	}
+	if projectPath == "" || projectPath == a.pluginState.projectDir {
+		return
+	}
+	a.pluginState.projectDir = projectPath
+	a.pluginState.installedCursor = 0
+	a.pluginState.marketCursor = 0
+	a.plugins.SetProjectDir(projectPath)
+	a.runPluginAsync(func(ctx context.Context) error {
+		return a.plugins.Refresh(ctx)
+	})
 }
 
 // --- Session operations ---
