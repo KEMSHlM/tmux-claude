@@ -10,17 +10,12 @@ import (
 
 // renderPluginPanel renders the plugins list view with tab header.
 func (a *App) renderPluginPanel(v *gocui.View, maxWidth int) {
-	// Tab header in title (lazygit window tab pattern)
-	tabLabels := []string{"Installed", "Marketplace"}
-	var titleParts []string
-	for i, label := range tabLabels {
-		if i == a.pluginState.tabIdx {
-			titleParts = append(titleParts, presentation.Bold+"["+label+"]"+presentation.Reset)
-		} else {
-			titleParts = append(titleParts, presentation.Dim+label+presentation.Reset)
-		}
+	// Tab header in title (plain text — gocui Title does not support ANSI)
+	if a.pluginState.tabIdx == 0 {
+		v.Title = " [Installed] | Marketplace "
+	} else {
+		v.Title = " Installed | [Marketplace] "
 	}
-	v.Title = " " + strings.Join(titleParts, " | ") + " "
 
 	if a.pluginState.loading {
 		fmt.Fprintln(v, "")
