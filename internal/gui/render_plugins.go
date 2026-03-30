@@ -104,7 +104,7 @@ func (a *App) renderPluginPreview(v *gocui.View) {
 			v.Title = " Preview "
 			return
 		}
-		installed := a.plugins.Installed()
+		installed := a.filteredInstalledPlugins()
 		if a.pluginState.installedCursor < len(installed) {
 			p := installed[a.pluginState.installedCursor]
 			v.Title = fmt.Sprintf(" %s ", pluginDisplayName(p.ID))
@@ -116,7 +116,7 @@ func (a *App) renderPluginPreview(v *gocui.View) {
 			v.Title = " Preview "
 			return
 		}
-		available := a.plugins.Available()
+		available := a.filteredAvailablePlugins()
 		if a.pluginState.marketCursor < len(available) {
 			p := available[a.pluginState.marketCursor]
 			v.Title = fmt.Sprintf(" %s ", p.Name)

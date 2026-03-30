@@ -57,7 +57,7 @@ func (a *App) renderMCPPreview(v *gocui.View) {
 		return
 	}
 
-	servers := a.mcpServers.Servers()
+	servers := a.filteredMCPServers()
 	if a.mcpState.cursor < len(servers) {
 		s := servers[a.mcpState.cursor]
 		v.Title = fmt.Sprintf(" %s ", s.Name)
