@@ -582,7 +582,7 @@ func (a *App) PluginInstall() {
 	if a.plugins == nil || a.pluginState.tabIdx != keymap.PluginTabMarketplace {
 		return
 	}
-	avail := a.plugins.Available()
+	avail := a.filteredAvailablePlugins()
 	if a.pluginState.marketCursor >= len(avail) {
 		return
 	}
@@ -596,7 +596,7 @@ func (a *App) PluginUninstall() {
 	if a.plugins == nil || a.pluginState.tabIdx != keymap.PluginTabPlugins {
 		return
 	}
-	installed := a.plugins.Installed()
+	installed := a.filteredInstalledPlugins()
 	if a.pluginState.installedCursor >= len(installed) {
 		return
 	}
@@ -610,7 +610,7 @@ func (a *App) PluginToggleEnabled() {
 	if a.plugins == nil || a.pluginState.tabIdx != keymap.PluginTabPlugins {
 		return
 	}
-	installed := a.plugins.Installed()
+	installed := a.filteredInstalledPlugins()
 	if a.pluginState.installedCursor >= len(installed) {
 		return
 	}
@@ -624,7 +624,7 @@ func (a *App) PluginUpdate() {
 	if a.plugins == nil || a.pluginState.tabIdx != keymap.PluginTabPlugins {
 		return
 	}
-	installed := a.plugins.Installed()
+	installed := a.filteredInstalledPlugins()
 	if a.pluginState.installedCursor >= len(installed) {
 		return
 	}
@@ -694,7 +694,7 @@ func (a *App) MCPToggleDenied() {
 	if a.mcpServers == nil || a.pluginState.tabIdx != keymap.PluginTabMCP {
 		return
 	}
-	servers := a.mcpServers.Servers()
+	servers := a.filteredMCPServers()
 	if a.mcpState.cursor >= len(servers) {
 		return
 	}
