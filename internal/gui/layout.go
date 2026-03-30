@@ -259,8 +259,26 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 		if err := a.layoutSearchInput(g, panelRect); err != nil {
 			return err
 		}
+		g.DeleteView(filterIndicatorView)
 	} else {
 		g.DeleteView(searchInputView)
+		// Show persistent filter indicator when a confirmed filter is active.
+		if a.dialog.ActiveFilter != "" {
+			var panelRect Rect
+			switch a.dialog.ActiveFilterPanel {
+			case "sessions":
+				panelRect = l.Sessions
+			case "plugins":
+				panelRect = l.Plugins
+			case "logs":
+				panelRect = l.Server
+			}
+			if err := a.layoutFilterIndicator(g, panelRect); err != nil {
+				return err
+			}
+		} else {
+			g.DeleteView(filterIndicatorView)
+		}
 	}
 
 	// Focus priority: popup > dialog > panel.

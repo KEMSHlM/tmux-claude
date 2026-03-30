@@ -9,6 +9,7 @@ import (
 )
 
 const searchInputView = "search-input"
+const filterIndicatorView = "filter-indicator"
 
 // layoutSearchInput creates or updates the inline search input at the bottom
 // of the active panel. Called from layoutMain when DialogSearch is active.
@@ -40,6 +41,34 @@ func (a *App) layoutSearchInput(g *gocui.Gui, panelRect Rect) error {
 		presentation.Dim+"_"+presentation.Reset)
 
 	g.SetViewOnTop(searchInputView)
+	return nil
+}
+
+// layoutFilterIndicator creates a read-only indicator at the bottom of the
+// panel showing the active filter (e.g. "/query"). Displayed after Enter
+// confirms a search so the user knows a filter is still applied.
+func (a *App) layoutFilterIndicator(g *gocui.Gui, panelRect Rect) error {
+	x0 := panelRect.X0 + 1
+	x1 := panelRect.X1 - 1
+	y0 := panelRect.Y1 - 2
+	y1 := panelRect.Y1
+	if y0 <= panelRect.Y0+1 {
+		return nil
+	}
+
+	v, err := g.SetView(filterIndicatorView, x0, y0, x1, y1, 0)
+	if err != nil && !isUnknownView(err) {
+		return err
+	}
+	v.Frame = false
+	v.Editable = false
+
+	v.Clear()
+	fmt.Fprintf(v, "%s/%s %s%s%s",
+		presentation.FgCyan, presentation.Reset,
+		presentation.Dim, a.dialog.ActiveFilter, presentation.Reset)
+
+	g.SetViewOnTop(filterIndicatorView)
 	return nil
 }
 
