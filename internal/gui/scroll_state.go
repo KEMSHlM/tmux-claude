@@ -1,5 +1,7 @@
 package gui
 
+import "strings"
+
 // ScrollState manages scrollback browsing and text selection in fullscreen mode.
 // No gocui dependency -- independently testable.
 type ScrollState struct {
@@ -38,11 +40,13 @@ func (s *ScrollState) Lines() []string { return s.lines }
 func (s *ScrollState) Generation() int { return s.generation }
 
 // Enter activates scroll mode. Initial offset is one screen up.
+// Enter activates scroll mode. Starts at the bottom (most recent output)
+// with the cursor on the last line.
 func (s *ScrollState) Enter(viewHeight int) {
 	s.active = true
 	s.viewHeight = viewHeight
-	s.scrollOffset = viewHeight
-	s.cursorY = 0
+	s.scrollOffset = 0
+	s.cursorY = viewHeight - 1 // bottom of viewport
 	s.selecting = false
 	s.selAnchor = 0
 	s.lines = nil
@@ -115,10 +119,20 @@ func (s *ScrollState) CursorUp() {
 	}
 }
 
-// SetLines stores the captured scrollback lines.
+// SetLines stores the captured scrollback lines and adjusts state.
+// Trims trailing empty lines and auto-detects maxOffset when fewer
+// lines than viewHeight are returned (top of scrollback reached).
 func (s *ScrollState) SetLines(lines []string) {
+	// Trim trailing empty lines
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
 	s.lines = lines
-	// Clamp cursor if lines shrunk
+	// If capture returned fewer lines than viewport, we've hit the top
+	if len(lines) > 0 && len(lines) < s.viewHeight && s.maxOffset == 0 {
+		s.maxOffset = s.scrollOffset
+	}
+	// Clamp cursor to available lines
 	if len(lines) > 0 && s.cursorY >= len(lines) {
 		s.cursorY = len(lines) - 1
 	}

@@ -20,11 +20,14 @@ func TestScrollState_EnterExit(t *testing.T) {
 	if !s.IsActive() {
 		t.Error("after Enter: not active")
 	}
-	if s.ScrollOffset() != 40 {
-		t.Errorf("after Enter: scrollOffset = %d, want 40 (one screen up)", s.ScrollOffset())
+	if s.ScrollOffset() != 0 {
+		t.Errorf("after Enter: scrollOffset = %d, want 0 (start at bottom)", s.ScrollOffset())
 	}
 	if s.ViewHeight() != 40 {
 		t.Errorf("viewHeight = %d, want 40", s.ViewHeight())
+	}
+	if s.CursorY() != 39 {
+		t.Errorf("after Enter: cursorY = %d, want 39 (bottom of viewport)", s.CursorY())
 	}
 
 	s.Exit()
@@ -40,16 +43,16 @@ func TestScrollState_ScrollUpDown(t *testing.T) {
 	s := NewScrollState()
 	s.Enter(40)
 
-	// Scroll up from initial position (40)
+	// Scroll up from initial position (0)
 	s.ScrollUp(10)
-	if s.ScrollOffset() != 50 {
-		t.Errorf("after ScrollUp(10): offset = %d, want 50", s.ScrollOffset())
+	if s.ScrollOffset() != 10 {
+		t.Errorf("after ScrollUp(10): offset = %d, want 10", s.ScrollOffset())
 	}
 
 	// Scroll down
 	s.ScrollDown(5)
-	if s.ScrollOffset() != 45 {
-		t.Errorf("after ScrollDown(5): offset = %d, want 45", s.ScrollOffset())
+	if s.ScrollOffset() != 5 {
+		t.Errorf("after ScrollDown(5): offset = %d, want 5", s.ScrollOffset())
 	}
 
 	// Scroll down past 0 clamps to 0
@@ -92,11 +95,11 @@ func TestScrollState_ToTopWithoutMaxOffset(t *testing.T) {
 
 	// Without maxOffset, ToTop should jump to a large value
 	s.ToTop()
-	if s.ScrollOffset() == 40 {
-		t.Error("ToTop without maxOffset should jump beyond initial offset")
-	}
 	if s.ScrollOffset() == 0 {
 		t.Error("ToTop without maxOffset should not stay at 0")
+	}
+	if s.ScrollOffset() < 1000 {
+		t.Errorf("ToTop without maxOffset should jump high, got %d", s.ScrollOffset())
 	}
 }
 
@@ -104,38 +107,35 @@ func TestScrollState_CursorUpDown(t *testing.T) {
 	s := NewScrollState()
 	s.Enter(40)
 
-	// Initial cursor at 0
-	if s.CursorY() != 0 {
-		t.Errorf("initial cursorY = %d, want 0", s.CursorY())
+	// Initial cursor at bottom (39)
+	if s.CursorY() != 39 {
+		t.Errorf("initial cursorY = %d, want 39", s.CursorY())
+	}
+
+	s.CursorUp()
+	if s.CursorY() != 38 {
+		t.Errorf("after CursorUp: cursorY = %d, want 38", s.CursorY())
 	}
 
 	s.CursorDown()
-	if s.CursorY() != 1 {
-		t.Errorf("after CursorDown: cursorY = %d, want 1", s.CursorY())
+	if s.CursorY() != 39 {
+		t.Errorf("after CursorDown: cursorY = %d, want 39", s.CursorY())
 	}
 
-	s.CursorUp()
-	if s.CursorY() != 0 {
-		t.Errorf("after CursorUp: cursorY = %d, want 0", s.CursorY())
-	}
-
-	// Clamp at 0
-	s.CursorUp()
-	if s.CursorY() != 0 {
-		t.Errorf("after CursorUp at 0: cursorY = %d, want 0", s.CursorY())
+	// Clamp at max
+	s.CursorDown()
+	if s.CursorY() != 39 {
+		t.Errorf("after CursorDown at max: cursorY = %d, want 39", s.CursorY())
 	}
 }
 
 func TestScrollState_CursorClampsToLineCount(t *testing.T) {
 	s := NewScrollState()
 	s.Enter(40)
+	// SetLines with 3 lines clamps cursor from 39 to 2
 	s.SetLines([]string{"line0", "line1", "line2"})
-
-	// Move cursor to last line
-	s.CursorDown()
-	s.CursorDown()
 	if s.CursorY() != 2 {
-		t.Errorf("cursorY = %d, want 2", s.CursorY())
+		t.Errorf("cursorY = %d, want 2 (clamped to line count)", s.CursorY())
 	}
 
 	// Cannot go past line count
@@ -149,6 +149,7 @@ func TestScrollState_Selection(t *testing.T) {
 	s := NewScrollState()
 	s.Enter(40)
 	s.SetLines([]string{"aaa", "bbb", "ccc", "ddd"})
+	// After SetLines(4 items), cursorY clamped to 3
 
 	// Not selecting initially
 	if s.IsSelecting() {
@@ -159,8 +160,9 @@ func TestScrollState_Selection(t *testing.T) {
 		t.Errorf("no selection: range = (%d,%d), want (-1,-1)", start, end)
 	}
 
-	// Move to line 1, start selection
-	s.CursorDown()
+	// Move to line 1
+	s.CursorUp()
+	s.CursorUp() // now at 1
 	s.ToggleSelect()
 	if !s.IsSelecting() {
 		t.Error("should be selecting after ToggleSelect")
@@ -172,7 +174,7 @@ func TestScrollState_Selection(t *testing.T) {
 
 	// Extend selection downward
 	s.CursorDown()
-	s.CursorDown()
+	s.CursorDown() // now at 3
 	start, end = s.SelectionRange()
 	if start != 1 || end != 3 {
 		t.Errorf("extended selection: range = (%d,%d), want (1,3)", start, end)
@@ -189,12 +191,11 @@ func TestScrollState_SelectionReversed(t *testing.T) {
 	s := NewScrollState()
 	s.Enter(40)
 	s.SetLines([]string{"aaa", "bbb", "ccc"})
+	// cursorY clamped to 2
 
 	// Start at line 2, select, move up
-	s.CursorDown()
-	s.CursorDown()
 	s.ToggleSelect()
-	s.CursorUp()
+	s.CursorUp() // now at 1
 	start, end := s.SelectionRange()
 	if start != 1 || end != 2 {
 		t.Errorf("reversed selection: range = (%d,%d), want (1,2)", start, end)
@@ -205,15 +206,17 @@ func TestScrollState_CopyText(t *testing.T) {
 	s := NewScrollState()
 	s.Enter(40)
 	s.SetLines([]string{"aaa", "bbb", "ccc", "ddd"})
+	// cursorY clamped to 3
 
-	// No selection: copy current line
-	s.CursorDown() // line 1
+	// No selection: copy current line (line 3)
 	got := s.CopyText()
-	if got != "bbb" {
-		t.Errorf("CopyText no selection = %q, want %q", got, "bbb")
+	if got != "ddd" {
+		t.Errorf("CopyText no selection = %q, want %q", got, "ddd")
 	}
 
-	// With selection: copy range
+	// Move to line 1, start selection, extend to line 3
+	s.CursorUp()
+	s.CursorUp() // line 1
 	s.ToggleSelect()
 	s.CursorDown()
 	s.CursorDown() // line 3
@@ -269,12 +272,8 @@ func TestScrollState_CaptureRange(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			s := NewScrollState()
 			s.Enter(tt.viewHeight)
-			// Adjust offset from the default (viewHeight)
-			if tt.scrollOffset > tt.viewHeight {
-				s.ScrollUp(tt.scrollOffset - tt.viewHeight)
-			} else {
-				s.ScrollDown(tt.viewHeight - tt.scrollOffset)
-			}
+			// Adjust offset from the default (0)
+			s.ScrollUp(tt.scrollOffset)
 
 			start, end := s.CaptureRange()
 			if start != tt.wantStart || end != tt.wantEnd {
@@ -293,6 +292,32 @@ func TestScrollState_Generation(t *testing.T) {
 	gen1 := s.Generation()
 	if gen1 != gen0+1 {
 		t.Errorf("after BumpGeneration: gen = %d, want %d", gen1, gen0+1)
+	}
+}
+
+func TestScrollState_SetLinesTrimsTrailingEmpty(t *testing.T) {
+	s := NewScrollState()
+	s.Enter(40)
+	s.SetLines([]string{"line0", "line1", "", "  ", ""})
+	if len(s.Lines()) != 2 {
+		t.Errorf("Lines() = %d, want 2 (trailing empty trimmed)", len(s.Lines()))
+	}
+}
+
+func TestScrollState_SetLinesAutoDetectsMaxOffset(t *testing.T) {
+	s := NewScrollState()
+	s.Enter(40)
+	s.ScrollUp(100)
+	// Simulate capture returning only 10 lines (less than viewHeight=40)
+	lines := make([]string, 10)
+	for i := range lines {
+		lines[i] = "content"
+	}
+	s.SetLines(lines)
+	// After SetLines with fewer lines, ToTop should clamp to the auto-detected maxOffset
+	s.ToTop()
+	if s.ScrollOffset() != 100 {
+		t.Errorf("after auto-detect, ToTop scrollOffset = %d, want 100", s.ScrollOffset())
 	}
 }
 
