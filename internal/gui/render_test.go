@@ -58,8 +58,8 @@ func TestRenderSessionList_UnknownActivity_FallsBackToStatus(t *testing.T) {
 	}
 	out := gui.RenderSessionListForTest(items, 0)
 
-	// Should show running icon as fallback
-	assert.Contains(t, out, "\xe2\x9f\xb3", "unknown activity should fall back to running icon")
+	// Should show unknown icon as fallback (not running spinner)
+	assert.Contains(t, out, "?", "unknown activity should fall back to unknown icon")
 }
 
 func TestRenderSessionList_MultipleSessions_OnlyNeedsInputGetsBang(t *testing.T) {

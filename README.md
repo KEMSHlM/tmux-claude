@@ -5,8 +5,10 @@ A standalone TUI for managing Claude Code sessions, with tmux plugin support, SS
 ## Features
 
 - Interactive session manager with live preview of Claude Code output
+- Rich sidebar status with 5-stage activity tracking (Running, NeedsInput, Idle, Error, Dead)
 - Permission prompt popups with one-key approval (y/a/n) -- even from another tmux window
-- Fullscreen mode with direct keyboard forwarding to Claude Code
+- Fullscreen mode with direct keyboard forwarding and scrollback browser (vim-like navigation)
+- Search filtering with fzf-style "/" key on any panel (sessions, plugins, MCP servers)
 - SSH remote sessions with automatic reverse tunnel for MCP notifications
 - tmux plugin integration via `display-popup`
 
@@ -81,12 +83,23 @@ lazyclaude
 | Key | Action |
 |-----|--------|
 | `Ctrl+\` / `Ctrl+D` | Exit fullscreen |
+| `Mouse wheel` | Enter scroll mode (vim-like navigation) |
 | All other keys | Forwarded to Claude Code |
+
+### Search filter (any panel)
+
+| Key | Action |
+|-----|--------|
+| `/` | Activate search filter (prefix-based matching) |
+| `Esc` | Clear filter and return to normal |
+| `Enter` | Keep filter active and perform action |
 
 ### Global
 
 | Key | Action |
 |-----|--------|
+| `?` | Show keybinding help overlay (Telescope-style) |
+| `/` | Activate search filter on current panel |
 | `Tab` / `Shift+Tab` | Cycle panel focus |
 | `p` | Restore hidden popups |
 | `q` / `Ctrl+C` | Quit |
@@ -107,9 +120,13 @@ lazyclaude runs a built-in MCP server (WebSocket + HTTP) that Claude Code auto-c
 - Lock file: `~/.claude/ide/<port>.lock`
 - Receives permission prompt notifications via `POST /notify`
 
-### Permission prompt detection
+### Hook injection
 
-Claude Code hooks in `~/.claude/settings.json` detect `permission_prompt` notifications and POST to the MCP server. `lazyclaude setup` installs these hooks automatically.
+lazyclaude injects Claude Code hooks via `claude --settings <file>` at session startup.
+Hooks (PreToolUse, Notification, Stop, SessionStart, UserPromptSubmit) are written to
+a runtime file and passed as a flag -- `~/.claude/settings.json` is never modified.
+The hooks discover the MCP server via lock file scanning with PID liveness validation,
+so they survive server restarts.
 
 ### SSH remote sessions
 
@@ -125,10 +142,8 @@ When creating a session on an SSH host:
 | Command | Description |
 |---------|-------------|
 | `lazyclaude` | Run the interactive TUI |
-| `lazyclaude setup` | Install MCP server and Claude Code hooks |
+| `lazyclaude setup` | Register tmux keybindings and ensure MCP server |
 | `lazyclaude server` | Start MCP server daemon |
-| `lazyclaude diff` | Diff viewer popup (used internally) |
-| `lazyclaude tool` | Tool confirmation popup (used internally) |
 
 ## Configuration
 

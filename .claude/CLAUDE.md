@@ -133,6 +133,21 @@ attach 中: キー → lazyclaude tmux の root table → マッチなら実行
 - サーバーログ: `/tmp/lazyclaude/server.log` (prefix: `lazyclaude-srv:`)
 - 重複起動防止: `server.IsAlive()` で port file + TCP dial チェック
 - gocui TUI プロセス内で `slog.Default()` を使うとターミナル描画が破壊される。エラーは `fmt.Errorf` で返却し GUI 層で表示する
+- broker は root.go で作成し `WithBroker` option でサーバーに注入。サーバー再起動しても broker (= GUI subscription) は維持される
+
+### Hook injection
+
+- `claude --settings <file>` でセッション起動時に hooks を注入。`~/.claude/settings.json` は変更しない
+- hooks: PreToolUse, Notification, Stop, SessionStart, UserPromptSubmit の 5 種類
+- `WriteHooksSettingsFile()` で runtime dir にファイル書き出し。`SetEscapeHTML(false)` で JS 演算子 (`=>`) を保持
+- サーバー発見は常に lock file scanning (`findAliveLockJS`)。env var は使わない（再起動耐性）
+
+### Activity state (5-stage)
+
+- `ActivityState` enum: Unknown, Running, NeedsInput, Idle, Error, Dead
+- hook イベント → broker → GUI の `windowActivity` map → sidebar icon 更新
+- 起動直後は `ActivityUnknown` (gray `?`)。hook イベントで正しい状態に遷移
+- popup dismiss 時に NeedsInput → Running に即時遷移
 
 ### パフォーマンス
 

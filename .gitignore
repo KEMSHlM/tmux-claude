@@ -7,3 +7,4 @@ integration.test
 .DS_Store
 old_tapes/
 .claude/worktrees
+.reports/

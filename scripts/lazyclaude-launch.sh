@@ -38,10 +38,22 @@ export LAZYCLAUDE_PANE_PATH="${PANE_PATH:-}"
 
 # Open a display-popup with the binary.
 LAZYCLAUDE_HOST_TMUX="$TMUX"
-exec tmux display-popup -b rounded -w 80% -h 80% -d "${PANE_CWD:-.}" \
-    -E "LAZYCLAUDE_HOST_TMUX='$LAZYCLAUDE_HOST_TMUX' \
-        LAZYCLAUDE_PANE_CMD='$PANE_CMD' \
-        LAZYCLAUDE_PANE_PID='$PANE_PID' \
-        LAZYCLAUDE_PANE_TTY='$PANE_TTY' \
-        LAZYCLAUDE_PANE_PATH='$PANE_PATH' \
-        env -u TMUX $BINARY"
+# Wrapper script captures exit code and stderr for crash diagnosis.
+CRASH_LOG="/tmp/lazyclaude/crash.log"
+WRAPPER="/tmp/lazyclaude/run-wrapper.sh"
+cat > "$WRAPPER" <<WRAPPER_EOF
+#!/bin/sh
+LAZYCLAUDE_HOST_TMUX='$LAZYCLAUDE_HOST_TMUX' \
+LAZYCLAUDE_PANE_CMD='$PANE_CMD' \
+LAZYCLAUDE_PANE_PID='$PANE_PID' \
+LAZYCLAUDE_PANE_TTY='$PANE_TTY' \
+LAZYCLAUDE_PANE_PATH='$PANE_PATH' \
+env -u TMUX $BINARY 2>>$CRASH_LOG
+rc=\$?
+if [ \$rc -ne 0 ]; then
+    echo "[\$(date)] exit_code=\$rc" >>$CRASH_LOG
+fi
+exit \$rc
+WRAPPER_EOF
+chmod +x "$WRAPPER"
+exec tmux display-popup -b rounded -w 80% -h 80% -d "${PANE_CWD:-.}" -E "$WRAPPER"

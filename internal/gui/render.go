@@ -42,9 +42,9 @@ func sessionStatusIcon(item *SessionItem) string {
 		return " " + presentation.IconError
 	}
 
-	// Fallback: running session with no activity info yet.
+	// Fallback: running session with no activity info yet (e.g. after restart).
 	if item.Status == "Running" {
-		return " " + presentation.IconRunning
+		return " " + presentation.IconUnknown
 	}
 	return ""
 }
