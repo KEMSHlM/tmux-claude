@@ -819,25 +819,46 @@ func (a *App) ScrollModeExit() {
 }
 
 func (a *App) ScrollModeUp() {
+	// vim-like: move cursor up; if at top of viewport, scroll up
+	if a.scroll.CursorY() > 0 {
+		a.scroll.CursorUp()
+		return
+	}
+	// Cursor at top edge — scroll viewport up (show older content)
 	a.scroll.ScrollUp(1)
 	a.scroll.BumpGeneration()
 	a.captureScrollbackAsync()
 }
 
 func (a *App) ScrollModeDown() {
-	a.scroll.ScrollDown(1)
-	a.scroll.BumpGeneration()
-	a.captureScrollbackAsync()
+	// vim-like: move cursor down; if at bottom of viewport, scroll down
+	maxCursor := len(a.scroll.Lines()) - 1
+	if maxCursor < 0 {
+		maxCursor = a.scroll.ViewHeight() - 1
+	}
+	if a.scroll.CursorY() < maxCursor {
+		a.scroll.CursorDown()
+		return
+	}
+	// Cursor at bottom edge — scroll viewport down (show newer content)
+	if a.scroll.ScrollOffset() > 0 {
+		a.scroll.ScrollDown(1)
+		a.scroll.BumpGeneration()
+		a.captureScrollbackAsync()
+	}
 }
 
 func (a *App) ScrollModeHalfUp() {
-	a.scroll.ScrollUp(a.scroll.ViewHeight() / 2)
+	half := a.scroll.ViewHeight() / 2
+	a.scroll.ScrollUp(half)
+	// Keep cursor at same relative position (vim Ctrl+U behavior)
 	a.scroll.BumpGeneration()
 	a.captureScrollbackAsync()
 }
 
 func (a *App) ScrollModeHalfDown() {
-	a.scroll.ScrollDown(a.scroll.ViewHeight() / 2)
+	half := a.scroll.ViewHeight() / 2
+	a.scroll.ScrollDown(half)
 	a.scroll.BumpGeneration()
 	a.captureScrollbackAsync()
 }
@@ -889,7 +910,10 @@ func (a *App) captureScrollbackAsync() {
 
 	go func() {
 		result, err := a.sessions.CaptureScrollback(target, viewW, startLine, endLine)
-		if err != nil || a.scroll.Generation() != gen {
+		if a.scroll.Generation() != gen {
+			return
+		}
+		if err != nil {
 			return
 		}
 		lines := splitLines(result.Content)
