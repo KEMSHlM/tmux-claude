@@ -902,6 +902,35 @@ func (a *App) ScrollModeCopy() {
 	a.preview.Invalidate()
 }
 
+// mouseScrollLines is the number of lines scrolled per mouse wheel tick.
+const mouseScrollLines = 3
+
+// ScrollModeMouseUp handles mouse wheel up in fullscreen.
+// Enters scroll mode if not already active, then scrolls the viewport up.
+func (a *App) ScrollModeMouseUp() {
+	if !a.scroll.IsActive() {
+		a.ScrollModeEnter()
+	}
+	a.scroll.ScrollUp(mouseScrollLines)
+	a.scroll.BumpGeneration()
+	a.captureScrollbackAsync()
+}
+
+// ScrollModeMouseDown handles mouse wheel down in fullscreen.
+// Scrolls the viewport down. Exits scroll mode when reaching live output.
+func (a *App) ScrollModeMouseDown() {
+	if !a.scroll.IsActive() {
+		return
+	}
+	a.scroll.ScrollDown(mouseScrollLines)
+	if a.scroll.ScrollOffset() == 0 {
+		a.ScrollModeExit()
+		return
+	}
+	a.scroll.BumpGeneration()
+	a.captureScrollbackAsync()
+}
+
 // stripANSI removes ANSI escape sequences from text.
 var ansiEscapeRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
 

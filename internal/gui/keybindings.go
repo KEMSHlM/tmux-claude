@@ -67,10 +67,10 @@ func (a *App) setupGlobalKeybindings() error {
 		}
 	}
 
-	// 4. Mouse scroll (not dispatched — simple inline handlers)
+	// 4. Mouse scroll — enters scroll mode if needed, then scrolls viewport
 	if err := a.gui.SetKeybinding("", gocui.MouseWheelUp, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
-		if a.fullscreen.IsActive() && a.fullscreen.ScrollY() > 0 {
-			a.fullscreen.ScrollUp()
+		if a.fullscreen.IsActive() {
+			a.ScrollModeMouseUp()
 		}
 		return nil
 	}); err != nil {
@@ -78,7 +78,7 @@ func (a *App) setupGlobalKeybindings() error {
 	}
 	if err := a.gui.SetKeybinding("", gocui.MouseWheelDown, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
 		if a.fullscreen.IsActive() {
-			a.fullscreen.ScrollDown()
+			a.ScrollModeMouseDown()
 		}
 		return nil
 	}); err != nil {
