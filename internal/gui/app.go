@@ -44,6 +44,7 @@ type SessionProvider interface {
 	Rename(id, newName string) error
 	PurgeOrphans() (int, error)
 	CapturePreview(id string, width, height int) (PreviewResult, error)
+	CaptureScrollback(id string, width, startLine, endLine int) (PreviewResult, error)
 	PendingNotifications() []*model.ToolNotification
 	SendChoice(window string, choice Choice) error
 	AttachSession(id string) error
@@ -93,6 +94,7 @@ type App struct {
 	lastHeight       int
 	popups           PopupManager                  // popup stack management
 	fullscreen       *FullScreenState              // fullscreen mode state + key forwarding
+	scroll           *ScrollState                 // scrollback browsing state
 	keyRegistry        *keymap.Registry                // single source of truth for key bindings
 	dispatcher         *keydispatch.Dispatcher       // key dispatch chain
 	panelManager       *keyhandler.PanelManager      // panel focus management
@@ -127,6 +129,7 @@ func newApp(mode AppMode, g *gocui.Gui, enableMouse bool) (*App, error) {
 		mcpState:    NewMCPState(),
 		panelTabs:   make(map[string]int),
 	}
+	app.scroll = NewScrollState()
 	app.fullscreen = NewFullScreenState(app.preview)
 	app.initDispatcher()
 

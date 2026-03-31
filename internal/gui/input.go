@@ -187,6 +187,9 @@ func (e *inputEditor) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modi
 	if !e.app.fullscreen.IsActive() || e.app.hasPopup() {
 		return false
 	}
+	if e.app.scroll.IsActive() {
+		return false
+	}
 	return e.forwardAny(key, ch, mod)
 }
 
