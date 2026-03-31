@@ -1,20 +1,60 @@
 # lazyclaude
 
-A standalone TUI for managing Claude Code sessions, with tmux plugin support, SSH remote sessions, and live permission prompt notifications via a built-in MCP server.
+> A [lazygit](https://github.com/jesseduffield/lazygit)-inspired TUI for managing multiple [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions.
+
+Live preview, permission prompt popups, scrollback browsing, SSH remote sessions -- all from a single tmux popup.
 
 <p align="center">
   <img src="docs/images/hero.gif" alt="lazyclaude demo" width="800">
 </p>
 
+---
+
+## Why lazyclaude?
+
+Claude Code is powerful, but managing multiple sessions is painful:
+
+- **Context switching** -- you can't see what other sessions are doing without `tmux select-window`
+- **Permission prompts block** -- you have to be in the right window at the right time to approve
+- **No overview** -- which sessions are running, idle, or stuck waiting for input?
+
+lazyclaude solves this with a single TUI that shows all sessions at a glance, routes permission prompts as popups, and lets you approve from anywhere.
+
 ## Features
 
-- Interactive session manager with live preview of Claude Code output
-- Rich sidebar status with 5-stage activity tracking (Running, NeedsInput, Idle, Error, Dead)
-- Permission prompt popups with one-key approval (y/a/n) -- even from another tmux window
-- Fullscreen mode with direct keyboard forwarding and scrollback browser (vim-like navigation)
-- Search filtering with fzf-style "/" key on any panel (sessions, plugins, MCP servers)
-- SSH remote sessions with automatic reverse tunnel for MCP notifications
-- tmux plugin integration via `display-popup`
+**Session Management**
+- Create, rename, delete, and attach to Claude Code sessions
+- Live preview of any session's output without leaving the session list
+- Project-based grouping with collapsible trees
+
+**Activity Tracking**
+- Real-time 5-stage status for every session:
+  `?` Running | `!` Needs Input | `✓` Idle | `✗` Error | `×` Dead
+- Status updates via Claude Code hooks (injected automatically, zero config)
+
+**Permission Prompts**
+- Tool approval popups appear as overlays -- no need to switch windows
+- One-key approval: `y` accept, `a` always allow, `n` reject
+- Stacked popups with `Left`/`Right` navigation when multiple sessions need input
+- Works across SSH tunnels
+
+**Fullscreen Mode**
+- Direct keyboard forwarding to Claude Code (transparent passthrough)
+- Scrollback browser with vim-like navigation (`Ctrl+V` or mouse wheel)
+- Visual line selection and clipboard copy (`v` select, `y` copy)
+
+**Search & Navigation**
+- fzz-style `/` filter on any panel (sessions, plugins, MCP servers)
+- `?` Telescope-style keybinding help overlay
+- `Tab` / `Shift+Tab` panel cycling
+
+**Infrastructure**
+- tmux plugin integration via `display-popup` (`Ctrl+\` to toggle)
+- SSH remote sessions with automatic reverse tunnel for notifications
+- Built-in MCP server for Claude Code IDE auto-discovery
+- PM/Worker multi-agent orchestration support
+
+---
 
 ## Requirements
 
@@ -34,17 +74,21 @@ make install PREFIX=~/.local
 
 ### With [TPM](https://github.com/tmux-plugins/tpm)
 
+Add to `.tmux.conf`:
+
 ```tmux
 set -g @plugin 'KEMSHlM/lazyclaude'
 ```
 
-Press `prefix + I` to install. The plugin runs `lazyclaude setup` automatically.
+Then press `prefix + I` to install. The plugin registers `Ctrl+\` to open lazyclaude as a tmux popup.
 
 ### Standalone (without tmux plugin)
 
 ```bash
 lazyclaude
 ```
+
+---
 
 ## Keybindings
 
@@ -57,143 +101,85 @@ lazyclaude
 | `d` | Delete session |
 | `Enter` | Fullscreen mode |
 | `a` | Attach (direct tmux attach) |
-| `1` / `2` / `3` | Send key to pane (permission prompt) |
 | `R` | Rename session |
 | `D` | Purge orphan sessions |
-
-### Logs panel
-
-| Key | Action |
-|-----|--------|
-| `j` / `k` | Scroll |
-| `G` / `g` | Jump to end / start |
-| `v` | Toggle visual select |
-| `y` | Copy selection |
-
-### Popup (permission prompt)
-
-| Key | Action |
-|-----|--------|
-| `y` / `1` | Accept |
-| `a` / `2` | Allow always |
-| `n` / `3` | Reject |
-| `Y` | Accept all |
-| `j` / `k` | Scroll (diff view) |
-| `Esc` | Hide popup |
-| `Left` / `Right` | Switch between stacked popups |
 
 ### Fullscreen mode
 
 | Key | Action |
 |-----|--------|
 | `Ctrl+\` / `Ctrl+D` | Exit fullscreen |
-| `Mouse wheel` | Enter scroll mode (vim-like navigation) |
+| `Ctrl+V` / `Mouse wheel` | Enter scroll mode |
 | All other keys | Forwarded to Claude Code |
 
-### Search filter (any panel)
+### Scroll mode (in fullscreen)
 
 | Key | Action |
 |-----|--------|
-| `/` | Activate search filter (prefix-based matching) |
-| `Esc` | Clear filter and return to normal |
-| `Enter` | Keep filter active and perform action |
+| `j` / `k` | Scroll line by line |
+| `J` / `K` / `PgUp` / `PgDn` | Half-page scroll |
+| `g` / `G` | Jump to top / bottom |
+| `v` | Toggle visual line selection |
+| `y` | Copy selection to clipboard |
+| `Esc` / `q` | Exit scroll mode |
+
+### Popup (permission prompt)
+
+| Key | Action |
+|-----|--------|
+| `y` | Accept |
+| `a` | Allow always |
+| `n` | Reject |
+| `Y` | Accept all pending |
+| `j` / `k` | Scroll (diff view) |
+| `Left` / `Right` | Switch between stacked popups |
+| `Esc` | Hide popup |
 
 ### Global
 
 | Key | Action |
 |-----|--------|
-| `?` | Show keybinding help overlay (Telescope-style) |
-| `/` | Activate search filter on current panel |
+| `?` | Keybinding help overlay |
+| `/` | Search filter on current panel |
 | `Tab` / `Shift+Tab` | Cycle panel focus |
 | `p` | Restore hidden popups |
 | `q` / `Ctrl+C` | Quit |
 
+---
+
 ## Architecture
 
-### Two tmux servers
+```
++---------------------------+       +---------------------------+
+|     User's tmux           |       |   lazyclaude tmux (-L)    |
+|  (display-popup)          |       |   Claude Code sessions    |
+|                           |       |                           |
+|   +-------------------+   |       |   @0: session-1           |
+|   | lazyclaude TUI    |<--+-------+-> @1: session-2           |
+|   | (gocui)           |   |       |   @2: session-3           |
+|   +--------+----------+   |       |                           |
+|            |              |       +---------------------------+
+|   +--------v----------+   |
+|   | MCP Server        |   |       Claude Code hooks POST to:
+|   | (in-process)      |<----------  /notify, /stop,
+|   | 127.0.0.1:<port>  |   |        /session-start,
+|   +-------------------+   |        /prompt-submit
++---------------------------+
+```
 
-1. **User's tmux** (default socket) -- displays lazyclaude TUI via `display-popup`
-2. **lazyclaude tmux** (`-L lazyclaude` socket) -- manages Claude Code session windows
+Hooks are injected at session startup via `claude --settings <file>` -- `~/.claude/settings.json` is never modified. The hooks discover the MCP server via lock file scanning, so they survive server restarts.
 
-### MCP server
-
-lazyclaude runs a built-in MCP server (WebSocket + HTTP) that Claude Code auto-connects to:
-
-- Listens on `127.0.0.1:<random-port>`
-- Port file: `~/.local/share/lazyclaude/port.file`
-- Lock file: `~/.claude/ide/<port>.lock`
-- Receives permission prompt notifications via `POST /notify`
-
-### Hook injection
-
-lazyclaude injects Claude Code hooks via `claude --settings <file>` at session startup.
-Hooks (PreToolUse, Notification, Stop, SessionStart, UserPromptSubmit) are written to
-a runtime file and passed as a flag -- `~/.claude/settings.json` is never modified.
-The hooks discover the MCP server via lock file scanning with PID liveness validation,
-so they survive server restarts.
-
-### SSH remote sessions
-
-When creating a session on an SSH host:
-
-1. Generates a bash script with MCP lock file setup
-2. Sets up a reverse tunnel (`-R port:127.0.0.1:port`) to the local MCP server
-3. Launches Claude Code with `CLAUDE_CODE_AUTO_CONNECT_IDE=true`
-4. Permission prompts on the remote host reach the local TUI through the tunnel
-
-## CLI subcommands
-
-| Command | Description |
-|---------|-------------|
-| `lazyclaude` | Run the interactive TUI |
-| `lazyclaude setup` | Register tmux keybindings and ensure MCP server |
-| `lazyclaude server` | Start MCP server daemon |
-
-## Configuration
-
-### Environment variables
-
-| Variable | Description |
-|----------|-------------|
-| `LAZYCLAUDE_DATA_DIR` | Override state directory (default: `~/.local/share/lazyclaude/`) |
-| `LAZYCLAUDE_RUNTIME_DIR` | Override runtime directory (default: `/tmp/`) |
-| `LAZYCLAUDE_IDE_DIR` | Override IDE lock directory (default: `~/.claude/ide/`) |
-
-### Runtime files
-
-| File | Contents |
-|------|----------|
-| `~/.local/share/lazyclaude/state.json` | Session persistence |
-| `~/.local/share/lazyclaude/port.file` | MCP server port |
-| `~/.claude/ide/<port>.lock` | Claude Code IDE discovery |
-| `/tmp/lazyclaude/server.log` | MCP server log |
+---
 
 ## Development
 
-### Build
-
 ```bash
-make build    # bin/lazyclaude
-make lint     # golangci-lint
-```
-
-### Test
-
-```bash
+make build         # Build binary
 make test          # All tests (race + coverage)
-make test-unit     # Unit tests only
-make test-vhs TAPE=smoke  # VHS visual E2E (Docker required)
+make lint          # golangci-lint
+make readme-gif    # Regenerate docs/images/hero.gif (Docker required)
 ```
 
-### VHS E2E tests
+## License
 
-Requires Docker and a Claude Code OAuth token:
-
-```bash
-claude setup-token
-echo "CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-..." > vis_e2e_tests/.env
-make test-vhs TAPE=smoke
-make readme-gif  # Generate docs/images/hero.gif
-```
-
-Outputs: `vis_e2e_tests/outputs/{name}/` with `.gif`, `.txt`, `.log` files.
+MIT
