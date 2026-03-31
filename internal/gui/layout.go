@@ -429,9 +429,6 @@ func (a *App) renderPreview(v *gocui.View, items []SessionItem, previewW, previe
 
 	item := *node.Session
 
-	// Clear unread badge when the user views this session (idle/error are "unread").
-	a.clearUnreadActivity(item.TmuxWindow)
-
 	if session.IsWorktreePath(item.Path) {
 		v.Title = fmt.Sprintf(" [worktree] %s ", item.Name)
 	} else {
