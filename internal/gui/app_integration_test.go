@@ -54,6 +54,9 @@ func (m *mockSessionProvider) CapturePreview(_ string, _, _ int) (gui.PreviewRes
 func (m *mockSessionProvider) CaptureScrollback(_ string, _, _, _ int) (gui.PreviewResult, error) {
 	return gui.PreviewResult{Content: "scrollback content"}, nil
 }
+func (m *mockSessionProvider) HistorySize(_ string) (int, error) {
+	return 100, nil
+}
 
 func (m *mockSessionProvider) PendingNotifications() []*model.ToolNotification {
 	m.mu.Lock()

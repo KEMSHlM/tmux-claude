@@ -804,12 +804,18 @@ func (a *App) StartSearch() {
 func (a *App) IsScrollMode() bool { return a.scroll.IsActive() }
 
 func (a *App) ScrollModeEnter() {
-	// Use the fullscreen view height for the initial scroll offset.
 	viewH := a.scrollViewHeight()
 	if viewH <= 0 {
 		return
 	}
 	a.scroll.Enter(viewH)
+	// Query history_size to set maxOffset so g/G work correctly.
+	target := a.fullscreen.Target()
+	if target != "" {
+		if histSize, err := a.sessions.HistorySize(target); err == nil && histSize > 0 {
+			a.scroll.SetMaxOffset(histSize)
+		}
+	}
 	a.scroll.BumpGeneration()
 	a.captureScrollbackAsync()
 }

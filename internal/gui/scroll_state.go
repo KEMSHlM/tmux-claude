@@ -82,15 +82,10 @@ func (s *ScrollState) ScrollDown(n int) {
 	}
 }
 
-// ToTop scrolls to the maximum offset. If maxOffset is not yet known,
-// jumps to a large offset; the actual limit will be discovered when
-// capture returns fewer lines than viewHeight.
+// ToTop scrolls to the maximum offset (top of scrollback).
 func (s *ScrollState) ToTop() {
 	if s.maxOffset > 0 {
 		s.scrollOffset = s.maxOffset
-	} else {
-		// Jump high; capture will clamp to actual history size.
-		s.scrollOffset = 50000
 	}
 }
 

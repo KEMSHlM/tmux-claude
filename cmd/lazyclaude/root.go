@@ -488,6 +488,24 @@ func (a *sessionAdapter) CaptureScrollback(id string, width, startLine, endLine 
 	}, nil
 }
 
+func (a *sessionAdapter) HistorySize(id string) (int, error) {
+	sess := a.mgr.Store().FindByID(id)
+	if sess == nil {
+		return 0, nil
+	}
+	target := sess.TmuxWindow
+	if target == "" {
+		target = "lazyclaude:" + sess.WindowName()
+	}
+	ctx := context.Background()
+	out, err := a.tmux.ShowMessage(ctx, target, "#{history_size}")
+	if err != nil {
+		return 0, err
+	}
+	n, _ := strconv.Atoi(strings.TrimSpace(out))
+	return n, nil
+}
+
 func (a *sessionAdapter) Create(path, host string) error {
 	if path == "." {
 		abs, err := filepath.Abs(".")

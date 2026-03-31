@@ -45,6 +45,7 @@ type SessionProvider interface {
 	PurgeOrphans() (int, error)
 	CapturePreview(id string, width, height int) (PreviewResult, error)
 	CaptureScrollback(id string, width, startLine, endLine int) (PreviewResult, error)
+	HistorySize(id string) (int, error)
 	PendingNotifications() []*model.ToolNotification
 	SendChoice(window string, choice Choice) error
 	AttachSession(id string) error
