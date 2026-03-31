@@ -55,11 +55,17 @@ lazyclaude solves this with a single TUI that shows all sessions at a glance, ro
 - `?` Telescope-style keybinding help overlay
 - `Tab` / `Shift+Tab` panel cycling
 
+**PM/Worker Multi-Agent**
+- Spawn a PM (Project Manager) session that orchestrates multiple Worker sessions
+- Workers run in isolated git worktrees with their own branches
+- PM and Workers communicate via a built-in message API (`/msg/send`, `/msg/create`)
+- PM reviews Worker pull requests and sends structured feedback
+- Each Worker receives a system prompt with its role, task, and communication instructions
+
 **Infrastructure**
 - tmux plugin integration via `display-popup` (`Ctrl+\` to toggle)
 - SSH remote sessions with automatic reverse tunnel for notifications
 - Built-in MCP server for Claude Code IDE auto-discovery
-- PM/Worker multi-agent orchestration support
 - Launch [lazygit](https://github.com/jesseduffield/lazygit) directly from the TUI (optional, if installed)
 
 ---

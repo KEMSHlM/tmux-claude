@@ -55,11 +55,17 @@ lazyclaude は、全セッションを一覧表示し、権限プロンプトを
 - `?` Telescope スタイルのキーバインドヘルプオーバーレイ
 - `Tab` / `Shift+Tab` でパネル切り替え
 
+**PM/Worker マルチエージェント**
+- PM（プロジェクトマネージャー）セッションを起動し、複数の Worker セッションを統括
+- Worker は隔離された git worktree 上で独自ブランチを持って作業
+- PM と Worker は組み込みメッセージ API（`/msg/send`、`/msg/create`）で通信
+- PM が Worker のプルリクエストをレビューし、構造化されたフィードバックを送信
+- 各 Worker はロール、タスク、通信方法を含むシステムプロンプトを受け取る
+
 **インフラ**
 - `display-popup` 経由の tmux プラグイン統合（`Ctrl+\` でトグル）
 - SSH リモートセッション（通知用の自動リバーストンネル）
 - Claude Code IDE 自動検出用の組み込み MCP サーバー
-- PM/Worker マルチエージェントオーケストレーション対応
 - TUI から [lazygit](https://github.com/jesseduffield/lazygit) を直接起動可能（オプション、インストール済みの場合）
 
 ---
