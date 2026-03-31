@@ -1,6 +1,6 @@
 package gui
 
-import "github.com/KEMSHlM/lazyclaude/internal/gui/keymap"
+import "github.com/any-context/lazyclaude/internal/gui/keymap"
 
 // DialogKind identifies which input dialog is currently active.
 type DialogKind int

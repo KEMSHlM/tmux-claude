@@ -1,4 +1,4 @@
-module github.com/KEMSHlM/lazyclaude
+module github.com/any-context/lazyclaude
 
 go 1.25
 

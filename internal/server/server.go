@@ -15,11 +15,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/KEMSHlM/lazyclaude/internal/adapter/tmuxadapter"
-	"github.com/KEMSHlM/lazyclaude/internal/core/event"
-	"github.com/KEMSHlM/lazyclaude/internal/core/model"
-	"github.com/KEMSHlM/lazyclaude/internal/core/tmux"
-	"github.com/KEMSHlM/lazyclaude/internal/notify"
+	"github.com/any-context/lazyclaude/internal/adapter/tmuxadapter"
+	"github.com/any-context/lazyclaude/internal/core/event"
+	"github.com/any-context/lazyclaude/internal/core/model"
+	"github.com/any-context/lazyclaude/internal/core/tmux"
+	"github.com/any-context/lazyclaude/internal/notify"
 	"nhooyr.io/websocket"
 )
 

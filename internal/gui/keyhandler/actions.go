@@ -1,6 +1,6 @@
 package keyhandler
 
-import "github.com/KEMSHlM/lazyclaude/internal/core/choice"
+import "github.com/any-context/lazyclaude/internal/core/choice"
 
 // ---------------------------------------------------------------------------
 // Domain-specific action interfaces.

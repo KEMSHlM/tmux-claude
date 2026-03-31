@@ -3,8 +3,8 @@ package gui_test
 import (
 	"testing"
 
-	"github.com/KEMSHlM/lazyclaude/internal/core/model"
-	"github.com/KEMSHlM/lazyclaude/internal/gui"
+	"github.com/any-context/lazyclaude/internal/core/model"
+	"github.com/any-context/lazyclaude/internal/gui"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

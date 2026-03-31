@@ -3,7 +3,7 @@ package session_test
 import (
 	"testing"
 
-	"github.com/KEMSHlM/lazyclaude/internal/session"
+	"github.com/any-context/lazyclaude/internal/session"
 	"github.com/stretchr/testify/assert"
 )
 

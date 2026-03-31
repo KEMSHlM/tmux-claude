@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/KEMSHlM/lazyclaude/internal/core/model"
-	"github.com/KEMSHlM/lazyclaude/internal/core/tmux"
-	"github.com/KEMSHlM/lazyclaude/internal/notify"
+	"github.com/any-context/lazyclaude/internal/core/model"
+	"github.com/any-context/lazyclaude/internal/core/tmux"
+	"github.com/any-context/lazyclaude/internal/notify"
 )
 
 const pendingWindowFile = "lazyclaude-pending-window"

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/KEMSHlM/lazyclaude/internal/session"
+	"github.com/any-context/lazyclaude/internal/session"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

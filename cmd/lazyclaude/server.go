@@ -11,9 +11,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/KEMSHlM/lazyclaude/internal/core/config"
-	"github.com/KEMSHlM/lazyclaude/internal/core/tmux"
-	"github.com/KEMSHlM/lazyclaude/internal/server"
+	"github.com/any-context/lazyclaude/internal/core/config"
+	"github.com/any-context/lazyclaude/internal/core/tmux"
+	"github.com/any-context/lazyclaude/internal/server"
 	"github.com/spf13/cobra"
 )
 

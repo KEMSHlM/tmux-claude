@@ -1,8 +1,8 @@
 package gui
 
 import (
-	"github.com/KEMSHlM/lazyclaude/internal/core/event"
-	"github.com/KEMSHlM/lazyclaude/internal/core/model"
+	"github.com/any-context/lazyclaude/internal/core/event"
+	"github.com/any-context/lazyclaude/internal/core/model"
 )
 
 // NotifyLoop manages notification delivery state: output signals,

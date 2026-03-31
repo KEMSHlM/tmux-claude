@@ -1,6 +1,6 @@
 package keyhandler
 
-import "github.com/KEMSHlM/lazyclaude/internal/gui/keymap"
+import "github.com/any-context/lazyclaude/internal/gui/keymap"
 
 // Panel represents a focusable area in the TUI (metadata + tab lifecycle).
 // Key handling is provided separately via PanelWithHandler.

@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/KEMSHlM/lazyclaude/internal/gui/keymap"
-	"github.com/KEMSHlM/lazyclaude/internal/gui/presentation"
-	"github.com/KEMSHlM/lazyclaude/internal/session"
+	"github.com/any-context/lazyclaude/internal/gui/keymap"
+	"github.com/any-context/lazyclaude/internal/gui/presentation"
+	"github.com/any-context/lazyclaude/internal/session"
 	"github.com/jesseduffield/gocui"
 )
 

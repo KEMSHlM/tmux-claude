@@ -3,10 +3,10 @@ package keydispatch_test
 import (
 	"testing"
 
-	"github.com/KEMSHlM/lazyclaude/internal/core/choice"
-	"github.com/KEMSHlM/lazyclaude/internal/gui/keydispatch"
-	"github.com/KEMSHlM/lazyclaude/internal/gui/keyhandler"
-	"github.com/KEMSHlM/lazyclaude/internal/gui/keymap"
+	"github.com/any-context/lazyclaude/internal/core/choice"
+	"github.com/any-context/lazyclaude/internal/gui/keydispatch"
+	"github.com/any-context/lazyclaude/internal/gui/keyhandler"
+	"github.com/any-context/lazyclaude/internal/gui/keymap"
 	"github.com/jesseduffield/gocui"
 )
 

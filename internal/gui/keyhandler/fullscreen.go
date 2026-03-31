@@ -1,6 +1,6 @@
 package keyhandler
 
-import "github.com/KEMSHlM/lazyclaude/internal/gui/keymap"
+import "github.com/any-context/lazyclaude/internal/gui/keymap"
 
 // FullScreenHandler handles special keys in full-screen mode.
 // Rune keys are NOT handled here — inputEditor.Edit() handles those.

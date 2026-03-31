@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/KEMSHlM/lazyclaude/internal/core/model"
-	"github.com/KEMSHlM/lazyclaude/internal/notify"
+	"github.com/any-context/lazyclaude/internal/core/model"
+	"github.com/any-context/lazyclaude/internal/notify"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

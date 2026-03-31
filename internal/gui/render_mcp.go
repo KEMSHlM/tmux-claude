@@ -3,7 +3,7 @@ package gui
 import (
 	"fmt"
 
-	"github.com/KEMSHlM/lazyclaude/internal/gui/presentation"
+	"github.com/any-context/lazyclaude/internal/gui/presentation"
 	"github.com/jesseduffield/gocui"
 )
 

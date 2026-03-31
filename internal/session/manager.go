@@ -15,9 +15,9 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/KEMSHlM/lazyclaude/internal/core/config"
-	"github.com/KEMSHlM/lazyclaude/internal/core/shell"
-	"github.com/KEMSHlM/lazyclaude/internal/core/tmux"
+	"github.com/any-context/lazyclaude/internal/core/config"
+	"github.com/any-context/lazyclaude/internal/core/shell"
+	"github.com/any-context/lazyclaude/internal/core/tmux"
 	"github.com/google/uuid"
 )
 

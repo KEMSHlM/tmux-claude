@@ -1,8 +1,8 @@
 package keydispatch
 
 import (
-	"github.com/KEMSHlM/lazyclaude/internal/gui/keyhandler"
-	"github.com/KEMSHlM/lazyclaude/internal/gui/keymap"
+	"github.com/any-context/lazyclaude/internal/gui/keyhandler"
+	"github.com/any-context/lazyclaude/internal/gui/keymap"
 )
 
 // Dispatcher routes key events through a priority chain:

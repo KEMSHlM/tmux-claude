@@ -67,7 +67,7 @@ lazyclaude solves this with a single TUI that shows all sessions at a glance, ro
 ### Build from source
 
 ```bash
-git clone https://github.com/KEMSHlM/lazyclaude ~/.local/share/tmux/plugins/lazyclaude
+git clone https://github.com/any-context/lazyclaude ~/.local/share/tmux/plugins/lazyclaude
 cd ~/.local/share/tmux/plugins/lazyclaude
 make install PREFIX=~/.local
 ```
@@ -77,7 +77,7 @@ make install PREFIX=~/.local
 Add to `.tmux.conf`:
 
 ```tmux
-set -g @plugin 'KEMSHlM/lazyclaude'
+set -g @plugin 'any-context/lazyclaude'
 ```
 
 Then press `prefix + I` to install. The plugin registers `Ctrl+\` to open lazyclaude as a tmux popup.

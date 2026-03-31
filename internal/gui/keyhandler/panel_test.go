@@ -3,8 +3,8 @@ package keyhandler_test
 import (
 	"testing"
 
-	"github.com/KEMSHlM/lazyclaude/internal/gui/keyhandler"
-	"github.com/KEMSHlM/lazyclaude/internal/gui/keymap"
+	"github.com/any-context/lazyclaude/internal/gui/keyhandler"
+	"github.com/any-context/lazyclaude/internal/gui/keymap"
 )
 
 func TestPanelManager_FocusNext_Wraps(t *testing.T) {

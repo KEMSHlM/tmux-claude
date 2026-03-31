@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/KEMSHlM/lazyclaude/internal/core/model"
-	"github.com/KEMSHlM/lazyclaude/internal/gui/presentation"
+	"github.com/any-context/lazyclaude/internal/core/model"
+	"github.com/any-context/lazyclaude/internal/gui/presentation"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

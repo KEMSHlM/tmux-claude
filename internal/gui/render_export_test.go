@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"fmt"
 
-	"github.com/KEMSHlM/lazyclaude/internal/gui/presentation"
+	"github.com/any-context/lazyclaude/internal/gui/presentation"
 )
 
 // RenderSessionListForTest renders sessions to a string buffer for testing.

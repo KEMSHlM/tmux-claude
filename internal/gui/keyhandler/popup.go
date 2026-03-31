@@ -1,8 +1,8 @@
 package keyhandler
 
 import (
-	"github.com/KEMSHlM/lazyclaude/internal/core/choice"
-	"github.com/KEMSHlM/lazyclaude/internal/gui/keymap"
+	"github.com/any-context/lazyclaude/internal/core/choice"
+	"github.com/any-context/lazyclaude/internal/gui/keymap"
 )
 
 // PopupHandler handles keys when a popup is visible.

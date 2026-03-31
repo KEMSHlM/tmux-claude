@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/KEMSHlM/lazyclaude/internal/core/tmux"
-	"github.com/KEMSHlM/lazyclaude/internal/server"
+	"github.com/any-context/lazyclaude/internal/core/tmux"
+	"github.com/any-context/lazyclaude/internal/server"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

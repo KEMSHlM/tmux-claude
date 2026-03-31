@@ -3,8 +3,8 @@ package gui
 import (
 	"testing"
 
-	"github.com/KEMSHlM/lazyclaude/internal/gui/keyhandler"
-	"github.com/KEMSHlM/lazyclaude/internal/gui/keymap"
+	"github.com/any-context/lazyclaude/internal/gui/keyhandler"
+	"github.com/any-context/lazyclaude/internal/gui/keymap"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

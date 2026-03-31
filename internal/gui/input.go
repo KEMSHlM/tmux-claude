@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/KEMSHlM/lazyclaude/internal/core/tmux"
+	"github.com/any-context/lazyclaude/internal/core/tmux"
 	"github.com/jesseduffield/gocui"
 )
 

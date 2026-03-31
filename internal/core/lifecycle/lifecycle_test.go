@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/KEMSHlM/lazyclaude/internal/core/lifecycle"
+	"github.com/any-context/lazyclaude/internal/core/lifecycle"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/goleak"

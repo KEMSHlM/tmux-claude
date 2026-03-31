@@ -3,7 +3,7 @@ package presentation_test
 import (
 	"testing"
 
-	"github.com/KEMSHlM/lazyclaude/internal/gui/presentation"
+	"github.com/any-context/lazyclaude/internal/gui/presentation"
 	"github.com/stretchr/testify/assert"
 )
 

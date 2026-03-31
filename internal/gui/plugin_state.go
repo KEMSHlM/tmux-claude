@@ -3,7 +3,7 @@ package gui
 import (
 	"context"
 
-	"github.com/KEMSHlM/lazyclaude/internal/gui/keymap"
+	"github.com/any-context/lazyclaude/internal/gui/keymap"
 )
 
 // PluginItem is a read-only view of an installed plugin for display.

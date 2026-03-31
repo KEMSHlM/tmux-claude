@@ -1,8 +1,8 @@
 package gui
 
 import (
-	"github.com/KEMSHlM/lazyclaude/internal/core/choice"
-	"github.com/KEMSHlM/lazyclaude/internal/core/config"
+	"github.com/any-context/lazyclaude/internal/core/choice"
+	"github.com/any-context/lazyclaude/internal/core/config"
 )
 
 // Choice aliases for backward compatibility.

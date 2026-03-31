@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/KEMSHlM/lazyclaude/internal/session"
+	"github.com/any-context/lazyclaude/internal/session"
 )
 
 func TestRole_String(t *testing.T) {

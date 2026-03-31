@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/KEMSHlM/lazyclaude/internal/core/config"
+	"github.com/any-context/lazyclaude/internal/core/config"
 )
 
 // Choice represents a user's selection in a diff/tool popup.

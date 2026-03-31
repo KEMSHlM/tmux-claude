@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/KEMSHlM/lazyclaude/internal/core/event"
-	"github.com/KEMSHlM/lazyclaude/internal/core/model"
+	"github.com/any-context/lazyclaude/internal/core/event"
+	"github.com/any-context/lazyclaude/internal/core/model"
 )
 
 func TestNotifyLoop_NotifyOutput(t *testing.T) {

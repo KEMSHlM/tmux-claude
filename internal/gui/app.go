@@ -5,11 +5,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/KEMSHlM/lazyclaude/internal/core/event"
-	"github.com/KEMSHlM/lazyclaude/internal/core/model"
-	"github.com/KEMSHlM/lazyclaude/internal/gui/keydispatch"
-	"github.com/KEMSHlM/lazyclaude/internal/gui/keyhandler"
-	"github.com/KEMSHlM/lazyclaude/internal/gui/keymap"
+	"github.com/any-context/lazyclaude/internal/core/event"
+	"github.com/any-context/lazyclaude/internal/core/model"
+	"github.com/any-context/lazyclaude/internal/gui/keydispatch"
+	"github.com/any-context/lazyclaude/internal/gui/keyhandler"
+	"github.com/any-context/lazyclaude/internal/gui/keymap"
 	"github.com/jesseduffield/gocui"
 )
 

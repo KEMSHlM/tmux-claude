@@ -1,8 +1,8 @@
 package keyhandler
 
 import (
-	"github.com/KEMSHlM/lazyclaude/internal/gui/keymap"
-	"github.com/KEMSHlM/lazyclaude/internal/gui/presentation"
+	"github.com/any-context/lazyclaude/internal/gui/keymap"
+	"github.com/any-context/lazyclaude/internal/gui/presentation"
 )
 
 // LogsPanel handles keys for the logs view (lower-left).

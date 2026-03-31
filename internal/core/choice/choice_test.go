@@ -4,8 +4,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/KEMSHlM/lazyclaude/internal/core/config"
-	"github.com/KEMSHlM/lazyclaude/internal/core/choice"
+	"github.com/any-context/lazyclaude/internal/core/config"
+	"github.com/any-context/lazyclaude/internal/core/choice"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

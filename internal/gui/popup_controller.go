@@ -1,7 +1,7 @@
 package gui
 
 import (
-	"github.com/KEMSHlM/lazyclaude/internal/core/model"
+	"github.com/any-context/lazyclaude/internal/core/model"
 )
 
 // PopupManager abstracts popup stack operations.

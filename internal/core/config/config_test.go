@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/KEMSHlM/lazyclaude/internal/core/config"
+	"github.com/any-context/lazyclaude/internal/core/config"
 	"github.com/stretchr/testify/assert"
 )
 

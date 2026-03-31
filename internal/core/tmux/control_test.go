@@ -3,7 +3,7 @@ package tmux_test
 import (
 	"testing"
 
-	"github.com/KEMSHlM/lazyclaude/internal/core/tmux"
+	"github.com/any-context/lazyclaude/internal/core/tmux"
 	"github.com/stretchr/testify/assert"
 )
 
