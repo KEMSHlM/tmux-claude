@@ -198,7 +198,7 @@ func (m *Manager) Create(ctx context.Context, dirPath, host string) (*Session, e
 		return nil, fmt.Errorf("resolve path %q: %w", sess.Path, err)
 	}
 
-	env := claudeEnv(id, mcpPort, mcpToken)
+	env := claudeEnv(id)
 	return m.launchSession(ctx, sess, claudeCmd, absPath, env)
 }
 
@@ -367,7 +367,7 @@ func (m *Manager) launchWorktreeSession(ctx context.Context, name, wtPath, userP
 	claudeCmd := fmt.Sprintf("exec \"$SHELL\" -lic 'exec sh %s'", shell.Quote(launcher))
 	m.log.Info("launchWorktree", "name", name, "id", id[:8], "path", wtPath, "role", role)
 
-	env := claudeEnv(id, mcpPort, mcpToken)
+	env := claudeEnv(id)
 	result, err := m.launchSession(ctx, sess, claudeCmd, wtPath, env)
 	if err != nil {
 		return nil, err
@@ -567,7 +567,7 @@ func (m *Manager) buildClaudeCommand(sess Session) string {
 // Inherits auth tokens and Claude-specific vars from the parent process.
 // Server port/token are NOT injected as env vars — hooks always discover the
 // server via lock file scanning so they survive server restarts.
-func claudeEnv(sessionID string, _ int, _ string) map[string]string {
+func claudeEnv(sessionID string) map[string]string {
 	env := map[string]string{
 		"CLAUDE_CODE_AUTO_CONNECT_IDE": "true",
 	}
@@ -671,7 +671,7 @@ func (m *Manager) CreatePMSession(ctx context.Context, projectRoot string) (*Ses
 	claudeCmd := fmt.Sprintf("exec \"$SHELL\" -lic 'exec sh %s'", shell.Quote(launcher))
 	m.log.Info("createPMSession", "id", id[:8], "path", projectRoot)
 
-	env := claudeEnv(id, mcpPort, token)
+	env := claudeEnv(id)
 	result, err := m.launchSession(ctx, sess, claudeCmd, projectRoot, env)
 	if err != nil {
 		return nil, err

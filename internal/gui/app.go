@@ -399,11 +399,6 @@ func (a *App) NotifyOutput() {
 	a.notify.NotifyOutput()
 }
 
-// WindowActivity returns the activity state for a tmux window.
-func (a *App) WindowActivity(window string) model.ActivityState {
-	return a.windowActivity[window].State
-}
-
 // WindowActivityMap returns a shallow copy of the window activity map.
 // Used by the session adapter to merge lifecycle state into SessionItem.Activity.
 // Must be called from the gocui event loop goroutine only (layout callbacks).
@@ -425,15 +420,6 @@ func (a *App) setWindowActivity(window string, entry WindowActivityEntry) {
 		return
 	}
 	a.windowActivity[window] = entry
-}
-
-// clearWindowActivity removes the lifecycle activity for a tmux window.
-// Called when a new session starts (the previous stop state is stale).
-func (a *App) clearWindowActivity(window string) {
-	if window == "" {
-		return
-	}
-	delete(a.windowActivity, window)
 }
 
 // clearUnreadActivity clears the activity state for a window only if it is

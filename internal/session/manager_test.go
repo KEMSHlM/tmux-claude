@@ -754,7 +754,7 @@ func TestManager_launchWorktreeSession_RoleWorker_UsesWorkerPrompt(t *testing.T)
 
 func TestClaudeEnv_InjectsSessionID(t *testing.T) {
 	t.Parallel()
-	env := session.ClaudeEnv("sess-abc", 12345, "tok-xyz")
+	env := session.ClaudeEnv("sess-abc")
 
 	assert.Equal(t, "sess-abc", env["LAZYCLAUDE_SESSION_ID"])
 	assert.Equal(t, "true", env["CLAUDE_CODE_AUTO_CONNECT_IDE"])
@@ -768,7 +768,7 @@ func TestClaudeEnv_InjectsSessionID(t *testing.T) {
 
 func TestClaudeEnv_OmitsEmptySessionID(t *testing.T) {
 	t.Parallel()
-	env := session.ClaudeEnv("", 0, "")
+	env := session.ClaudeEnv("")
 
 	_, hasID := env["LAZYCLAUDE_SESSION_ID"]
 	assert.False(t, hasID, "empty sessionID should not be set")
@@ -776,6 +776,6 @@ func TestClaudeEnv_OmitsEmptySessionID(t *testing.T) {
 
 func TestClaudeEnv_AlwaysHasAutoConnectIDE(t *testing.T) {
 	t.Parallel()
-	env := session.ClaudeEnv("", 0, "")
+	env := session.ClaudeEnv("")
 	assert.Equal(t, "true", env["CLAUDE_CODE_AUTO_CONNECT_IDE"])
 }
