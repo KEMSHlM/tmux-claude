@@ -7,3 +7,7 @@
 ## Project
 
 - [project_ime_issue](./project_ime_issue.md) — 日本語 IME フルスクリーンモードの問題（未解決）
+
+## Reference
+
+- [reference_system_prompts](./reference_system_prompts.md) — PM/Worker system prompt テンプレートとビルド・注入の実装箇所
