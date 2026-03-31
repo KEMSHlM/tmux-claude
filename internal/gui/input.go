@@ -206,6 +206,10 @@ func (e *inputEditor) forwardAny(key gocui.Key, ch rune, mod gocui.Modifier) boo
 		e.app.forwardSpecialKey("Escape")
 		return true
 	}
+	// Ctrl+V is reserved for scroll mode entry — do not forward.
+	if key == gocui.KeyCtrlV {
+		return false
+	}
 	if tmuxKey, ok := specialKeyMap[key]; ok {
 		e.app.forwardSpecialKey(tmuxKey)
 		return true
