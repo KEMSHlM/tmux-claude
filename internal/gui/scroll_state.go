@@ -1,5 +1,7 @@
 package gui
 
+import "strings"
+
 // ScrollState manages scrollback browsing and text selection in fullscreen mode.
 // No gocui dependency -- independently testable.
 type ScrollState struct {
@@ -37,7 +39,6 @@ func (s *ScrollState) Lines() []string { return s.lines }
 // Generation returns the current generation counter.
 func (s *ScrollState) Generation() int { return s.generation }
 
-// Enter activates scroll mode. Initial offset is one screen up.
 // Enter activates scroll mode. Starts at the bottom (most recent output)
 // with the cursor on the last line.
 func (s *ScrollState) Enter(viewHeight int) {
@@ -173,14 +174,14 @@ func (s *ScrollState) CopyText() string {
 	if end >= len(s.lines) {
 		end = len(s.lines) - 1
 	}
-	var text string
+	var b strings.Builder
 	for i := start; i <= end; i++ {
 		if i > start {
-			text += "\n"
+			b.WriteByte('\n')
 		}
-		text += s.lines[i]
+		b.WriteString(s.lines[i])
 	}
-	return text
+	return b.String()
 }
 
 // BumpGeneration increments the generation counter.

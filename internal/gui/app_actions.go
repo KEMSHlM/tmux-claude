@@ -931,15 +931,15 @@ func (a *App) captureScrollbackAsync() {
 
 	go func() {
 		result, err := a.sessions.CaptureScrollback(target, viewW, startLine, endLine)
-		if a.scroll.Generation() != gen {
-			return
-		}
-		if err != nil {
-			return
-		}
-		lines := splitLines(result.Content)
-		a.scroll.SetLines(lines)
-		a.gui.Update(func(g *gocui.Gui) error { return nil })
+		// Serialise state mutation through the gocui event loop to avoid
+		// racing with BumpGeneration/Exit on the main goroutine.
+		a.gui.Update(func(g *gocui.Gui) error {
+			if err != nil || a.scroll.Generation() != gen {
+				return nil
+			}
+			a.scroll.SetLines(splitLines(result.Content))
+			return nil
+		})
 	}()
 }
 
