@@ -72,22 +72,23 @@ lazyclaude は、全セッションを一覧表示し、権限プロンプトを
 
 ## 要件
 
-- Go 1.25+
 - tmux >= 3.4（`display-popup -b rounded` に必要）
 - [Claude CLI](https://docs.anthropic.com/en/docs/claude-code)
 - [lazygit](https://github.com/jesseduffield/lazygit)（オプション -- TUI 内での git 管理用）
 
 ## インストール
 
-### ソースからビルド
+### クイックインストール（スタンドアロンバイナリ）
 
 ```bash
-git clone https://github.com/any-context/lazyclaude ~/.local/share/tmux/plugins/lazyclaude
-cd ~/.local/share/tmux/plugins/lazyclaude
-make install PREFIX=~/.local
+curl -fsSL https://raw.githubusercontent.com/any-context/lazyclaude/main/install.sh | sh
 ```
 
-### [TPM](https://github.com/tmux-plugins/tpm) を使う場合
+ビルド済みバイナリを `~/.local/bin/` にダウンロードします。Go は不要です。`lazyclaude` で起動。
+
+> **注意:** バイナリのみのインストールです。tmux プラグイン統合（`Ctrl+\` popup）を使うには、TPM またはリポジトリの clone を利用してください。
+
+### [TPM](https://github.com/tmux-plugins/tpm) を使う場合（tmux プラグイン）
 
 `.tmux.conf` に追加:
 
@@ -97,10 +98,30 @@ set -g @plugin 'any-context/lazyclaude'
 
 `prefix + I` でインストール。プラグインは `Ctrl+\` で lazyclaude を tmux popup として開くキーバインドを登録します。
 
-### スタンドアロン（tmux プラグインなし）
+### 手動 clone（TPM なしの tmux プラグイン）
 
 ```bash
-lazyclaude
+git clone https://github.com/any-context/lazyclaude ~/.local/share/tmux/plugins/lazyclaude
+cd ~/.local/share/tmux/plugins/lazyclaude
+make install PREFIX=~/.local
+```
+
+`.tmux.conf` に追加:
+
+```tmux
+run-shell ~/.local/share/tmux/plugins/lazyclaude/lazyclaude.tmux
+```
+
+リロード: `tmux source ~/.tmux.conf`
+
+### ソースからビルド
+
+Go 1.25+ が必要:
+
+```bash
+git clone https://github.com/any-context/lazyclaude
+cd lazyclaude
+make install PREFIX=~/.local
 ```
 
 ---

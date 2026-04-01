@@ -72,22 +72,23 @@ lazyclaude solves this with a single TUI that shows all sessions at a glance, ro
 
 ## Requirements
 
-- Go 1.25+
 - tmux >= 3.4 (for `display-popup -b rounded`)
 - [Claude CLI](https://docs.anthropic.com/en/docs/claude-code)
 - [lazygit](https://github.com/jesseduffield/lazygit) (optional -- for in-TUI git management)
 
 ## Installation
 
-### Build from source
+### Quick install (standalone binary)
 
 ```bash
-git clone https://github.com/any-context/lazyclaude ~/.local/share/tmux/plugins/lazyclaude
-cd ~/.local/share/tmux/plugins/lazyclaude
-make install PREFIX=~/.local
+curl -fsSL https://raw.githubusercontent.com/any-context/lazyclaude/main/install.sh | sh
 ```
 
-### With [TPM](https://github.com/tmux-plugins/tpm)
+Downloads a pre-built binary to `~/.local/bin/`. No Go required. Run with `lazyclaude`.
+
+> **Note:** This installs the binary only. For tmux plugin integration (`Ctrl+\` popup), use TPM or clone the repo instead.
+
+### With [TPM](https://github.com/tmux-plugins/tpm) (tmux plugin)
 
 Add to `.tmux.conf`:
 
@@ -97,10 +98,30 @@ set -g @plugin 'any-context/lazyclaude'
 
 Then press `prefix + I` to install. The plugin registers `Ctrl+\` to open lazyclaude as a tmux popup.
 
-### Standalone (without tmux plugin)
+### Clone manually (tmux plugin without TPM)
 
 ```bash
-lazyclaude
+git clone https://github.com/any-context/lazyclaude ~/.local/share/tmux/plugins/lazyclaude
+cd ~/.local/share/tmux/plugins/lazyclaude
+make install PREFIX=~/.local
+```
+
+Add to `.tmux.conf`:
+
+```tmux
+run-shell ~/.local/share/tmux/plugins/lazyclaude/lazyclaude.tmux
+```
+
+Then reload: `tmux source ~/.tmux.conf`
+
+### Build from source
+
+Requires Go 1.25+:
+
+```bash
+git clone https://github.com/any-context/lazyclaude
+cd lazyclaude
+make install PREFIX=~/.local
 ```
 
 ---
