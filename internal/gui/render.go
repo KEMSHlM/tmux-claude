@@ -80,7 +80,7 @@ func renderTree(v *gocui.View, nodes []TreeNode, cursor int) {
 			}
 			projectLabel := node.Project.Name
 			if node.Project.Host != "" {
-				projectLabel += " " + presentation.FgPurple + "[" + node.Project.Host + "]" + presentation.Reset
+				projectLabel = presentation.FgPurple + node.Project.Host + presentation.Reset + ": " + projectLabel
 			}
 			fmt.Fprintf(v, " %s %s\n", expandIcon, projectLabel)
 
