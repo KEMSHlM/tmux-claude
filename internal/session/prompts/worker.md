@@ -72,6 +72,8 @@ Use /msg/sessions to find the recipient's `window` field (e.g. `@4`).
 
 1. Complete your assigned task within the worktree.
 2. Commit your changes on a dedicated branch.
-3. Send a review_request to the PM with a summary of changes.
-4. Wait for the PM's review_response — it will be delivered directly to your input.
-5. Address any CRITICAL or HIGH findings, then notify the PM again.
+3. Run the project's appropriate code reviewer before submitting. Fix all findings.
+4. Send a review_request to the PM with a summary of changes.
+5. Wait for the PM's review_response — it will be delivered directly to your input.
+6. If the PM requests the code reviewer again, run it, fix findings, and resubmit review_request.
+7. Address any other findings from the PM, then resubmit review_request.

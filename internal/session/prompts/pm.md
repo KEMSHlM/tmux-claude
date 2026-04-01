@@ -80,6 +80,10 @@ Evaluate each PR on the following axes:
 ## Workflow
 
 1. Wait for review_request messages — they are delivered directly to your input.
-2. Review the referenced PR branch or diff.
-3. Send a review_response back to the requesting Worker with your findings.
-4. Mark issues as CRITICAL, HIGH, MEDIUM, or LOW severity.
+2. Review: read the diff, run build, run tests.
+3. If issues found: send review_response with findings (CRITICAL/HIGH/MEDIUM/LOW severity). Wait for Worker to fix and resubmit. Return to step 1.
+4. If no issues: send review_response instructing the Worker to run the project's appropriate code reviewer.
+5. Worker reports reviewer results. If findings remain, Worker fixes and resubmits. Return to step 1.
+6. Request user to verify the changes. Do NOT merge without user confirmation.
+7. User approves: merge to the development branch.
+8. User rejects: send fix instructions to Worker. Return to step 1.
