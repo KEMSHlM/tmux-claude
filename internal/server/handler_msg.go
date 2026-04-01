@@ -135,6 +135,11 @@ func (s *Server) handleMsgCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "create session failed", http.StatusInternalServerError)
 		return
 	}
+	if result == nil {
+		s.log.Printf("msg/create: nil result with no error")
+		http.Error(w, "create session failed", http.StatusInternalServerError)
+		return
+	}
 
 	// For local sessions, send prompt via tmux if provided.
 	if req.Type == "local" && req.Prompt != "" && result.Window != "" {
