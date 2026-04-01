@@ -18,16 +18,10 @@ var validMsgTypes = map[string]bool{
 	"issue":           true,
 }
 
-// validCreateTypes mirrors the server's allowlist for session types.
-var validCreateTypes = map[string]bool{
-	"worker": true,
-	"local":  true,
-}
-
 func newMsgCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "msg",
-		Short: "Send messages between sessions",
+		Short: "Manage inter-session messaging",
 	}
 
 	cmd.AddCommand(newMsgSendCmd())
@@ -92,7 +86,10 @@ func newMsgCreateCmd() *cobra.Command {
 				return fmt.Errorf("--name is required")
 			}
 
-			if !validCreateTypes[createType] {
+			switch createType {
+			case "worker", "local":
+				// valid
+			default:
 				return fmt.Errorf("invalid --type %q; must be one of: worker, local", createType)
 			}
 

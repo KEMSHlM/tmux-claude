@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"testing"
 
@@ -420,6 +421,10 @@ func TestMsgSend_FromEqualsTo(t *testing.T) {
 	})
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Contains(t, string(body), "cannot send a message to yourself")
 }
 
 // --- Push-based delivery tests ---
