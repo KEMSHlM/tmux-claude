@@ -200,6 +200,13 @@ make readme-gif    # docs/images/hero.gif を再生成（Docker 必須）
 - **フルスクリーンモードでのペースト** -- フルスクリーンモードでのテキストペースト（Cmd+V / Ctrl+Shift+V）が正常に動作しない場合があります。tmux の `display-popup` と bracketed paste シーケンスの相互作用に起因する制限です。回避策: `a` でセッションに直接アタッチしてからペーストしてください。
 - **SSH リモートセッション** -- SSH セッションのサポートは実験的であり、すべての環境で完全に動作するとは限りません。リバーストンネルの設定やリモートでの hook 注入は、異なる SSH 構成での広範なテストが行われていません。
 
+## ロードマップ
+
+- **マルチエージェント対応** -- Claude Code 以外のエージェント（Codex、Gemini CLI、カスタムエージェント等）のサポート
+- **チャットビューワー** -- セッション間のメッセージ履歴（PM/Worker の会話）を閲覧するビルトインビューワー
+
+欲しい機能がありましたら [Issue](https://github.com/any-context/lazyclaude/issues) でリクエストしてください。
+
 ## コントリビューション
 
 コントリビューションを歓迎します！ バグ報告、機能リクエスト、プルリクエスト -- すべて大歓迎です。現在のタスクは [Issues](https://github.com/any-context/lazyclaude/issues) をご覧ください。

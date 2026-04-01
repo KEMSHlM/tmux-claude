@@ -200,6 +200,13 @@ make readme-gif    # Regenerate docs/images/hero.gif (Docker required)
 - **Paste in fullscreen mode** -- Pasting text (Cmd+V / Ctrl+Shift+V) in fullscreen mode does not work reliably. This is a limitation of how tmux `display-popup` interacts with bracketed paste sequences. Workaround: use `a` to attach directly to the session, then paste.
 - **SSH remote sessions** -- SSH session support is experimental and may not work fully in all environments. Reverse tunnel setup and remote hook injection have not been extensively tested across different SSH configurations.
 
+## Roadmap
+
+- **Multi-agent support** -- Support for agents beyond Claude Code (e.g. Codex, Gemini CLI, custom agents)
+- **Chat viewer** -- Built-in viewer for inter-session message history (PM/Worker conversations)
+
+Have a feature idea? Open an [Issue](https://github.com/any-context/lazyclaude/issues) -- we'd love to hear it.
+
 ## Contributing
 
 We welcome contributions! Whether it's bug reports, feature requests, or pull requests -- all are appreciated. See [Issues](https://github.com/any-context/lazyclaude/issues) for current tasks or open a new one.
