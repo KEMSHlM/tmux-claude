@@ -61,6 +61,7 @@ type SessionInfo struct {
 	Name   string `json:"name"`
 	Role   string `json:"role"`
 	Path   string `json:"path"`
+	Host   string `json:"host,omitempty"`   // SSH host (e.g. "user@host"); empty for local
 	Window string `json:"window,omitempty"` // tmux window ID (e.g. "@1")
 	Status string `json:"status,omitempty"` // runtime status string (e.g. "Running")
 }
@@ -338,6 +339,7 @@ type stateSession struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	Path string `json:"path"`
+	Host string `json:"host,omitempty"`
 	Role string `json:"role,omitempty"`
 }
 
@@ -391,6 +393,7 @@ func (s *Server) readSessionsFromState() []SessionInfo {
 			Name: r.Name,
 			Role: r.Role,
 			Path: r.Path,
+			Host: r.Host,
 		}
 		// Compute window name: "lc-" + first 8 chars of ID.
 		wName := "lc-" + r.ID

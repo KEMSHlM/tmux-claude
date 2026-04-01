@@ -257,6 +257,7 @@ func (a *sessionListerAdapter) Sessions() []server.SessionInfo {
 			Name:   s.Name,
 			Role:   string(s.Role),
 			Path:   s.Path,
+			Host:   s.Host,
 			Window: s.TmuxWindow,
 			Status: s.Status.String(),
 		}

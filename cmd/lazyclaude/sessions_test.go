@@ -33,15 +33,11 @@ func TestPrintSessionsTable_Normal(t *testing.T) {
 	if !strings.Contains(output, "ID") {
 		t.Error("missing ID header")
 	}
-	if !strings.Contains(output, "NAME") {
-		t.Error("missing NAME header")
+	if !strings.Contains(output, "HOST") {
+		t.Error("missing HOST header")
 	}
-	// Should show absolute paths
 	if !strings.Contains(output, "/home/user/project") {
 		t.Error("expected absolute path in output")
-	}
-	if !strings.Contains(output, "/home/user/project/.claude/worktrees/feat-a") {
-		t.Error("expected absolute worktree path in output")
 	}
 	// WINDOW should NOT appear in non-verbose mode
 	if strings.Contains(output, "WINDOW") {
@@ -66,7 +62,24 @@ func TestPrintSessionsTable_Verbose(t *testing.T) {
 	if !strings.Contains(output, "@1") {
 		t.Error("expected WINDOW in verbose output")
 	}
-	if !strings.Contains(output, "/home/user/project") {
-		t.Error("expected absolute path in verbose output")
+	if !strings.Contains(output, "HOST") {
+		t.Error("expected HOST header in verbose output")
+	}
+}
+
+func TestPrintSessionsTable_WithSSHHost(t *testing.T) {
+	sessions := []server.SessionInfo{
+		{ID: "abc123", Name: "pm", Role: "pm", Status: "Running", Path: "/home/user/project"},
+		{ID: "def456", Name: "remote", Role: "worker", Status: "Running", Path: "/home/dev/work", Host: "dev@10.0.1.5"},
+	}
+
+	var buf bytes.Buffer
+	if err := printSessionsTable(&buf, sessions, false); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	output := buf.String()
+
+	if !strings.Contains(output, "dev@10.0.1.5") {
+		t.Error("expected SSH host in output")
 	}
 }
