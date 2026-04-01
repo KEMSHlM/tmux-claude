@@ -44,7 +44,7 @@ launch_key="${launch_key:-C-\\}"
 # Keybinding does ONE thing: call the launcher with pane info as arguments.
 # run-shell expands #{} formats at keypress time using the active pane's context.
 tmux bind-key -T root "$launch_key" run-shell \
-    "$LAUNCHER '#{pane_current_command}' '#{pane_pid}' '#{pane_tty}' '#{pane_path}' '#{pane_current_path}'"
+    "LAZYCLAUDE_BINARY='$BINARY' $LAUNCHER '#{pane_current_command}' '#{pane_pid}' '#{pane_tty}' '#{pane_path}' '#{pane_current_path}'"
 
 # Register detach binding on lazyclaude tmux server (same key).
 tmux -L lazyclaude bind-key -T root "$launch_key" detach-client 2>/dev/null
