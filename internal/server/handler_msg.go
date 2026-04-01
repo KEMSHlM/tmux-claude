@@ -128,9 +128,6 @@ func (s *Server) handleMsgCreate(w http.ResponseWriter, r *http.Request) {
 		result, err = sc.CreateWorkerSession(ctx, req.Name, req.Prompt, project.Path)
 	case "local":
 		result, err = sc.CreateLocalSession(ctx, req.Name, project.Path)
-	default:
-		http.Error(w, "unsupported type", http.StatusBadRequest)
-		return
 	}
 	if err != nil {
 		s.log.Printf("msg/create: %v", err)

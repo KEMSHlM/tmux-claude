@@ -82,10 +82,6 @@ func newMsgCreateCmd() *cobra.Command {
 		Use:   "create",
 		Short: "Create a new session via the server API",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if name == "" {
-				return fmt.Errorf("--name is required")
-			}
-
 			switch createType {
 			case "worker", "local":
 				// valid
@@ -117,6 +113,7 @@ func newMsgCreateCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&name, "name", "", "session name (required)")
+	_ = cmd.MarkFlagRequired("name")
 	cmd.Flags().StringVar(&createType, "type", "worker", "session type (worker, local)")
 	cmd.Flags().StringVar(&prompt, "prompt", "", "initial prompt for the session")
 	cmd.Flags().StringVar(&from, "from", "cli", "caller session ID")
