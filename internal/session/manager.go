@@ -461,10 +461,15 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 		return fmt.Errorf("session not found: %s", id)
 	}
 
-	// Kill tmux window by name (best-effort, window may already be gone).
+	// Kill tmux window only for Dead sessions (process exited but pane remains).
+	// Orphan sessions are skipped: the window may still be alive if HasSession
+	// failed transiently (e.g. tmux server temporarily unreachable). Killing an
+	// orphan's window would destroy a perfectly healthy Claude Code session.
 	target := tmuxSessionName + ":" + sess.WindowName()
 	m.log.Info("delete", "name", sess.Name, "id", id[:8], "target", target, "status", sess.Status)
-	_ = m.tmux.KillWindow(ctx, target)
+	if sess.Status != StatusOrphan {
+		_ = m.tmux.KillWindow(ctx, target)
+	}
 
 	m.store.Remove(id)
 
