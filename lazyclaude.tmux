@@ -10,8 +10,11 @@
 CURRENT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 LAUNCHER="${CURRENT_DIR}/scripts/lazyclaude-launch.sh"
 
-# Prefer the installed binary on PATH; fall back to repo-local bin/.
+# Prefer the installed binary on PATH; fall back to common install dirs, then repo-local bin/.
 BINARY="$(command -v lazyclaude 2>/dev/null || true)"
+if [ -z "$BINARY" ] && [ -x "$HOME/.local/bin/lazyclaude" ]; then
+    BINARY="$HOME/.local/bin/lazyclaude"
+fi
 if [ -z "$BINARY" ]; then
     BINARY="${CURRENT_DIR}/bin/lazyclaude"
 fi

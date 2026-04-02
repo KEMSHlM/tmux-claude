@@ -10,6 +10,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Use LAZYCLAUDE_BINARY from lazyclaude.tmux if set; otherwise resolve here.
 if [ -z "$LAZYCLAUDE_BINARY" ]; then
     LAZYCLAUDE_BINARY="$(command -v lazyclaude 2>/dev/null || true)"
+    if [ -z "$LAZYCLAUDE_BINARY" ] && [ -x "$HOME/.local/bin/lazyclaude" ]; then
+        LAZYCLAUDE_BINARY="$HOME/.local/bin/lazyclaude"
+    fi
     if [ -z "$LAZYCLAUDE_BINARY" ]; then
         LAZYCLAUDE_BINARY="${SCRIPT_DIR}/../bin/lazyclaude"
     fi
