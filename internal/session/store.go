@@ -199,11 +199,18 @@ func (s *Store) All() []Session {
 
 // Add inserts a session, auto-creating or finding the parent project.
 // PM sessions (Role=RolePM) are stored as Project.PM.
-func (s *Store) Add(sess Session) {
+// When projectRoot is non-empty it is used directly instead of inferring
+// the project root from sess.Path. This avoids mismatches when the
+// worktree path (e.g. from git worktree list on a remote) differs from
+// the stored project path (e.g. relative "." or symlink-resolved).
+func (s *Store) Add(sess Session, projectRoot string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	projectPath := InferProjectRoot(sess.Path)
+	projectPath := projectRoot
+	if projectPath == "" {
+		projectPath = InferProjectRoot(sess.Path)
+	}
 	idx := s.findProjectIdxLocked(projectPath, sess.Host)
 
 	if idx < 0 {

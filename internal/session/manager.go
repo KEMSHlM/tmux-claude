@@ -205,7 +205,7 @@ func (m *Manager) Create(ctx context.Context, dirPath, host string) (*Session, e
 	}
 
 	env := claudeEnv(id)
-	return m.launchSession(ctx, sess, claudeCmd, absPath, env)
+	return m.launchSession(ctx, sess, claudeCmd, absPath, "", env)
 }
 
 // worktreeOpts configures how a worktree session is created.
@@ -292,7 +292,9 @@ func (m *Manager) ResumeWorktree(ctx context.Context, worktreePath, userPrompt, 
 
 // launchSession creates a tmux window for sess using claudeCmd and persists the
 // session to the store. Caller must hold m.mu.
-func (m *Manager) launchSession(ctx context.Context, sess Session, claudeCmd, startDir string, env map[string]string) (*Session, error) {
+// projectRoot, when non-empty, is passed to store.Add so that the project is
+// matched by the caller-supplied root rather than inferred from sess.Path.
+func (m *Manager) launchSession(ctx context.Context, sess Session, claudeCmd, startDir, projectRoot string, env map[string]string) (*Session, error) {
 	windowName := sess.WindowName()
 
 	exists, err := m.tmux.HasSession(ctx, tmuxSessionName)
@@ -328,7 +330,7 @@ func (m *Manager) launchSession(ctx context.Context, sess Session, claudeCmd, st
 	}
 
 	sess.Status = StatusRunning
-	m.store.Add(sess)
+	m.store.Add(sess, projectRoot)
 
 	if err := m.store.Save(); err != nil {
 		return nil, fmt.Errorf("save store: %w", err)
@@ -365,13 +367,13 @@ func (m *Manager) launchWorktreeSession(ctx context.Context, name, wtPath, userP
 				cleanupFn()
 			}
 		}()
-		result, launchErr := m.launchSession(ctx, sess, claudeCmd, startDir, claudeEnv(id))
+		result, launchErr := m.launchSession(ctx, sess, claudeCmd, startDir, projectRoot, claudeEnv(id))
 		if launchErr == nil {
 			launchSuccess = true
 		}
 		return result, launchErr
 	}
-	return m.launchSession(ctx, sess, claudeCmd, startDir, claudeEnv(id))
+	return m.launchSession(ctx, sess, claudeCmd, startDir, projectRoot, claudeEnv(id))
 }
 
 // launchErrorSession creates a tmux window that displays an error message.
@@ -381,7 +383,7 @@ func (m *Manager) launchErrorSession(ctx context.Context, sess Session, buildErr
 	errMsg := fmt.Sprintf("echo 'lazyclaude: session launch failed'; echo; echo '%s'; echo; echo 'Press Enter to close'; read",
 		strings.ReplaceAll(buildErr.Error(), "'", "'\\''"))
 	abs, _ := filepath.Abs(".")
-	result, launchErr := m.launchSession(ctx, sess, errMsg, abs, claudeEnv(sess.ID))
+	result, launchErr := m.launchSession(ctx, sess, errMsg, abs, "", claudeEnv(sess.ID))
 	if launchErr != nil {
 		return nil, fmt.Errorf("%w (additionally, tmux window creation failed: %v)", buildErr, launchErr)
 	}
@@ -769,13 +771,13 @@ func (m *Manager) CreatePMSession(ctx context.Context, projectRoot, host string)
 				cleanupFn()
 			}
 		}()
-		result, launchErr := m.launchSession(ctx, sess, claudeCmd, startDir, claudeEnv(id))
+		result, launchErr := m.launchSession(ctx, sess, claudeCmd, startDir, projectRoot, claudeEnv(id))
 		if launchErr == nil {
 			launchSuccess = true
 		}
 		return result, launchErr
 	}
-	return m.launchSession(ctx, sess, claudeCmd, startDir, claudeEnv(id))
+	return m.launchSession(ctx, sess, claudeCmd, startDir, projectRoot, claudeEnv(id))
 }
 
 // CreateWorkerSession creates a git worktree and launches Claude Code with the
