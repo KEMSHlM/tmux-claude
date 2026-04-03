@@ -108,13 +108,13 @@ func (h *Handler) handleIDEConnected(ctx context.Context, connID string, req *Re
 
 	// Fallback for remote SSH sessions: read pending window file.
 	// Written by session.Manager.Create() when creating SSH sessions.
+	// Keep the file — SSH hooks spawn new processes with varying PIDs,
+	// so the file serves as a persistent fallback until overwritten by
+	// the next session creation (Manager.Create).
 	if window == "" && h.runtimeDir != "" {
 		pending := filepath.Join(h.runtimeDir, pendingWindowFile)
 		if data, readErr := os.ReadFile(pending); readErr == nil {
 			window = strings.TrimSpace(string(data))
-			if rmErr := os.Remove(pending); rmErr != nil {
-				h.log.Printf("ide_connected: remove pending file: %v", rmErr)
-			}
 			h.log.Printf("ide_connected: using pending remote window %q for pid %d", window, params.PID)
 		}
 	}

@@ -465,14 +465,13 @@ func (s *Server) resolveNotifyWindow(ctx context.Context, pid int) string {
 	}
 
 	// Fallback for remote SSH sessions: read pending window file.
-	// Consumed after first use to match ide_connected behavior.
+	// Keep the file — SSH hooks spawn new processes with varying PIDs,
+	// so the file serves as a persistent fallback until overwritten by
+	// the next session creation (Manager.Create).
 	pending := filepath.Join(s.config.RuntimeDir, pendingWindowFile)
 	if data, err := os.ReadFile(pending); err == nil {
 		if w := strings.TrimSpace(string(data)); w != "" {
 			s.log.Printf("notify: using pending remote window %q for pid %d", w, pid)
-			if rmErr := os.Remove(pending); rmErr != nil {
-				s.log.Printf("notify: remove pending file: %v", rmErr)
-			}
 			return w
 		}
 	}
@@ -575,6 +574,10 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 	if window == "" {
 		window = s.state.LastPendingWindow()
 	}
+	// Cache PID→window so subsequent hooks with the same PID resolve instantly.
+	if window != "" && req.PID > 0 {
+		s.state.SetConn(fmt.Sprintf("stop-%d", req.PID), &ConnState{PID: req.PID, Window: window})
+	}
 
 	s.log.Printf("stop: pid=%d window=%s reason=%s", req.PID, window, req.StopReason)
 	s.setActivity(window, stopReasonToActivity(req.StopReason), "")
@@ -618,6 +621,10 @@ func (s *Server) handleSessionStart(w http.ResponseWriter, r *http.Request) {
 	window := s.resolveNotifyWindow(r.Context(), req.PID)
 	if window == "" {
 		window = s.state.LastPendingWindow()
+	}
+	// Cache PID→window so subsequent hooks with the same PID resolve instantly.
+	if window != "" && req.PID > 0 {
+		s.state.SetConn(fmt.Sprintf("session-start-%d", req.PID), &ConnState{PID: req.PID, Window: window})
 	}
 
 	s.log.Printf("session-start: pid=%d window=%s", req.PID, window)
@@ -666,6 +673,10 @@ func (s *Server) handlePromptSubmit(w http.ResponseWriter, r *http.Request) {
 		s.log.Printf("prompt-submit: window not found for pid=%d", req.PID)
 		http.Error(w, "window not found", http.StatusNotFound)
 		return
+	}
+	// Cache PID→window so subsequent hooks with the same PID resolve instantly.
+	if req.PID > 0 {
+		s.state.SetConn(fmt.Sprintf("prompt-submit-%d", req.PID), &ConnState{PID: req.PID, Window: window})
 	}
 
 	s.log.Printf("prompt-submit: pid=%d window=%s", req.PID, window)
