@@ -1,17 +1,27 @@
 package session
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 )
+
+// remoteScriptOpts configures additional arguments for the remote script.
+// Used by worktree/PM sessions to inject --append-system-prompt safely.
+type remoteScriptOpts struct {
+	SystemPrompt string // passed via --append-system-prompt (heredoc-safe)
+	UserPrompt   string // passed as positional argument (heredoc-safe)
+}
 
 // writeRemoteScript writes a plain bash script to a temp file.
 // The script sets up the MCP lock file and starts Claude Code.
 // No shell.Quote, no nested escaping — just a regular bash script with heredoc.
-func writeRemoteScript(sess Session, mcpPort int, token string) (string, error) {
+func writeRemoteScript(sess Session, mcpPort int, token string, opts *remoteScriptOpts) (string, error) {
 	lockDir := "$HOME/.claude/ide"
 	lockFile := fmt.Sprintf("%s/%d.lock", lockDir, mcpPort)
 
@@ -20,7 +30,10 @@ func writeRemoteScript(sess Session, mcpPort int, token string) (string, error) 
 		AuthToken string `json:"authToken"`
 		Transport string `json:"transport"`
 	}{PID: 0, AuthToken: token, Transport: "ws"}
-	lockJSON, _ := json.Marshal(lockContent)
+	lockJSON, err := json.Marshal(lockContent)
+	if err != nil {
+		return "", fmt.Errorf("marshal lock content: %w", err)
+	}
 
 	var b strings.Builder
 	b.WriteString("#!/bin/bash\n")
@@ -31,13 +44,31 @@ func writeRemoteScript(sess Session, mcpPort int, token string) (string, error) 
 	b.WriteString(fmt.Sprintf("trap 'rm -f \"%s\"' EXIT\n", lockFile))
 
 	if sess.Path != "" && sess.Path != "." {
-		b.WriteString(fmt.Sprintf("cd %q\n", sess.Path))
+		b.WriteString(fmt.Sprintf("cd %s\n", posixQuote(sess.Path)))
 	}
 
 	claudeArgs := "claude"
 	for _, f := range sess.Flags {
 		claudeArgs += " " + f
 	}
+
+	// If systemPrompt/userPrompt are provided (worktree/PM sessions),
+	// base64-encode them and decode into shell variables. This avoids all
+	// quoting issues: no heredoc delimiter collisions, no double-quote
+	// injection in the exec line. The exec line stays single-quoted.
+	hasPromptVars := opts != nil && opts.SystemPrompt != ""
+	if hasPromptVars {
+		encoded := base64.StdEncoding.EncodeToString([]byte(opts.SystemPrompt))
+		b.WriteString(fmt.Sprintf("_LC_SYSPROMPT=$(echo %s | base64 -d)\n", encoded))
+		claudeArgs += ` --append-system-prompt "$_LC_SYSPROMPT"`
+
+		if strings.TrimSpace(opts.UserPrompt) != "" {
+			uEncoded := base64.StdEncoding.EncodeToString([]byte(opts.UserPrompt))
+			b.WriteString(fmt.Sprintf("_LC_USERPROMPT=$(echo %s | base64 -d)\n", uEncoded))
+			claudeArgs += ` "$_LC_USERPROMPT"`
+		}
+	}
+
 	// Pass through auth tokens so Claude Code can authenticate on remote.
 	// Only CLAUDE_CODE_AUTO_CONNECT_IDE is mandatory; auth vars are optional
 	// (present when user has set them in the local environment).
@@ -45,14 +76,30 @@ func writeRemoteScript(sess Session, mcpPort int, token string) (string, error) 
 	envPrefix.WriteString("CLAUDE_CODE_AUTO_CONNECT_IDE=true")
 	for _, key := range []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "CLAUDE_CODE_API_KEY"} {
 		if val := os.Getenv(key); val != "" {
-			envPrefix.WriteString(fmt.Sprintf(" %s=%s", key, val))
+			// Use %q to prevent shell metacharacters in token values from
+			// being interpreted. Go %q produces valid bash double-quoted strings
+			// for the ASCII-safe base64 tokens used here.
+			envPrefix.WriteString(fmt.Sprintf(" %s=%q", key, val))
 		}
 	}
+
 	// exec $SHELL -lc runs in remote's login shell (loads .zprofile/.profile for PATH)
-	// $SHELL is expanded on remote since this script is base64-encoded and eval'd there
-	b.WriteString(fmt.Sprintf("%s exec \"$SHELL\" -lic 'exec %s'\n", envPrefix.String(), claudeArgs))
+	// $SHELL is expanded on remote since this script is base64-encoded and eval'd there.
+	//
+	// When prompt variables are present, we must use double quotes for the -lic
+	// argument so $-variables expand. The prompt values are base64-decoded into
+	// variables above, so no injection is possible through the prompt content.
+	// When no prompt variables are needed, the single-quote form is used.
+	if hasPromptVars {
+		b.WriteString(fmt.Sprintf("%s exec \"$SHELL\" -lic \"exec %s\"\n", envPrefix.String(), claudeArgs))
+	} else {
+		b.WriteString(fmt.Sprintf("%s exec \"$SHELL\" -lic 'exec %s'\n", envPrefix.String(), claudeArgs))
+	}
 
 	scriptPath := fmt.Sprintf("/tmp/lazyclaude/ssh-%s.sh", sess.ID[:8])
+	if err := os.MkdirAll(filepath.Dir(scriptPath), 0o700); err != nil {
+		return "", fmt.Errorf("create script dir: %w", err)
+	}
 	if err := os.WriteFile(scriptPath, []byte(b.String()), 0o755); err != nil {
 		return "", fmt.Errorf("write remote script: %w", err)
 	}
@@ -63,8 +110,8 @@ func writeRemoteScript(sess Session, mcpPort int, token string) (string, error) 
 // The script is encoded to avoid all quoting issues. SSH receives a single
 // eval command that decodes and executes the script. stdin remains free
 // for interactive Claude Code use.
-func buildSSHCommand(sess Session, mcpPort int, token string) (string, error) {
-	scriptPath, err := writeRemoteScript(sess, mcpPort, token)
+func buildSSHCommand(sess Session, mcpPort int, token string, opts *remoteScriptOpts) (string, error) {
+	scriptPath, err := writeRemoteScript(sess, mcpPort, token, opts)
 	if err != nil {
 		return "", err
 	}
@@ -92,6 +139,43 @@ func buildSSHCommand(sess Session, mcpPort int, token string) (string, error) {
 	return strings.Join(args, " "), nil
 }
 
+// buildSSHCommandFromScript constructs an SSH command from pre-built script content.
+// Unlike buildSSHCommand, it does not call writeRemoteScript — the caller provides
+// the complete script content (generated by BuildScript).
+func buildSSHCommandFromScript(host, scriptContent string, mcpPort int) (string, error) {
+	encoded := base64.StdEncoding.EncodeToString([]byte(scriptContent))
+	sshHost, port := splitHostPort(host)
+
+	var args []string
+	args = append(args, "exec", "ssh", "-t")
+	args = append(args, "-o", "ServerAliveInterval=30")
+	args = append(args, "-o", "ServerAliveCountMax=3")
+	if port != "" {
+		args = append(args, "-p", port)
+	}
+	args = append(args, "-R", fmt.Sprintf("%d:127.0.0.1:%d", mcpPort, mcpPort))
+	args = append(args, sshHost)
+	args = append(args, fmt.Sprintf("eval \"$(echo %s | base64 -d)\"", encoded))
+
+	return strings.Join(args, " "), nil
+}
+
+// RunSSHCommand executes a command on a remote host via SSH and returns its output.
+// Uses the same base64-encoding pattern as buildSSHCommand to avoid quoting issues.
+func RunSSHCommand(ctx context.Context, host, command string) ([]byte, error) {
+	encoded := base64.StdEncoding.EncodeToString([]byte(command))
+	sshHost, port := splitHostPort(host)
+
+	args := []string{"-o", "BatchMode=yes", "-o", "ConnectTimeout=10"}
+	if port != "" {
+		args = append(args, "-p", port)
+	}
+	args = append(args, sshHost, fmt.Sprintf("eval \"$(echo %s | base64 -d)\"", encoded))
+
+	cmd := exec.CommandContext(ctx, "ssh", args...)
+	return cmd.Output()
+}
+
 // BuildLazygitSSHArgs returns the exec.Command arguments for launching lazygit
 // on a remote host via SSH. The path is single-quoted and base64-encoded to
 // prevent shell injection. Returns ("ssh", args).
@@ -101,8 +185,7 @@ func BuildLazygitSSHArgs(host, path string) (string, []string) {
 	if port != "" {
 		args = append(args, "-p", port)
 	}
-	safePath := "'" + strings.ReplaceAll(path, "'", "'\\''") + "'"
-	remoteCmd := fmt.Sprintf("cd %s && lazygit", safePath)
+	remoteCmd := fmt.Sprintf("cd %s && lazygit", posixQuote(path))
 	encoded := base64.StdEncoding.EncodeToString([]byte(remoteCmd))
 	args = append(args, sshHost, fmt.Sprintf("eval \"$(echo %s | base64 -d)\"", encoded))
 	return "ssh", args

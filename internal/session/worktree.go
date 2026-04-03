@@ -3,8 +3,6 @@ package session
 import (
 	"context"
 	"fmt"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -60,22 +58,9 @@ type WorktreeInfo struct {
 
 // ListWorktrees returns existing git worktrees under .lazyclaude/worktrees/.
 // Returns nil (not error) if projectRoot is not a git repo.
-func ListWorktrees(ctx context.Context, projectRoot string) ([]WorktreeInfo, error) {
-	cmd := exec.CommandContext(ctx, "git", "worktree", "list", "--porcelain")
-	cmd.Dir = projectRoot
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, nil // not a git repo or git not available
-	}
-	items := parseWorktreePorcelain(string(out))
-	// Filter out worktrees whose directory no longer exists on disk.
-	result := items[:0]
-	for _, item := range items {
-		if _, err := os.Stat(item.Path); err == nil {
-			result = append(result, item)
-		}
-	}
-	return result, nil
+// When host is non-empty, the git command is executed on the remote host via SSH.
+func ListWorktrees(ctx context.Context, projectRoot, host string) ([]WorktreeInfo, error) {
+	return ListWorktreesWithRunner(ctx, NewGitRunner(host), projectRoot)
 }
 
 // parseWorktreePorcelain parses `git worktree list --porcelain` output

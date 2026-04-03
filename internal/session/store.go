@@ -204,7 +204,7 @@ func (s *Store) Add(sess Session) {
 	defer s.mu.Unlock()
 
 	projectPath := InferProjectRoot(sess.Path)
-	idx := s.findProjectIdxLocked(projectPath)
+	idx := s.findProjectIdxLocked(projectPath, sess.Host)
 
 	if idx < 0 {
 		// Create new project
@@ -461,13 +461,35 @@ func (s *Store) nameExistsLocked(name string) bool {
 	return false
 }
 
-func (s *Store) findProjectIdxLocked(path string) int {
+// findProjectIdxLocked returns the index of the project matching both path and host.
+// Host is derived from the project's sessions (PM or first worker).
+// An empty host matches projects whose sessions also have empty hosts (local).
+func (s *Store) findProjectIdxLocked(path, host string) int {
 	for i := range s.projects {
-		if s.projects[i].Path == path {
+		if s.projects[i].Path != path {
+			continue
+		}
+		if projectHost(&s.projects[i]) == host {
 			return i
 		}
 	}
 	return -1
+}
+
+// projectHost returns the SSH host of a project by inspecting its sessions.
+// Returns "" for local projects.
+// Invariant: all sessions in a project share the same host. Mixed-host
+// projects are not supported.
+func projectHost(p *Project) string {
+	if p.PM != nil && p.PM.Host != "" {
+		return p.PM.Host
+	}
+	for _, s := range p.Sessions {
+		if s.Host != "" {
+			return s.Host
+		}
+	}
+	return ""
 }
 
 func (s *Store) maybeRemoveProjectLocked(idx int) {

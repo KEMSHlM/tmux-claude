@@ -368,3 +368,95 @@ func TestStore_SyncWithTmux_Detached(t *testing.T) {
 	require.Len(t, all, 1)
 	assert.Equal(t, session.StatusDetached, all[0].Status)
 }
+
+// --- Host-aware project matching tests ---
+
+func newTestSessionWithHost(id, name, path, host string) session.Session {
+	return session.Session{
+		ID:        id,
+		Name:      name,
+		Path:      path,
+		Host:      host,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+}
+
+func TestStore_Add_SamePathDifferentHosts_CreatesSeparateProjects(t *testing.T) {
+	t.Parallel()
+	s := session.NewStore("")
+
+	// Local session
+	s.Add(newTestSession("local-1", "local-app", "/home/user/project"))
+	// SSH session with same path but different host
+	s.Add(newTestSessionWithHost("ssh-1", "remote-app", "/home/user/project", "user@srv1"))
+
+	projects := s.Projects()
+	require.Len(t, projects, 2, "same path + different host should create separate projects")
+
+	// Verify each project has exactly one session
+	assert.Len(t, projects[0].Sessions, 1)
+	assert.Len(t, projects[1].Sessions, 1)
+}
+
+func TestStore_Add_SamePathSameHost_SameProject(t *testing.T) {
+	t.Parallel()
+	s := session.NewStore("")
+
+	s.Add(newTestSessionWithHost("ssh-1", "app-1", "/home/user/project", "user@srv1"))
+	s.Add(newTestSessionWithHost("ssh-2", "app-2", "/home/user/project", "user@srv1"))
+
+	projects := s.Projects()
+	require.Len(t, projects, 1, "same path + same host should group into one project")
+	assert.Len(t, projects[0].Sessions, 2)
+}
+
+func TestStore_Add_PMHostMatchesWorkerHost(t *testing.T) {
+	t.Parallel()
+	s := session.NewStore("")
+
+	// Add PM first
+	pmSess := newTestSessionWithHost("pm-1", "pm", "/remote/project", "user@srv1")
+	pmSess.Role = session.RolePM
+	s.Add(pmSess)
+
+	// Add worker with same host — should match the PM's project
+	s.Add(newTestSessionWithHost("w-1", "worker-1", "/remote/project", "user@srv1"))
+
+	projects := s.Projects()
+	require.Len(t, projects, 1)
+	require.NotNil(t, projects[0].PM)
+	assert.Equal(t, "pm-1", projects[0].PM.ID)
+	assert.Len(t, projects[0].Sessions, 1)
+}
+
+func TestStore_Add_WorkerHostMatchesNewPM(t *testing.T) {
+	t.Parallel()
+	s := session.NewStore("")
+
+	// Add worker first (no PM yet)
+	s.Add(newTestSessionWithHost("w-1", "worker-1", "/remote/project", "user@srv1"))
+
+	// Add PM with same host — should match the worker's project
+	pmSess := newTestSessionWithHost("pm-1", "pm", "/remote/project", "user@srv1")
+	pmSess.Role = session.RolePM
+	s.Add(pmSess)
+
+	projects := s.Projects()
+	require.Len(t, projects, 1)
+	require.NotNil(t, projects[0].PM)
+	assert.Len(t, projects[0].Sessions, 1)
+}
+
+func TestStore_Add_LocalDoesNotMatchSSH(t *testing.T) {
+	t.Parallel()
+	s := session.NewStore("")
+
+	// SSH session
+	s.Add(newTestSessionWithHost("ssh-1", "remote-app", "/home/user/project", "user@srv1"))
+	// Local session with same path
+	s.Add(newTestSession("local-1", "local-app", "/home/user/project"))
+
+	projects := s.Projects()
+	require.Len(t, projects, 2, "local and SSH with same path should be separate projects")
+}
