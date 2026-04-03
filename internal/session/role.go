@@ -1,10 +1,12 @@
 package session
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/any-context/lazyclaude/prompts"
 )
@@ -37,6 +39,14 @@ func (r Role) IsValid() bool {
 	return r == RoleNone || r == RolePM || r == RoleWorker
 }
 
+// readRemoteFile reads a file from a remote host via SSH.
+// Returns the file contents or an error if the file does not exist or is unreadable.
+func readRemoteFile(host, path string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return RunSSHCommand(ctx, host, fmt.Sprintf("cat %s 2>/dev/null", posixQuote(path)))
+}
+
 // resolvePrompt searches for a custom prompt file in priority order and falls
 // back to the embedded default. The search order is:
 //
@@ -51,7 +61,8 @@ func (r Role) IsValid() bool {
 // worktreePath may be empty (e.g. for PM sessions that run in the project root).
 // When empty, the worktree-level search is skipped.
 // projectRoot must be an absolute path; relative paths fall back to the default.
-func resolvePrompt(projectRoot, worktreePath, filename, fallback string) string {
+// host, when non-empty, causes files to be read from the remote host via SSH.
+func resolvePrompt(projectRoot, worktreePath, filename, fallback, host string) string {
 	if !filepath.IsAbs(projectRoot) {
 		return fallback
 	}
@@ -75,7 +86,13 @@ func resolvePrompt(projectRoot, worktreePath, filename, fallback string) string 
 	}
 
 	for _, candidate := range candidates {
-		data, err := os.ReadFile(candidate)
+		var data []byte
+		var err error
+		if host != "" {
+			data, err = readRemoteFile(host, candidate)
+		} else {
+			data, err = os.ReadFile(candidate)
+		}
 		if err == nil && len(data) > 0 {
 			return string(data)
 		}
@@ -107,8 +124,9 @@ func branchFromWorktreePath(projectRoot, wtPath string) string {
 // BuildPMPrompt generates the system prompt injected into a PM session at launch.
 // The final prompt is composed of pm.md (role-specific, custom-searchable) +
 // base.md (shared communication reference, always embedded).
-func BuildPMPrompt(projectRoot, sessionID, workerList string) string {
-	roleTmpl := resolvePrompt(projectRoot, "", "pm.md", prompts.DefaultPM())
+// host, when non-empty, causes custom prompt files to be read from the remote host via SSH.
+func BuildPMPrompt(projectRoot, sessionID, workerList, host string) string {
+	roleTmpl := resolvePrompt(projectRoot, "", "pm.md", prompts.DefaultPM(), host)
 	baseTmpl := prompts.DefaultBase()
 
 	role := fmt.Sprintf(roleTmpl,
@@ -125,8 +143,9 @@ func BuildPMPrompt(projectRoot, sessionID, workerList string) string {
 // BuildWorkerPrompt generates the system prompt injected into a Worker session at launch.
 // The final prompt is composed of worker.md (role-specific, custom-searchable) +
 // base.md (shared communication reference, always embedded).
-func BuildWorkerPrompt(worktreePath, projectRoot, sessionID string) string {
-	roleTmpl := resolvePrompt(projectRoot, worktreePath, "worker.md", prompts.DefaultWorker())
+// host, when non-empty, causes custom prompt files to be read from the remote host via SSH.
+func BuildWorkerPrompt(worktreePath, projectRoot, sessionID, host string) string {
+	roleTmpl := resolvePrompt(projectRoot, worktreePath, "worker.md", prompts.DefaultWorker(), host)
 	baseTmpl := prompts.DefaultBase()
 
 	role := fmt.Sprintf(roleTmpl,
