@@ -145,6 +145,52 @@ func TestWriteRemoteScript_ClaudeFlags(t *testing.T) {
 	assert.Contains(t, script, "--working-dir=/tmp")
 }
 
+func TestWriteRemoteScript_HooksSettings(t *testing.T) {
+	t.Parallel()
+	sess := Session{
+		ID:   "testhooks-abcd-5678",
+		Host: "user@remote",
+		Path: "/home/user/project",
+	}
+	hooksJSON := `{"hooks":{"PreToolUse":[{"type":"command","command":"node -e ..."}]}}`
+	path, err := writeRemoteScript(sess, 12345, "tok", &remoteScriptOpts{
+		HooksJSON: hooksJSON,
+	})
+	require.NoError(t, err)
+	defer os.Remove(path)
+
+	content, err := os.ReadFile(path)
+	require.NoError(t, err)
+	script := string(content)
+
+	// Hooks settings should be written via heredoc
+	assert.Contains(t, script, "HOOKSEOF")
+	assert.Contains(t, script, "hooks-settings-testhook.json")
+	assert.Contains(t, script, hooksJSON)
+	// Claude should be started with --settings pointing to the session-specific hooks file
+	assert.Contains(t, script, "--settings '/tmp/lazyclaude/hooks-settings-testhook.json'")
+}
+
+func TestWriteRemoteScript_NoHooksWithoutOpts(t *testing.T) {
+	t.Parallel()
+	sess := Session{
+		ID:   "testnohk-abcd-5678",
+		Host: "user@remote",
+		Path: "/home/user/project",
+	}
+	path, err := writeRemoteScript(sess, 12345, "tok", nil)
+	require.NoError(t, err)
+	defer os.Remove(path)
+
+	content, err := os.ReadFile(path)
+	require.NoError(t, err)
+	script := string(content)
+
+	// No hooks settings should be present
+	assert.NotContains(t, script, "HOOKSEOF")
+	assert.NotContains(t, script, "--settings")
+}
+
 // --- buildSSHCommand tests ---
 
 func TestBuildSSHCommand_Basic(t *testing.T) {
