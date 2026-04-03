@@ -213,6 +213,12 @@ func TestWriteRemoteScript_MCPEnvAndShellFunc(t *testing.T) {
 	// lazyclaude shell function must be defined
 	assert.Contains(t, script, "lazyclaude()")
 	assert.Contains(t, script, "_lc_json_esc()")
+
+	// Shell function must appear before exec $SHELL (otherwise it's never loaded)
+	funcIdx := strings.Index(script, "lazyclaude()")
+	execIdx := strings.Index(script, `exec "$SHELL"`)
+	require.Greater(t, execIdx, 0, "exec $SHELL not found in script")
+	assert.Less(t, funcIdx, execIdx, "lazyclaude() must be defined before exec $SHELL")
 }
 
 // --- buildSSHCommand tests ---
