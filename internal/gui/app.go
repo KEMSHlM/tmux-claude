@@ -133,6 +133,8 @@ type App struct {
 	connectFn          func(host string) error  // connects to a remote host (injected from root.go)
 	cachedSessionItems []SessionItem            // cached session list; refreshed asynchronously
 	sessionRefreshing  bool                     // true while a background refresh is in flight
+	errorMsg           string                   // currently displayed error message
+	errorExpiry        time.Time                // when the error display expires
 }
 
 
@@ -534,13 +536,35 @@ func (a *App) setStatus(g *gocui.Gui, msg string) {
 	a.logRender.modTime = -1
 }
 
+// errorDisplayDuration is how long showError holds the main panel before
+// allowing the preview to overwrite it.
+const errorDisplayDuration = 5 * time.Second
+
 // showError displays an error in both the logs panel and the main panel
 // so it is immediately visible regardless of which panel the user is viewing.
+// The error is held for errorDisplayDuration so that the next layout cycle
+// does not overwrite it with the preview content.
 func (a *App) showError(g *gocui.Gui, msg string) {
 	a.setStatus(g, msg)
+	a.errorMsg = msg
+	a.errorExpiry = time.Now().Add(errorDisplayDuration)
 	if v, err := g.View("main"); err == nil {
 		v.Clear()
 		fmt.Fprintln(v, "")
 		fmt.Fprintln(v, "  "+msg)
 	}
+}
+
+// isErrorActive clears expired error state and reports whether an error
+// message is still being displayed. Called once per layout cycle.
+func (a *App) isErrorActive() bool {
+	if a.errorMsg == "" {
+		return false
+	}
+	if time.Now().After(a.errorExpiry) {
+		a.errorMsg = ""
+		a.errorExpiry = time.Time{}
+		return false
+	}
+	return true
 }
