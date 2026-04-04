@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/any-context/lazyclaude/internal/adapter/tmuxadapter"
@@ -55,6 +56,8 @@ type DaemonServer struct {
 
 	listener net.Listener
 	httpSrv  *http.Server
+
+	sseEventID atomic.Uint64
 
 	mu         sync.RWMutex
 	shutdown   bool
@@ -209,8 +212,8 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	}
 }
 
-func readJSON(r *http.Request, v any) error {
-	r.Body = http.MaxBytesReader(nil, r.Body, 1<<20) // 1 MB
+func readJSON(w http.ResponseWriter, r *http.Request, v any) error {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MB
 	return json.NewDecoder(r.Body).Decode(v)
 }
 
@@ -218,7 +221,7 @@ func readJSON(r *http.Request, v any) error {
 
 func (s *DaemonServer) handleSessionCreate(w http.ResponseWriter, r *http.Request) {
 	var req SessionCreateRequest
-	if err := readJSON(r, &req); err != nil {
+	if err := readJSON(w, r, &req); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
@@ -260,7 +263,12 @@ func (s *DaemonServer) handleSessionDelete(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if err := s.mgr.Delete(r.Context(), id); err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		if strings.Contains(err.Error(), "not found") {
+			http.Error(w, err.Error(), http.StatusNotFound)
+		} else {
+			s.log.Printf("session/delete: %v", err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -269,7 +277,7 @@ func (s *DaemonServer) handleSessionDelete(w http.ResponseWriter, r *http.Reques
 func (s *DaemonServer) handleSessionRename(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var req SessionRenameRequest
-	if err := readJSON(r, &req); err != nil {
+	if err := readJSON(w, r, &req); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
@@ -309,7 +317,11 @@ func (s *DaemonServer) handlePreview(w http.ResponseWriter, r *http.Request) {
 		if err := s.tmux.ResizeWindow(ctx, target, width, height); err != nil {
 			s.log.Printf("preview: resize %s: %v", target, err)
 		} else {
-			time.Sleep(20 * time.Millisecond)
+			select {
+			case <-time.After(20 * time.Millisecond):
+			case <-ctx.Done():
+				return
+			}
 		}
 	}
 
@@ -382,7 +394,7 @@ func (s *DaemonServer) handleHistorySize(w http.ResponseWriter, r *http.Request)
 func (s *DaemonServer) handleSendKeys(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var req SendKeysRequest
-	if err := readJSON(r, &req); err != nil {
+	if err := readJSON(w, r, &req); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
@@ -404,7 +416,7 @@ func (s *DaemonServer) handleSendKeys(w http.ResponseWriter, r *http.Request) {
 func (s *DaemonServer) handleSendChoice(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var req SendChoiceRequest
-	if err := readJSON(r, &req); err != nil {
+	if err := readJSON(w, r, &req); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
@@ -448,7 +460,7 @@ func (s *DaemonServer) handleAttach(w http.ResponseWriter, r *http.Request) {
 
 func (s *DaemonServer) handleWorktreeCreate(w http.ResponseWriter, r *http.Request) {
 	var req WorktreeCreateRequest
-	if err := readJSON(r, &req); err != nil {
+	if err := readJSON(w, r, &req); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
@@ -470,7 +482,7 @@ func (s *DaemonServer) handleWorktreeCreate(w http.ResponseWriter, r *http.Reque
 
 func (s *DaemonServer) handleWorktreeResume(w http.ResponseWriter, r *http.Request) {
 	var req WorktreeResumeRequest
-	if err := readJSON(r, &req); err != nil {
+	if err := readJSON(w, r, &req); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
@@ -509,7 +521,7 @@ func (s *DaemonServer) handleWorktreeList(w http.ResponseWriter, r *http.Request
 
 func (s *DaemonServer) handleMsgSend(w http.ResponseWriter, r *http.Request) {
 	var req MsgSendRequest
-	if err := readJSON(r, &req); err != nil {
+	if err := readJSON(w, r, &req); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
@@ -523,6 +535,7 @@ func (s *DaemonServer) handleMsgSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx := r.Context()
 	sessions := s.mgr.Sessions()
 
 	var recipient *session.Session
@@ -542,7 +555,7 @@ func (s *DaemonServer) handleMsgSend(w http.ResponseWriter, r *http.Request) {
 
 	window := recipient.TmuxWindow
 	if window == "" {
-		window = s.resolveWindowByName(recipient.WindowName())
+		window = s.resolveWindowByName(ctx, recipient.WindowName())
 	}
 	if window == "" {
 		writeJSON(w, http.StatusBadGateway, MsgSendResponse{Error: "recipient has no tmux window"})
@@ -553,7 +566,6 @@ func (s *DaemonServer) handleMsgSend(w http.ResponseWriter, r *http.Request) {
 		senderName, req.From, req.Type, req.Body)
 
 	target := "lazyclaude:" + window
-	ctx := r.Context()
 	if err := s.tmux.SendKeysLiteral(ctx, target, text); err != nil {
 		s.log.Printf("msg/send: %v", err)
 		writeJSON(w, http.StatusBadGateway, MsgSendResponse{Error: "failed to deliver message"})
@@ -568,7 +580,7 @@ func (s *DaemonServer) handleMsgSend(w http.ResponseWriter, r *http.Request) {
 
 func (s *DaemonServer) handleMsgCreate(w http.ResponseWriter, r *http.Request) {
 	var req MsgCreateRequest
-	if err := readJSON(r, &req); err != nil {
+	if err := readJSON(w, r, &req); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
@@ -636,14 +648,14 @@ func (s *DaemonServer) handleHealth(w http.ResponseWriter, _ *http.Request) {
 func (s *DaemonServer) handleShutdown(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "shutting_down"})
 
-	go func() {
-		time.Sleep(100 * time.Millisecond) // let response flush
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := s.Stop(ctx); err != nil {
-			s.log.Printf("shutdown: %v", err)
-		}
-	}()
+	// Signal the shutdown channel; the caller (daemon_cmd.go) is responsible
+	// for calling Stop() after the select loop detects the signal.
+	s.mu.Lock()
+	if !s.shutdown {
+		s.shutdown = true
+		close(s.shutdownCh)
+	}
+	s.mu.Unlock()
 }
 
 // --- Helpers ---
@@ -667,8 +679,8 @@ func sessionToInfo(sess session.Session) SessionInfo {
 	}
 }
 
-func (s *DaemonServer) resolveWindowByName(windowName string) string {
-	windows, err := s.tmux.ListWindows(context.Background(), tmuxSessionName)
+func (s *DaemonServer) resolveWindowByName(ctx context.Context, windowName string) string {
+	windows, err := s.tmux.ListWindows(ctx, tmuxSessionName)
 	if err != nil {
 		return ""
 	}

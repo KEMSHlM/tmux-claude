@@ -127,6 +127,7 @@ func TestSSE_Unauthorized(t *testing.T) {
 }
 
 func TestBrokerEventToNotification(t *testing.T) {
+	srv, _, _ := newTestServer(t)
 	now := time.Now()
 
 	tests := []struct {
@@ -179,7 +180,7 @@ func TestBrokerEventToNotification(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := brokerEventToNotification(tt.event)
+			result := srv.brokerEventToNotification(tt.event)
 			if tt.wantNil {
 				if result != nil {
 					t.Fatal("expected nil")

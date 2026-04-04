@@ -69,8 +69,9 @@ func newDaemonCmd() *cobra.Command {
 				return fmt.Errorf("start daemon: %w", err)
 			}
 
-			// Output connection info for lifecycle.go to read.
-			fmt.Fprintf(os.Stdout, "port=%d token=%s\n", actualPort, token)
+			// Connection info is written to daemon.json (mode 0600) by the server.
+			// Callers read it from there rather than stdout to avoid leaking secrets.
+			fmt.Fprintf(os.Stdout, "port=%d\n", actualPort)
 
 			// Wait for signal or shutdown request
 			sigCh := make(chan os.Signal, 1)

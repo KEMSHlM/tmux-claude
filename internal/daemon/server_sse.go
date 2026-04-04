@@ -3,15 +3,13 @@ package daemon
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
-	"sync/atomic"
+	"strings"
 	"time"
 
 	"github.com/any-context/lazyclaude/internal/core/model"
 )
-
-// sseEventID is a monotonically increasing counter for SSE event IDs.
-var sseEventID atomic.Uint64
 
 // handleSSE streams real-time notifications via Server-Sent Events.
 // On connect it sends a full_sync event with all session state, then
@@ -34,12 +32,12 @@ func (s *DaemonServer) handleSSE(w http.ResponseWriter, r *http.Request) {
 		infos[i] = sessionToInfo(sess)
 	}
 	syncEvent := NotificationEvent{
-		ID:       nextEventID(),
+		ID:       s.nextEventID(),
 		Type:     EventFullSync,
 		Time:     time.Now(),
 		Sessions: infos,
 	}
-	writeSSEEvent(w, syncEvent)
+	writeSSEEvent(w, s.log, syncEvent)
 	flusher.Flush()
 
 	// Subscribe to broker events
@@ -57,11 +55,11 @@ func (s *DaemonServer) handleSSE(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			notif := brokerEventToNotification(evt)
+			notif := s.brokerEventToNotification(evt)
 			if notif == nil {
 				continue
 			}
-			writeSSEEvent(w, *notif)
+			writeSSEEvent(w, s.log, *notif)
 			flusher.Flush()
 		}
 	}
@@ -69,12 +67,12 @@ func (s *DaemonServer) handleSSE(w http.ResponseWriter, r *http.Request) {
 
 // brokerEventToNotification converts a model.Event into a NotificationEvent.
 // Returns nil for events that should not be sent to SSE clients.
-func brokerEventToNotification(evt model.Event) *NotificationEvent {
+func (s *DaemonServer) brokerEventToNotification(evt model.Event) *NotificationEvent {
 	switch {
 	case evt.ActivityNotification != nil:
 		an := evt.ActivityNotification
 		return &NotificationEvent{
-			ID:        nextEventID(),
+			ID:        s.nextEventID(),
 			Type:      EventActivity,
 			Time:      an.Timestamp,
 			SessionID: windowToSessionHint(an.Window),
@@ -84,7 +82,7 @@ func brokerEventToNotification(evt model.Event) *NotificationEvent {
 	case evt.Notification != nil:
 		n := evt.Notification
 		return &NotificationEvent{
-			ID:   nextEventID(),
+			ID:   s.nextEventID(),
 			Type: EventToolInfo,
 			Time: n.Timestamp,
 			ToolNotification: &model.ToolNotification{
@@ -103,7 +101,7 @@ func brokerEventToNotification(evt model.Event) *NotificationEvent {
 			state = model.ActivityError
 		}
 		return &NotificationEvent{
-			ID:        nextEventID(),
+			ID:        s.nextEventID(),
 			Type:      EventActivity,
 			Time:      sn.Timestamp,
 			SessionID: windowToSessionHint(sn.Window),
@@ -112,7 +110,7 @@ func brokerEventToNotification(evt model.Event) *NotificationEvent {
 	case evt.SessionStartNotification != nil:
 		ssn := evt.SessionStartNotification
 		return &NotificationEvent{
-			ID:        nextEventID(),
+			ID:        s.nextEventID(),
 			Type:      EventActivity,
 			Time:      ssn.Timestamp,
 			SessionID: windowToSessionHint(ssn.Window),
@@ -121,7 +119,7 @@ func brokerEventToNotification(evt model.Event) *NotificationEvent {
 	case evt.PromptSubmitNotification != nil:
 		psn := evt.PromptSubmitNotification
 		return &NotificationEvent{
-			ID:        nextEventID(),
+			ID:        s.nextEventID(),
 			Type:      EventActivity,
 			Time:      psn.Timestamp,
 			SessionID: windowToSessionHint(psn.Window),
@@ -136,19 +134,20 @@ func brokerEventToNotification(evt model.Event) *NotificationEvent {
 // Window names follow the pattern "lc-<first8chars>", so we return just
 // the 8-char prefix as a hint for client-side matching.
 func windowToSessionHint(window string) string {
-	if len(window) > 3 && window[:3] == "lc-" {
-		return window[3:]
+	if after, ok := strings.CutPrefix(window, "lc-"); ok && after != "" {
+		return after
 	}
 	return window
 }
 
-func nextEventID() string {
-	return fmt.Sprintf("%d", sseEventID.Add(1))
+func (s *DaemonServer) nextEventID() string {
+	return fmt.Sprintf("%d", s.sseEventID.Add(1))
 }
 
-func writeSSEEvent(w http.ResponseWriter, evt NotificationEvent) {
+func writeSSEEvent(w http.ResponseWriter, logger *log.Logger, evt NotificationEvent) {
 	data, err := json.Marshal(evt)
 	if err != nil {
+		logger.Printf("sse: marshal event: %v", err)
 		return
 	}
 	fmt.Fprintf(w, "id: %s\nevent: %s\ndata: %s\n\n", evt.ID, evt.Type, data)
