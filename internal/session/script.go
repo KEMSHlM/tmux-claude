@@ -38,6 +38,11 @@ type ScriptConfig struct {
 	// Empty means skip.
 	UserPrompt string
 
+	// WindowName is the tmux window name (e.g. "lc-abcdef01").
+	// Exported as _LC_WINDOW so hooks can identify their window directly.
+	// Required when MCP is set; empty for local sessions.
+	WindowName string
+
 	// SelfDelete causes the script to rm -f "$0" at startup.
 	// Used for local temp scripts that should clean up after execution.
 	SelfDelete bool
@@ -72,7 +77,7 @@ func BuildScript(cfg ScriptConfig) (string, error) {
 
 	// 2. MCP lock file setup
 	if cfg.MCP != nil {
-		if err := writeMCPSetup(&b, cfg.MCP); err != nil {
+		if err := writeMCPSetup(&b, cfg.MCP, cfg.WindowName); err != nil {
 			return "", err
 		}
 	}
@@ -123,7 +128,7 @@ func BuildScript(cfg ScriptConfig) (string, error) {
 }
 
 // writeMCPSetup writes the MCP lock file creation and cleanup trap.
-func writeMCPSetup(b *strings.Builder, mcp *MCPConfig) error {
+func writeMCPSetup(b *strings.Builder, mcp *MCPConfig, windowName string) error {
 	lockDir := "$HOME/.claude/ide"
 	lockFile := fmt.Sprintf("%s/%d.lock", lockDir, mcp.Port)
 
@@ -147,6 +152,10 @@ func writeMCPSetup(b *strings.Builder, mcp *MCPConfig) error {
 	// the MCP server via the SSH reverse tunnel.
 	b.WriteString(fmt.Sprintf("export _LC_MCP_PORT=%d\n", mcp.Port))
 	b.WriteString(fmt.Sprintf("export _LC_MCP_TOKEN=%s\n", posixQuote(mcp.Token)))
+	// Export window name so hooks can identify their tmux window directly.
+	if windowName != "" {
+		b.WriteString(fmt.Sprintf("export _LC_WINDOW=%s\n", posixQuote(windowName)))
+	}
 	b.WriteString(lazyClaudeShellFunc())
 	return nil
 }

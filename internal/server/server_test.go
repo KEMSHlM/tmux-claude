@@ -830,6 +830,46 @@ func TestServer_EnrichActivity_SSHWindowNameFallback(t *testing.T) {
 	assert.Equal(t, "running", result[0].Activity, "should resolve via window name fallback lc-abcdef01")
 }
 
+// TestServer_WindowField_BypassesPIDResolution verifies that hooks with the
+// "window" field (from _LC_WINDOW env) bypass PID-based resolution entirely.
+// This is the primary mechanism for SSH sessions with multiple concurrent sessions.
+func TestServer_WindowField_BypassesPIDResolution(t *testing.T) {
+	t.Parallel()
+	_, port, _ := startTestServer(t)
+
+	// session-start with explicit window field — no pending file, no PID cache needed
+	body, _ := json.Marshal(map[string]any{
+		"pid": 99999, "window": "lc-aabbccdd", "session_id": "sess-w1",
+	})
+	resp := postEndpoint(t, port, "/session-start", body)
+	resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// stop with explicit window field
+	body, _ = json.Marshal(map[string]any{
+		"pid": 99998, "window": "lc-aabbccdd", "stop_reason": "end_turn", "session_id": "sess-w1",
+	})
+	resp = postEndpoint(t, port, "/stop", body)
+	resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// notify (tool_info) with explicit window field
+	body, _ = json.Marshal(map[string]any{
+		"type": "tool_info", "pid": 99997, "window": "lc-eeff0011", "tool_name": "Read",
+	})
+	resp = postNotify(t, port, body)
+	resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// prompt-submit with explicit window field
+	body, _ = json.Marshal(map[string]any{
+		"pid": 99996, "window": "lc-eeff0011", "session_id": "sess-w2",
+	})
+	resp = postEndpoint(t, port, "/prompt-submit", body)
+	resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+}
+
 func TestServer_Activity_UnknownWindowReturnsUnknown(t *testing.T) {
 	t.Parallel()
 	srv, _, _ := startTestServer(t)

@@ -458,6 +458,7 @@ func (m *Manager) buildLaunchCommand(sess Session, systemPrompt, userPrompt stri
 
 	if sess.Host != "" {
 		cfg.MCP = &MCPConfig{Port: mcpPort, Token: mcpToken}
+		cfg.WindowName = sess.WindowName()
 		scriptContent, buildErr := BuildScript(cfg)
 		if buildErr != nil {
 			return "", "", nil, fmt.Errorf("build script: %w", buildErr)
