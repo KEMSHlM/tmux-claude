@@ -48,6 +48,10 @@ func writeRemoteScript(sess Session, mcpPort int, token string, opts *remoteScri
 	// the MCP server via the SSH reverse tunnel.
 	b.WriteString(fmt.Sprintf("export _LC_MCP_PORT=%d\n", mcpPort))
 	b.WriteString(fmt.Sprintf("export _LC_MCP_TOKEN=%s\n", posixQuote(token)))
+	// Export window name so hooks can identify their tmux window directly.
+	// This avoids the single pending-window-file bottleneck when multiple
+	// SSH sessions are active concurrently.
+	b.WriteString(fmt.Sprintf("export _LC_WINDOW=%s\n", posixQuote(sess.WindowName())))
 	b.WriteString(lazyClaudeShellFunc())
 
 	// Write hooks settings file so activity state (Running, NeedsInput, etc.)

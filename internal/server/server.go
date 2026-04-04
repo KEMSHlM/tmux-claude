@@ -351,6 +351,7 @@ func (s *Server) serveConn(ctx context.Context, conn *websocket.Conn, connID str
 type notifyRequest struct {
 	Type      string          `json:"type,omitempty"`       // "tool_info" or "" (permission_prompt)
 	PID       int             `json:"pid"`
+	Window    string          `json:"window,omitempty"`     // from _LC_WINDOW env (SSH sessions)
 	ToolName  string          `json:"tool_name,omitempty"`
 	ToolInput json.RawMessage `json:"tool_input,omitempty"` // object from Claude Code hooks
 	Input     string          `json:"input,omitempty"`      // string (backward compat with curl tests)
@@ -400,7 +401,13 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	window := s.resolveNotifyWindow(r.Context(), req.PID)
+	// SSH sessions pass _LC_WINDOW so hooks identify their window directly.
+	// This avoids PID-based resolution (unreliable for remote sessions where
+	// each hook spawns a new process with a different PID).
+	window := req.Window
+	if window == "" {
+		window = s.resolveNotifyWindow(r.Context(), req.PID)
+	}
 	if window == "" && req.Type != "tool_info" {
 		// Fallback for permission_prompt: hook processes may have different PIDs
 		// from the earlier PreToolUse hook. Use the most recent pending window.
@@ -563,6 +570,7 @@ func (s *Server) writePortFile(port int) error {
 
 type stopRequest struct {
 	PID        int    `json:"pid"`
+	Window     string `json:"window,omitempty"` // from _LC_WINDOW env (SSH sessions)
 	StopReason string `json:"stop_reason"`
 	SessionID  string `json:"session_id"`
 }
@@ -586,7 +594,10 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	window := s.resolveNotifyWindow(r.Context(), req.PID)
+	window := req.Window
+	if window == "" {
+		window = s.resolveNotifyWindow(r.Context(), req.PID)
+	}
 	if window == "" {
 		window = s.state.LastPendingWindow()
 	}
@@ -612,6 +623,7 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 
 type sessionStartRequest struct {
 	PID       int    `json:"pid"`
+	Window    string `json:"window,omitempty"` // from _LC_WINDOW env (SSH sessions)
 	SessionID string `json:"session_id"`
 }
 
@@ -634,7 +646,10 @@ func (s *Server) handleSessionStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	window := s.resolveNotifyWindow(r.Context(), req.PID)
+	window := req.Window
+	if window == "" {
+		window = s.resolveNotifyWindow(r.Context(), req.PID)
+	}
 	if window == "" {
 		window = s.state.LastPendingWindow()
 	}
@@ -659,6 +674,7 @@ func (s *Server) handleSessionStart(w http.ResponseWriter, r *http.Request) {
 
 type promptSubmitRequest struct {
 	PID       int    `json:"pid"`
+	Window    string `json:"window,omitempty"` // from _LC_WINDOW env (SSH sessions)
 	SessionID string `json:"session_id"`
 }
 
@@ -681,7 +697,10 @@ func (s *Server) handlePromptSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	window := s.resolveNotifyWindow(r.Context(), req.PID)
+	window := req.Window
+	if window == "" {
+		window = s.resolveNotifyWindow(r.Context(), req.PID)
+	}
 	if window == "" {
 		window = s.state.LastPendingWindow()
 	}
