@@ -13,7 +13,7 @@ import (
 
 // newTestServer creates an httptest.Server with the given handler map.
 // Each key is "METHOD /path", value is the handler function.
-func newTestServer(t *testing.T, handlers map[string]http.HandlerFunc) *httptest.Server {
+func newClientTestServer(t *testing.T, handlers map[string]http.HandlerFunc) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		key := r.Method + " " + r.URL.Path
@@ -26,13 +26,13 @@ func newTestServer(t *testing.T, handlers map[string]http.HandlerFunc) *httptest
 	}))
 }
 
-func writeJSON(w http.ResponseWriter, v interface{}) {
+func testWriteJSON(w http.ResponseWriter, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(v)
 }
 
 func TestHTTPClient_CreateSession(t *testing.T) {
-	srv := newTestServer(t, map[string]http.HandlerFunc{
+	srv := newClientTestServer(t, map[string]http.HandlerFunc{
 		"POST /sessions": func(w http.ResponseWriter, r *http.Request) {
 			var req SessionCreateRequest
 			json.NewDecoder(r.Body).Decode(&req)
@@ -42,7 +42,7 @@ func TestHTTPClient_CreateSession(t *testing.T) {
 			if req.SessionType != "plain" {
 				t.Errorf("unexpected type: %s", req.SessionType)
 			}
-			writeJSON(w, SessionCreateResponse{ID: "abc123", Name: "project"})
+			testWriteJSON(w, SessionCreateResponse{ID: "abc123", Name: "project"})
 		},
 	})
 	defer srv.Close()
@@ -61,7 +61,7 @@ func TestHTTPClient_CreateSession(t *testing.T) {
 }
 
 func TestHTTPClient_DeleteSession(t *testing.T) {
-	srv := newTestServer(t, map[string]http.HandlerFunc{
+	srv := newClientTestServer(t, map[string]http.HandlerFunc{
 		"DELETE /sessions/abc123": func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		},
@@ -75,7 +75,7 @@ func TestHTTPClient_DeleteSession(t *testing.T) {
 }
 
 func TestHTTPClient_RenameSession(t *testing.T) {
-	srv := newTestServer(t, map[string]http.HandlerFunc{
+	srv := newClientTestServer(t, map[string]http.HandlerFunc{
 		"POST /sessions/abc123/rename": func(w http.ResponseWriter, r *http.Request) {
 			var req SessionRenameRequest
 			json.NewDecoder(r.Body).Decode(&req)
@@ -94,9 +94,9 @@ func TestHTTPClient_RenameSession(t *testing.T) {
 }
 
 func TestHTTPClient_Sessions(t *testing.T) {
-	srv := newTestServer(t, map[string]http.HandlerFunc{
+	srv := newClientTestServer(t, map[string]http.HandlerFunc{
 		"GET /sessions": func(w http.ResponseWriter, _ *http.Request) {
-			writeJSON(w, SessionListResponse{
+			testWriteJSON(w, SessionListResponse{
 				Sessions: []SessionInfo{
 					{ID: "s1", Name: "session-1"},
 					{ID: "s2", Name: "session-2"},
@@ -120,9 +120,9 @@ func TestHTTPClient_Sessions(t *testing.T) {
 }
 
 func TestHTTPClient_PurgeOrphans(t *testing.T) {
-	srv := newTestServer(t, map[string]http.HandlerFunc{
+	srv := newClientTestServer(t, map[string]http.HandlerFunc{
 		"POST /sessions/purge": func(w http.ResponseWriter, _ *http.Request) {
-			writeJSON(w, map[string]int{"purged": 3})
+			testWriteJSON(w, map[string]int{"purged": 3})
 		},
 	})
 	defer srv.Close()
@@ -138,12 +138,12 @@ func TestHTTPClient_PurgeOrphans(t *testing.T) {
 }
 
 func TestHTTPClient_CapturePreview(t *testing.T) {
-	srv := newTestServer(t, map[string]http.HandlerFunc{
+	srv := newClientTestServer(t, map[string]http.HandlerFunc{
 		"GET /sessions/s1/preview": func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Query().Get("width") != "80" {
 				t.Errorf("unexpected width: %s", r.URL.Query().Get("width"))
 			}
-			writeJSON(w, PreviewResponse{Content: "hello", CursorX: 5, CursorY: 0})
+			testWriteJSON(w, PreviewResponse{Content: "hello", CursorX: 5, CursorY: 0})
 		},
 	})
 	defer srv.Close()
@@ -159,9 +159,9 @@ func TestHTTPClient_CapturePreview(t *testing.T) {
 }
 
 func TestHTTPClient_HistorySize(t *testing.T) {
-	srv := newTestServer(t, map[string]http.HandlerFunc{
+	srv := newClientTestServer(t, map[string]http.HandlerFunc{
 		"GET /sessions/s1/history-size": func(w http.ResponseWriter, _ *http.Request) {
-			writeJSON(w, HistorySizeResponse{Lines: 500})
+			testWriteJSON(w, HistorySizeResponse{Lines: 500})
 		},
 	})
 	defer srv.Close()
@@ -177,7 +177,7 @@ func TestHTTPClient_HistorySize(t *testing.T) {
 }
 
 func TestHTTPClient_SendChoice_WithSessionID(t *testing.T) {
-	srv := newTestServer(t, map[string]http.HandlerFunc{
+	srv := newClientTestServer(t, map[string]http.HandlerFunc{
 		"POST /sessions/s1/choice": func(w http.ResponseWriter, r *http.Request) {
 			var req SendChoiceRequest
 			json.NewDecoder(r.Body).Decode(&req)
@@ -196,7 +196,7 @@ func TestHTTPClient_SendChoice_WithSessionID(t *testing.T) {
 }
 
 func TestHTTPClient_SendChoice_WithoutSessionID(t *testing.T) {
-	srv := newTestServer(t, map[string]http.HandlerFunc{
+	srv := newClientTestServer(t, map[string]http.HandlerFunc{
 		"POST /sessions/choice": func(w http.ResponseWriter, r *http.Request) {
 			var req SendChoiceRequest
 			json.NewDecoder(r.Body).Decode(&req)
@@ -215,12 +215,12 @@ func TestHTTPClient_SendChoice_WithoutSessionID(t *testing.T) {
 }
 
 func TestHTTPClient_CaptureScrollback(t *testing.T) {
-	srv := newTestServer(t, map[string]http.HandlerFunc{
+	srv := newClientTestServer(t, map[string]http.HandlerFunc{
 		"GET /sessions/s1/scrollback": func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Query().Get("start") != "10" {
 				t.Errorf("unexpected start: %s", r.URL.Query().Get("start"))
 			}
-			writeJSON(w, ScrollbackResponse{Content: "scrollback", CursorX: 0, CursorY: 5})
+			testWriteJSON(w, ScrollbackResponse{Content: "scrollback", CursorX: 0, CursorY: 5})
 		},
 	})
 	defer srv.Close()
@@ -236,7 +236,7 @@ func TestHTTPClient_CaptureScrollback(t *testing.T) {
 }
 
 func TestHTTPClient_Shutdown(t *testing.T) {
-	srv := newTestServer(t, map[string]http.HandlerFunc{
+	srv := newClientTestServer(t, map[string]http.HandlerFunc{
 		"POST /shutdown": func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		},
@@ -250,9 +250,9 @@ func TestHTTPClient_Shutdown(t *testing.T) {
 }
 
 func TestHTTPClient_MsgSend(t *testing.T) {
-	srv := newTestServer(t, map[string]http.HandlerFunc{
+	srv := newClientTestServer(t, map[string]http.HandlerFunc{
 		"POST /msg/send": func(w http.ResponseWriter, _ *http.Request) {
-			writeJSON(w, MsgSendResponse{Delivered: true})
+			testWriteJSON(w, MsgSendResponse{Delivered: true})
 		},
 	})
 	defer srv.Close()
@@ -268,9 +268,9 @@ func TestHTTPClient_MsgSend(t *testing.T) {
 }
 
 func TestHTTPClient_ResumeWorktree(t *testing.T) {
-	srv := newTestServer(t, map[string]http.HandlerFunc{
+	srv := newClientTestServer(t, map[string]http.HandlerFunc{
 		"POST /worktrees/resume": func(w http.ResponseWriter, _ *http.Request) {
-			writeJSON(w, WorktreeResumeResponse{SessionID: "wt-resume"})
+			testWriteJSON(w, WorktreeResumeResponse{SessionID: "wt-resume"})
 		},
 	})
 	defer srv.Close()
@@ -289,9 +289,9 @@ func TestHTTPClient_ResumeWorktree(t *testing.T) {
 }
 
 func TestHTTPClient_AttachSession(t *testing.T) {
-	srv := newTestServer(t, map[string]http.HandlerFunc{
+	srv := newClientTestServer(t, map[string]http.HandlerFunc{
 		"GET /sessions/s1/attach": func(w http.ResponseWriter, _ *http.Request) {
-			writeJSON(w, AttachResponse{TmuxTarget: "lazyclaude:lc-abcd1234"})
+			testWriteJSON(w, AttachResponse{TmuxTarget: "lazyclaude:lc-abcd1234"})
 		},
 	})
 	defer srv.Close()
@@ -307,14 +307,14 @@ func TestHTTPClient_AttachSession(t *testing.T) {
 }
 
 func TestHTTPClient_CreateWorktree(t *testing.T) {
-	srv := newTestServer(t, map[string]http.HandlerFunc{
+	srv := newClientTestServer(t, map[string]http.HandlerFunc{
 		"POST /worktrees": func(w http.ResponseWriter, r *http.Request) {
 			var req WorktreeCreateRequest
 			json.NewDecoder(r.Body).Decode(&req)
 			if req.Name != "feature-x" {
 				t.Errorf("got name=%q", req.Name)
 			}
-			writeJSON(w, WorktreeCreateResponse{SessionID: "wt1", Path: "/tmp/wt", Branch: "feature-x"})
+			testWriteJSON(w, WorktreeCreateResponse{SessionID: "wt1", Path: "/tmp/wt", Branch: "feature-x"})
 		},
 	})
 	defer srv.Close()
@@ -333,12 +333,12 @@ func TestHTTPClient_CreateWorktree(t *testing.T) {
 }
 
 func TestHTTPClient_ListWorktrees(t *testing.T) {
-	srv := newTestServer(t, map[string]http.HandlerFunc{
+	srv := newClientTestServer(t, map[string]http.HandlerFunc{
 		"GET /worktrees": func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Query().Get("root") != "/project" {
 				t.Errorf("unexpected root: %s", r.URL.Query().Get("root"))
 			}
-			writeJSON(w, WorktreeListResponse{
+			testWriteJSON(w, WorktreeListResponse{
 				Worktrees: []WorktreeInfo{{Name: "wt1", Path: "/tmp/wt1", Branch: "main"}},
 			})
 		},
@@ -356,9 +356,9 @@ func TestHTTPClient_ListWorktrees(t *testing.T) {
 }
 
 func TestHTTPClient_Health(t *testing.T) {
-	srv := newTestServer(t, map[string]http.HandlerFunc{
+	srv := newClientTestServer(t, map[string]http.HandlerFunc{
 		"GET /health": func(w http.ResponseWriter, _ *http.Request) {
-			writeJSON(w, HealthResponse{
+			testWriteJSON(w, HealthResponse{
 				APIVersion:    1,
 				BinaryVersion: "0.1.0",
 				UptimeSeconds: 60,
@@ -380,10 +380,10 @@ func TestHTTPClient_Health(t *testing.T) {
 
 func TestHTTPClient_AuthHeader(t *testing.T) {
 	var gotHeader string
-	srv := newTestServer(t, map[string]http.HandlerFunc{
+	srv := newClientTestServer(t, map[string]http.HandlerFunc{
 		"GET /health": func(w http.ResponseWriter, r *http.Request) {
 			gotHeader = r.Header.Get(AuthHeader)
-			writeJSON(w, HealthResponse{APIVersion: 1})
+			testWriteJSON(w, HealthResponse{APIVersion: 1})
 		},
 	})
 	defer srv.Close()
@@ -396,7 +396,7 @@ func TestHTTPClient_AuthHeader(t *testing.T) {
 }
 
 func TestHTTPClient_ErrorResponse(t *testing.T) {
-	srv := newTestServer(t, map[string]http.HandlerFunc{
+	srv := newClientTestServer(t, map[string]http.HandlerFunc{
 		"GET /sessions": func(w http.ResponseWriter, _ *http.Request) {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 		},
@@ -476,9 +476,9 @@ func TestHTTPClient_SubscribeNotifications(t *testing.T) {
 }
 
 func TestHTTPClient_PendingNotifications(t *testing.T) {
-	srv := newTestServer(t, map[string]http.HandlerFunc{
+	srv := newClientTestServer(t, map[string]http.HandlerFunc{
 		"GET /notifications/pending": func(w http.ResponseWriter, _ *http.Request) {
-			writeJSON(w, map[string]interface{}{
+			testWriteJSON(w, map[string]interface{}{
 				"notifications": []ToolNotificationInfo{
 					{SessionID: "s1", ToolName: "Read", Window: "@1"},
 				},

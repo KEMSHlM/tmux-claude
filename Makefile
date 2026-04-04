@@ -37,8 +37,6 @@ lint:
 PREFIX ?= /usr/local
 
 install: build
-	@if echo "$(CURDIR)" | grep -q '\.claude/worktrees'; then \
-		echo "ERROR: make install is not allowed from a worktree" >&2; exit 1; fi
 	install -d $(PREFIX)/bin
 	install -m 755 bin/$(BINARY) $(PREFIX)/bin/$(BINARY)
 

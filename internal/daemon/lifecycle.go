@@ -10,9 +10,10 @@ import (
 
 // DaemonInfo holds the connection details for a running remote daemon.
 type DaemonInfo struct {
-	Host  string `json:"host"`
+	Host  string `json:"host,omitempty"`
 	Port  int    `json:"port"`
 	Token string `json:"token"`
+	PID   int    `json:"pid,omitempty"`
 }
 
 // LifecycleManager handles starting, stopping, and discovering remote daemons.

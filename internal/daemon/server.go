@@ -37,12 +37,8 @@ type DaemonConfig struct {
 	RuntimeDir string // /tmp/lazyclaude-$USER
 }
 
-// DaemonInfo is the connection info written to daemon.json.
-type DaemonInfo struct {
-	Port  int    `json:"port"`
-	Token string `json:"token"`
-	PID   int    `json:"pid"`
-}
+// DaemonInfo is defined in lifecycle.go. The daemon.json file also includes
+// the PID for process management, but DaemonInfo is the shared type.
 
 // DaemonServer is the daemon HTTP server.
 type DaemonServer struct {

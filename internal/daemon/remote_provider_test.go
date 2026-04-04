@@ -64,7 +64,7 @@ func TestRemoteProvider_ImplementsSessionProvider(t *testing.T) {
 
 func newRemoteTestSetup(t *testing.T, handlers map[string]http.HandlerFunc) (*RemoteProvider, *httptest.Server) {
 	t.Helper()
-	srv := newTestServer(t, handlers)
+	srv := newClientTestServer(t, handlers)
 	client := NewHTTPClient(srv.URL, "test-token")
 	conn := &mockConnManager{state: Connected, client: client}
 	rp := NewRemoteProvider("remote-host", conn)
@@ -94,7 +94,7 @@ func TestRemoteProvider_ConnectionState(t *testing.T) {
 func TestRemoteProvider_Sessions(t *testing.T) {
 	rp, srv := newRemoteTestSetup(t, map[string]http.HandlerFunc{
 		"GET /sessions": func(w http.ResponseWriter, _ *http.Request) {
-			writeJSON(w, SessionListResponse{
+			testWriteJSON(w, SessionListResponse{
 				Sessions: []SessionInfo{
 					{ID: "s1", Name: "session-1"},
 					{ID: "s2", Name: "session-2"},
@@ -122,7 +122,7 @@ func TestRemoteProvider_Sessions(t *testing.T) {
 func TestRemoteProvider_HasSession(t *testing.T) {
 	rp, srv := newRemoteTestSetup(t, map[string]http.HandlerFunc{
 		"GET /sessions": func(w http.ResponseWriter, _ *http.Request) {
-			writeJSON(w, SessionListResponse{
+			testWriteJSON(w, SessionListResponse{
 				Sessions: []SessionInfo{{ID: "s1", Name: "test"}},
 			})
 		},
@@ -150,7 +150,7 @@ func TestRemoteProvider_Create(t *testing.T) {
 	rp, srv := newRemoteTestSetup(t, map[string]http.HandlerFunc{
 		"POST /sessions": func(w http.ResponseWriter, r *http.Request) {
 			json.NewDecoder(r.Body).Decode(&gotReq)
-			writeJSON(w, SessionCreateResponse{ID: "new1"})
+			testWriteJSON(w, SessionCreateResponse{ID: "new1"})
 		},
 	})
 	defer srv.Close()
@@ -195,7 +195,7 @@ func TestRemoteProvider_Rename(t *testing.T) {
 func TestRemoteProvider_PurgeOrphans(t *testing.T) {
 	rp, srv := newRemoteTestSetup(t, map[string]http.HandlerFunc{
 		"POST /sessions/purge": func(w http.ResponseWriter, _ *http.Request) {
-			writeJSON(w, map[string]int{"purged": 2})
+			testWriteJSON(w, map[string]int{"purged": 2})
 		},
 	})
 	defer srv.Close()
@@ -212,7 +212,7 @@ func TestRemoteProvider_PurgeOrphans(t *testing.T) {
 func TestRemoteProvider_CapturePreview(t *testing.T) {
 	rp, srv := newRemoteTestSetup(t, map[string]http.HandlerFunc{
 		"GET /sessions/s1/preview": func(w http.ResponseWriter, _ *http.Request) {
-			writeJSON(w, PreviewResponse{Content: "preview-content", CursorX: 10})
+			testWriteJSON(w, PreviewResponse{Content: "preview-content", CursorX: 10})
 		},
 	})
 	defer srv.Close()
@@ -229,7 +229,7 @@ func TestRemoteProvider_CapturePreview(t *testing.T) {
 func TestRemoteProvider_HistorySize(t *testing.T) {
 	rp, srv := newRemoteTestSetup(t, map[string]http.HandlerFunc{
 		"GET /sessions/s1/history-size": func(w http.ResponseWriter, _ *http.Request) {
-			writeJSON(w, HistorySizeResponse{Lines: 1000})
+			testWriteJSON(w, HistorySizeResponse{Lines: 1000})
 		},
 	})
 	defer srv.Close()
@@ -264,7 +264,7 @@ func TestRemoteProvider_SendChoice(t *testing.T) {
 func TestRemoteProvider_CaptureScrollback(t *testing.T) {
 	rp, srv := newRemoteTestSetup(t, map[string]http.HandlerFunc{
 		"GET /sessions/s1/scrollback": func(w http.ResponseWriter, _ *http.Request) {
-			writeJSON(w, ScrollbackResponse{Content: "scroll", CursorX: 0, CursorY: 10})
+			testWriteJSON(w, ScrollbackResponse{Content: "scroll", CursorX: 0, CursorY: 10})
 		},
 	})
 	defer srv.Close()
@@ -281,7 +281,7 @@ func TestRemoteProvider_CaptureScrollback(t *testing.T) {
 func TestRemoteProvider_ResumeWorktree(t *testing.T) {
 	rp, srv := newRemoteTestSetup(t, map[string]http.HandlerFunc{
 		"POST /worktrees/resume": func(w http.ResponseWriter, _ *http.Request) {
-			writeJSON(w, WorktreeResumeResponse{SessionID: "wt-resume"})
+			testWriteJSON(w, WorktreeResumeResponse{SessionID: "wt-resume"})
 		},
 	})
 	defer srv.Close()
@@ -296,7 +296,7 @@ func TestRemoteProvider_CreateWorktree(t *testing.T) {
 	rp, srv := newRemoteTestSetup(t, map[string]http.HandlerFunc{
 		"POST /worktrees": func(w http.ResponseWriter, r *http.Request) {
 			json.NewDecoder(r.Body).Decode(&gotReq)
-			writeJSON(w, WorktreeCreateResponse{SessionID: "wt1"})
+			testWriteJSON(w, WorktreeCreateResponse{SessionID: "wt1"})
 		},
 	})
 	defer srv.Close()
@@ -312,7 +312,7 @@ func TestRemoteProvider_CreateWorktree(t *testing.T) {
 func TestRemoteProvider_ListWorktrees(t *testing.T) {
 	rp, srv := newRemoteTestSetup(t, map[string]http.HandlerFunc{
 		"GET /worktrees": func(w http.ResponseWriter, _ *http.Request) {
-			writeJSON(w, WorktreeListResponse{
+			testWriteJSON(w, WorktreeListResponse{
 				Worktrees: []WorktreeInfo{{Name: "wt1", Path: "/tmp/wt1"}},
 			})
 		},
@@ -333,7 +333,7 @@ func TestRemoteProvider_CreatePMSession(t *testing.T) {
 	rp, srv := newRemoteTestSetup(t, map[string]http.HandlerFunc{
 		"POST /sessions": func(w http.ResponseWriter, r *http.Request) {
 			json.NewDecoder(r.Body).Decode(&gotReq)
-			writeJSON(w, SessionCreateResponse{ID: "pm1"})
+			testWriteJSON(w, SessionCreateResponse{ID: "pm1"})
 		},
 	})
 	defer srv.Close()
@@ -351,7 +351,7 @@ func TestRemoteProvider_CreateWorkerSession(t *testing.T) {
 	rp, srv := newRemoteTestSetup(t, map[string]http.HandlerFunc{
 		"POST /sessions": func(w http.ResponseWriter, r *http.Request) {
 			json.NewDecoder(r.Body).Decode(&gotReq)
-			writeJSON(w, SessionCreateResponse{ID: "w1"})
+			testWriteJSON(w, SessionCreateResponse{ID: "w1"})
 		},
 	})
 	defer srv.Close()
