@@ -94,14 +94,22 @@ func (a *App) setupGlobalKeybindings() error {
 	// 5. Rename input
 	if err := a.gui.SetKeybinding("rename-input", gocui.KeyEnter, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
 		newName := strings.TrimSpace(v.TextArea.GetContent())
-		if newName != "" && a.dialog.RenameID != "" {
-			if err := a.sessions.Rename(a.dialog.RenameID, newName); err != nil {
-				a.showError(g, fmt.Sprintf("Error: %v", err))
-			} else {
-				a.setStatus(g, "Renamed to "+newName)
-			}
-		}
+		renameID := a.dialog.RenameID
 		a.closeRenameInput(g)
+		if newName == "" || renameID == "" {
+			return nil
+		}
+		go func() {
+			err := a.sessions.Rename(renameID, newName)
+			a.gui.Update(func(g *gocui.Gui) error {
+				if err != nil {
+					a.showError(g, fmt.Sprintf("Error: %v", err))
+				} else {
+					a.setStatus(g, "Renamed to "+newName)
+				}
+				return nil
+			})
+		}()
 		return nil
 	}); err != nil {
 		return err
@@ -244,13 +252,13 @@ func (a *App) setupGlobalKeybindings() error {
 		if idx >= len(items) {
 			// "New worktree" selected
 			if !a.showWorktreeDialog(g) {
-				a.setStatus(g, "Error: could not open worktree dialog")
+				a.showError(g, "Error: could not open worktree dialog")
 			}
 		} else {
 			// Existing worktree selected
 			a.dialog.SelectedPath = items[idx].Path
 			if !a.showWorktreeResumePrompt(g, items[idx].Name) {
-				a.setStatus(g, "Error: could not open prompt dialog")
+				a.showError(g, "Error: could not open prompt dialog")
 			}
 		}
 		return nil

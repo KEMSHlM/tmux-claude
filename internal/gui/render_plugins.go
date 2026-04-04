@@ -36,12 +36,6 @@ func (a *App) renderPluginPanel(v *gocui.View, maxWidth int) {
 		return
 	}
 
-	if a.pluginState.errMsg != "" {
-		fmt.Fprintln(v, "")
-		fmt.Fprintln(v, presentation.FgYellow+"  "+a.pluginState.errMsg+presentation.Reset)
-		return
-	}
-
 	if a.plugins == nil {
 		fmt.Fprintln(v, "")
 		fmt.Fprintln(v, presentation.Dim+"  No plugin provider"+presentation.Reset)
