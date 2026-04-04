@@ -1,0 +1,369 @@
+package daemon
+
+import (
+	"context"
+	"encoding/base64"
+	"fmt"
+	"os"
+	"os/exec"
+	"sync"
+
+	"github.com/any-context/lazyclaude/internal/core/model"
+)
+
+// Compile-time check: RemoteProvider implements SessionProvider.
+var _ SessionProvider = (*RemoteProvider)(nil)
+
+// RemoteProvider adapts a daemon ClientAPI to the SessionProvider interface.
+// It maintains a local cache of sessions and buffers tool notifications
+// received via SSE.
+type RemoteProvider struct {
+	host string
+	conn ConnectionManager
+
+	mu            sync.Mutex
+	sessions      []SessionInfo
+	notifications []*model.ToolNotification
+
+	cancelSSE context.CancelFunc
+}
+
+// NewRemoteProvider creates a RemoteProvider for the given host.
+// The ConnectionManager must already be connected or will be connected
+// separately; this constructor does not initiate the connection.
+func NewRemoteProvider(host string, conn ConnectionManager) *RemoteProvider {
+	return &RemoteProvider{
+		host: host,
+		conn: conn,
+	}
+}
+
+// StartSSE begins consuming the SSE notification stream in a background
+// goroutine. Call StopSSE to cancel. If the connection is not yet ready,
+// this is a no-op and can be retried later.
+func (rp *RemoteProvider) StartSSE() error {
+	client, err := rp.conn.Client()
+	if err != nil {
+		return fmt.Errorf("start SSE: %w", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	ch, err := client.SubscribeNotifications(ctx)
+	if err != nil {
+		cancel()
+		return fmt.Errorf("subscribe notifications: %w", err)
+	}
+
+	rp.mu.Lock()
+	// Stop any previous SSE goroutine.
+	if rp.cancelSSE != nil {
+		rp.cancelSSE()
+	}
+	rp.cancelSSE = cancel
+	rp.mu.Unlock()
+
+	go rp.consumeSSE(ch)
+	return nil
+}
+
+// StopSSE cancels the SSE subscription goroutine.
+func (rp *RemoteProvider) StopSSE() {
+	rp.mu.Lock()
+	defer rp.mu.Unlock()
+	if rp.cancelSSE != nil {
+		rp.cancelSSE()
+		rp.cancelSSE = nil
+	}
+}
+
+// consumeSSE processes events from the SSE channel and updates local state.
+func (rp *RemoteProvider) consumeSSE(ch <-chan NotificationEvent) {
+	for ev := range ch {
+		rp.handleSSEEvent(ev)
+	}
+}
+
+func (rp *RemoteProvider) handleSSEEvent(ev NotificationEvent) {
+	rp.mu.Lock()
+	defer rp.mu.Unlock()
+
+	switch ev.Type {
+	case EventActivity:
+		for i := range rp.sessions {
+			if rp.sessions[i].ID == ev.SessionID {
+				rp.sessions[i].Activity = ev.Activity
+				rp.sessions[i].ToolName = ev.ToolName
+				break
+			}
+		}
+	case EventToolInfo:
+		if ev.ToolNotification != nil {
+			rp.notifications = append(rp.notifications, ev.ToolNotification)
+		}
+	case EventFullSync:
+		synced := make([]SessionInfo, len(ev.Sessions))
+		copy(synced, ev.Sessions)
+		// Tag each session with this provider's host.
+		for i := range synced {
+			synced[i].Host = rp.host
+		}
+		rp.sessions = synced
+	}
+}
+
+// --- SessionLister ---
+
+func (rp *RemoteProvider) HasSession(sessionID string) bool {
+	rp.mu.Lock()
+	defer rp.mu.Unlock()
+	for _, s := range rp.sessions {
+		if s.ID == sessionID {
+			return true
+		}
+	}
+	return false
+}
+
+func (rp *RemoteProvider) Host() string {
+	return rp.host
+}
+
+func (rp *RemoteProvider) Sessions() ([]SessionInfo, error) {
+	client, err := rp.conn.Client()
+	if err != nil {
+		return nil, fmt.Errorf("sessions: %w", err)
+	}
+	sessions, err := client.Sessions(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("sessions: %w", err)
+	}
+	// Tag each session with this provider's host and cache.
+	tagged := make([]SessionInfo, len(sessions))
+	copy(tagged, sessions)
+	for i := range tagged {
+		tagged[i].Host = rp.host
+	}
+	rp.mu.Lock()
+	rp.sessions = tagged
+	rp.mu.Unlock()
+	return tagged, nil
+}
+
+// --- SessionMutator ---
+
+func (rp *RemoteProvider) Create(path string) error {
+	client, err := rp.conn.Client()
+	if err != nil {
+		return fmt.Errorf("create: %w", err)
+	}
+	_, err = client.CreateSession(context.Background(), SessionCreateRequest{
+		Path:        path,
+		SessionType: "plain",
+	})
+	if err != nil {
+		return fmt.Errorf("create session: %w", err)
+	}
+	return nil
+}
+
+func (rp *RemoteProvider) Delete(id string) error {
+	client, err := rp.conn.Client()
+	if err != nil {
+		return fmt.Errorf("delete: %w", err)
+	}
+	return client.DeleteSession(context.Background(), id)
+}
+
+func (rp *RemoteProvider) Rename(id, newName string) error {
+	client, err := rp.conn.Client()
+	if err != nil {
+		return fmt.Errorf("rename: %w", err)
+	}
+	return client.RenameSession(context.Background(), id, newName)
+}
+
+func (rp *RemoteProvider) PurgeOrphans() (int, error) {
+	client, err := rp.conn.Client()
+	if err != nil {
+		return 0, fmt.Errorf("purge orphans: %w", err)
+	}
+	return client.PurgeOrphans(context.Background())
+}
+
+// --- PreviewProvider ---
+
+func (rp *RemoteProvider) CapturePreview(id string, width, height int) (*PreviewResponse, error) {
+	client, err := rp.conn.Client()
+	if err != nil {
+		return nil, fmt.Errorf("capture preview: %w", err)
+	}
+	return client.CapturePreview(context.Background(), id, width, height)
+}
+
+func (rp *RemoteProvider) CaptureScrollback(id string, width, startLine, endLine int) (*ScrollbackResponse, error) {
+	client, err := rp.conn.Client()
+	if err != nil {
+		return nil, fmt.Errorf("capture scrollback: %w", err)
+	}
+	return client.CaptureScrollback(context.Background(), id, width, startLine, endLine)
+}
+
+func (rp *RemoteProvider) HistorySize(id string) (int, error) {
+	client, err := rp.conn.Client()
+	if err != nil {
+		return 0, fmt.Errorf("history size: %w", err)
+	}
+	resp, err := client.HistorySize(context.Background(), id)
+	if err != nil {
+		return 0, err
+	}
+	return resp.Lines, nil
+}
+
+// --- SessionActioner ---
+
+// SendChoice sends a permission choice to the daemon.
+func (rp *RemoteProvider) SendChoice(window string, choice int) error {
+	client, err := rp.conn.Client()
+	if err != nil {
+		return fmt.Errorf("send choice: %w", err)
+	}
+	return client.SendChoice(context.Background(), "", window, choice)
+}
+
+// AttachSession attaches to a remote session via SSH -t tmux attach.
+// This bypasses the daemon API and directly runs an interactive SSH session.
+func (rp *RemoteProvider) AttachSession(id string) error {
+	client, err := rp.conn.Client()
+	if err != nil {
+		return fmt.Errorf("attach session: %w", err)
+	}
+	resp, err := client.AttachSession(context.Background(), id)
+	if err != nil {
+		return fmt.Errorf("attach session: %w", err)
+	}
+
+	// SSH -t to the remote host and tmux attach to the target window.
+	return rp.runSSHInteractive(buildTmuxAttachCommand(resp.TmuxTarget))
+}
+
+// LaunchLazygit launches lazygit on the remote host via SSH -t.
+// This bypasses the daemon API entirely.
+func (rp *RemoteProvider) LaunchLazygit(path string) error {
+	remoteCmd := fmt.Sprintf("cd %s && lazygit", posixQuote(path))
+	return rp.runSSHInteractive(remoteCmd)
+}
+
+// runSSHInteractive runs an interactive SSH command with stdin/stdout/stderr
+// connected to the current terminal.
+func (rp *RemoteProvider) runSSHInteractive(remoteCmd string) error {
+	sshHost, port := splitHostPort(rp.host)
+	args := []string{"-t"}
+	if port != "" {
+		args = append(args, "-p", port)
+	}
+	encoded := base64.StdEncoding.EncodeToString([]byte(remoteCmd))
+	args = append(args, sshHost, fmt.Sprintf("eval \"$(echo %s | base64 -d)\"", encoded))
+
+	cmd := exec.Command("ssh", args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// buildTmuxAttachCommand returns the shell command to attach to a tmux
+// target on the remote lazyclaude server.
+func buildTmuxAttachCommand(tmuxTarget string) string {
+	return fmt.Sprintf(
+		"tmux -L lazyclaude set-option -t lazyclaude window-size largest 2>/dev/null; "+
+			"tmux -L lazyclaude attach-session -t %s",
+		posixQuote(tmuxTarget),
+	)
+}
+
+// --- WorktreeProvider ---
+
+func (rp *RemoteProvider) CreateWorktree(name, prompt, projectRoot string) error {
+	client, err := rp.conn.Client()
+	if err != nil {
+		return fmt.Errorf("create worktree: %w", err)
+	}
+	_, err = client.CreateWorktree(context.Background(), WorktreeCreateRequest{
+		Name:        name,
+		Prompt:      prompt,
+		ProjectRoot: projectRoot,
+	})
+	return err
+}
+
+func (rp *RemoteProvider) ResumeWorktree(worktreePath, prompt, projectRoot string) error {
+	client, err := rp.conn.Client()
+	if err != nil {
+		return fmt.Errorf("resume worktree: %w", err)
+	}
+	_, err = client.ResumeWorktree(context.Background(), WorktreeResumeRequest{
+		WorktreePath: worktreePath,
+		Prompt:       prompt,
+		ProjectRoot:  projectRoot,
+	})
+	return err
+}
+
+func (rp *RemoteProvider) ListWorktrees(projectRoot string) ([]WorktreeInfo, error) {
+	client, err := rp.conn.Client()
+	if err != nil {
+		return nil, fmt.Errorf("list worktrees: %w", err)
+	}
+	return client.ListWorktrees(context.Background(), projectRoot)
+}
+
+// --- RoleSessionProvider ---
+
+func (rp *RemoteProvider) CreatePMSession(projectRoot string) error {
+	client, err := rp.conn.Client()
+	if err != nil {
+		return fmt.Errorf("create PM session: %w", err)
+	}
+	_, err = client.CreateSession(context.Background(), SessionCreateRequest{
+		Path:        projectRoot,
+		SessionType: "pm",
+	})
+	return err
+}
+
+func (rp *RemoteProvider) CreateWorkerSession(name, prompt, projectRoot string) error {
+	client, err := rp.conn.Client()
+	if err != nil {
+		return fmt.Errorf("create worker session: %w", err)
+	}
+	_, err = client.CreateSession(context.Background(), SessionCreateRequest{
+		Path:        projectRoot,
+		SessionType: "worker",
+		Name:        name,
+		Prompt:      prompt,
+	})
+	return err
+}
+
+// --- ConnectionAware ---
+
+func (rp *RemoteProvider) ConnectionState() ConnectionState {
+	return rp.conn.State()
+}
+
+// --- Notifications ---
+
+// PendingNotifications returns buffered tool notifications and clears
+// the buffer. This bridges the SSE stream to the gui.SessionProvider
+// PendingNotifications contract.
+func (rp *RemoteProvider) PendingNotifications() []*model.ToolNotification {
+	rp.mu.Lock()
+	defer rp.mu.Unlock()
+	if len(rp.notifications) == 0 {
+		return nil
+	}
+	result := rp.notifications
+	rp.notifications = nil
+	return result
+}
