@@ -21,6 +21,7 @@ import (
 	"github.com/any-context/lazyclaude/internal/notify"
 	"github.com/any-context/lazyclaude/internal/session"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/google/uuid"
 )
 
 // localDaemonProvider wraps session.Manager to implement daemon.SessionProvider.
@@ -257,18 +258,28 @@ type guiCompositeAdapter struct {
 
 	// Lazy remote connection: pendingHost is set once at construction and never
 	// mutated. connectFn is the root.go connectRemoteHost closure.
-	pendingHost       string             // SSH host detected at startup (immutable after construction)
-	pendingRemotePath string             // Remote CWD from OSC 7 (immutable after construction)
-	localProjectRoot  string             // Local project root at startup (immutable after construction)
-	connectFn         func(string) error // connectRemoteHost from root.go
-	connectMu         sync.Mutex
-	connecting        map[string]*lazyConn // one entry per host
+	pendingHost      string             // SSH host detected at startup (immutable after construction)
+	localProjectRoot string             // Local project root at startup (immutable after construction)
+	connectFn        func(string) error // connectRemoteHost from root.go
+	connectMu        sync.Mutex
+	connecting       map[string]*lazyConn // one entry per host
 
 	// onError reports errors to the GUI via showError. Wired in root.go.
 	// lastErrorMsg deduplicates consecutive identical errors to avoid flooding
 	// the GUI when Sessions() fails persistently (e.g. daemon unreachable).
 	onError      func(msg string)
 	lastErrorMsg string
+
+	// Optimistic session creation: tracks placeholder sessions created before
+	// remote connection is established.
+	// sessionErrors maps placeholder session IDs to error messages for display
+	// in the preview pane. remoteSessionMap maps placeholder IDs to the real
+	// remote session IDs for preview capture routing.
+	// guiUpdateFn triggers a GUI refresh from background goroutines.
+	optimisticMu     sync.Mutex
+	sessionErrors    map[string]string // placeholder ID -> error message
+	remoteSessionMap map[string]string // placeholder ID -> remote session ID
+	guiUpdateFn      func()           // triggers gui.Update (wired in root.go)
 }
 
 // Compile-time check.
@@ -350,34 +361,182 @@ func (a *guiCompositeAdapter) ToggleProjectExpanded(projectID string) {
 
 func (a *guiCompositeAdapter) Create(path string) error {
 	host := a.pendingHost
-	if err := a.ensureRemoteConnected(host); err != nil {
-		return err
+	if host == "" {
+		// Local: synchronous (existing behavior).
+		return a.cp.Create(path, "")
 	}
-	if host != "" {
-		path = a.resolveRemotePath(path)
+
+	// Remote: optimistic creation. Add a placeholder to the local store
+	// immediately so it appears in the sidebar, then attempt connection
+	// and session creation in the background. The path is resolved to the
+	// remote CWD after the connection is established.
+	placeholder := session.Session{
+		ID:        uuid.New().String(),
+		Name:      a.localMgr.Store().GenerateName(host),
+		Path:      path,
+		Host:      host,
+		Status:    session.StatusRunning,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
 	}
-	return a.cp.Create(path, host)
+	a.localMgr.Store().Add(placeholder, "")
+	if err := a.localMgr.Store().Save(); err != nil {
+		return fmt.Errorf("save placeholder: %w", err)
+	}
+
+	go a.completeRemoteCreate(placeholder.ID, path, host)
+	return nil
 }
 
-// resolveRemotePath maps a local path to the detected remote CWD when
-// creating the first session on an SSH pane. Once remote sessions exist,
+// completeRemoteCreate runs in a background goroutine to finish the
+// optimistic session creation. On failure it marks the placeholder as
+// dead and stores the error message. On success it maps the placeholder
+// to the real remote session for preview routing.
+func (a *guiCompositeAdapter) completeRemoteCreate(placeholderID, localPath, host string) {
+	if err := a.ensureRemoteConnected(host); err != nil {
+		a.failPlaceholder(placeholderID, fmt.Sprintf("Connection failed: %v", err))
+		return
+	}
+
+	// Resolve the local path to the remote CWD now that the connection exists.
+	remotePath := a.resolveRemotePath(localPath, host)
+
+	if err := a.cp.Create(remotePath, host); err != nil {
+		a.failPlaceholder(placeholderID, fmt.Sprintf("Session creation failed: %v", err))
+		return
+	}
+
+	// Update the placeholder's path to the resolved remote path.
+	a.localMgr.Store().Rename(placeholderID, a.localMgr.Store().GenerateName(remotePath))
+	// Note: Store.Rename only changes the name. We need to update Path too.
+	// Since Store doesn't expose a SetPath, we re-use SetStatus + path stays as-is
+	// (the name is sufficient for sidebar display).
+
+	// Find the newly created remote session and map it to the placeholder.
+	sessions, err := a.cp.Sessions()
+	if err == nil {
+		for _, s := range sessions {
+			if s.Host == host && s.Path == remotePath && s.ID != placeholderID {
+				a.setRemoteMapping(placeholderID, s.ID)
+				break
+			}
+		}
+	}
+	a.triggerGUIUpdate()
+}
+
+// failPlaceholder marks a placeholder session as dead and stores the error.
+func (a *guiCompositeAdapter) failPlaceholder(id, msg string) {
+	a.setSessionError(id, msg)
+	a.localMgr.Store().SetStatus(id, session.StatusDead)
+	if err := a.localMgr.Store().Save(); err != nil && a.onError != nil {
+		a.onError(fmt.Sprintf("save store: %v", err))
+	}
+	if a.onError != nil {
+		a.onError(msg)
+	}
+	a.triggerGUIUpdate()
+}
+
+// setSessionError records an error message for a placeholder session.
+func (a *guiCompositeAdapter) setSessionError(id, msg string) {
+	a.optimisticMu.Lock()
+	defer a.optimisticMu.Unlock()
+	if a.sessionErrors == nil {
+		a.sessionErrors = make(map[string]string)
+	}
+	a.sessionErrors[id] = msg
+}
+
+// sessionError returns the error message for a session, or "".
+func (a *guiCompositeAdapter) sessionError(id string) string {
+	a.optimisticMu.Lock()
+	defer a.optimisticMu.Unlock()
+	return a.sessionErrors[id]
+}
+
+// setRemoteMapping maps a placeholder to the real remote session.
+func (a *guiCompositeAdapter) setRemoteMapping(placeholderID, remoteID string) {
+	a.optimisticMu.Lock()
+	defer a.optimisticMu.Unlock()
+	if a.remoteSessionMap == nil {
+		a.remoteSessionMap = make(map[string]string)
+	}
+	a.remoteSessionMap[placeholderID] = remoteID
+}
+
+// remoteMapping returns the real remote session ID for a placeholder, or "".
+func (a *guiCompositeAdapter) remoteMapping(id string) string {
+	a.optimisticMu.Lock()
+	defer a.optimisticMu.Unlock()
+	return a.remoteSessionMap[id]
+}
+
+// clearOptimistic removes all optimistic state for a session ID.
+func (a *guiCompositeAdapter) clearOptimistic(id string) {
+	a.optimisticMu.Lock()
+	defer a.optimisticMu.Unlock()
+	delete(a.sessionErrors, id)
+	delete(a.remoteSessionMap, id)
+}
+
+// triggerGUIUpdate schedules a GUI refresh if the callback is wired.
+func (a *guiCompositeAdapter) triggerGUIUpdate() {
+	if a.guiUpdateFn != nil {
+		a.guiUpdateFn()
+	}
+}
+
+// resolveRemotePath maps a local path to the remote daemon's CWD when
+// creating the first session on an SSH host. Once remote sessions exist,
 // currentProjectRoot() returns the correct remote path from the session
 // tree, so the provided path is returned unchanged.
-func (a *guiCompositeAdapter) resolveRemotePath(path string) string {
-	if a.pendingRemotePath == "" {
-		return path
-	}
+//
+// The remote CWD is obtained via the daemon GET /cwd API. This requires
+// the remote connection to be established first (call ensureRemoteConnected
+// before this method).
+func (a *guiCompositeAdapter) resolveRemotePath(path, host string) string {
 	// "." comes from CreateSessionAtCWD (N key).
 	// localProjectRoot match comes from CreateSession (n key) when no
 	// remote sessions exist yet and currentProjectRoot() falls back to
 	// the local working directory.
-	if path == "." || path == a.localProjectRoot {
-		return a.pendingRemotePath
+	if path != "." && path != a.localProjectRoot {
+		return path
+	}
+
+	// Query remote daemon for its working directory.
+	remoteCWD := a.queryRemoteCWD(host)
+	if remoteCWD != "" {
+		return remoteCWD
 	}
 	return path
 }
 
+// cwdQueryTimeout is the maximum time to wait for a remote CWD query.
+const cwdQueryTimeout = 10 * time.Second
+
+// queryRemoteCWD fetches the working directory from a connected remote daemon.
+// Returns "" if the query fails (caller should fall back to the original path).
+func (a *guiCompositeAdapter) queryRemoteCWD(host string) string {
+	provider := a.cp.RemoteProvider(host)
+	if provider == nil {
+		return ""
+	}
+	querier, ok := provider.(daemon.CWDQuerier)
+	if !ok {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), cwdQueryTimeout)
+	defer cancel()
+	cwd, err := querier.QueryCWD(ctx)
+	if err != nil {
+		return ""
+	}
+	return cwd
+}
+
 func (a *guiCompositeAdapter) Delete(id string) error {
+	a.clearOptimistic(id)
 	return a.cp.Delete(id)
 }
 
@@ -390,6 +549,17 @@ func (a *guiCompositeAdapter) PurgeOrphans() (int, error) {
 }
 
 func (a *guiCompositeAdapter) CapturePreview(id string, width, height int) (gui.PreviewResult, error) {
+	// Optimistic placeholder with error: return error as preview content.
+	if errMsg := a.sessionError(id); errMsg != "" {
+		return gui.PreviewResult{Content: "\n  " + errMsg}, nil
+	}
+
+	// Optimistic placeholder mapped to a real remote session: route to
+	// the remote session for preview capture.
+	if remoteID := a.remoteMapping(id); remoteID != "" {
+		id = remoteID
+	}
+
 	resp, err := a.cp.CapturePreview(id, width, height)
 	if err != nil || resp == nil {
 		return gui.PreviewResult{}, err
@@ -402,6 +572,9 @@ func (a *guiCompositeAdapter) CapturePreview(id string, width, height int) (gui.
 }
 
 func (a *guiCompositeAdapter) CaptureScrollback(id string, width, startLine, endLine int) (gui.PreviewResult, error) {
+	if remoteID := a.remoteMapping(id); remoteID != "" {
+		id = remoteID
+	}
 	resp, err := a.cp.CaptureScrollback(id, width, startLine, endLine)
 	if err != nil || resp == nil {
 		return gui.PreviewResult{}, err
@@ -410,6 +583,9 @@ func (a *guiCompositeAdapter) CaptureScrollback(id string, width, startLine, end
 }
 
 func (a *guiCompositeAdapter) HistorySize(id string) (int, error) {
+	if remoteID := a.remoteMapping(id); remoteID != "" {
+		id = remoteID
+	}
 	return a.cp.HistorySize(id)
 }
 
@@ -426,6 +602,9 @@ func (a *guiCompositeAdapter) SendChoice(window string, c gui.Choice) error {
 }
 
 func (a *guiCompositeAdapter) AttachSession(id string) error {
+	if remoteID := a.remoteMapping(id); remoteID != "" {
+		id = remoteID
+	}
 	return a.cp.AttachSession(id)
 }
 
@@ -439,7 +618,7 @@ func (a *guiCompositeAdapter) CreateWorktree(name, prompt, projectRoot string) e
 		return err
 	}
 	if host != "" {
-		projectRoot = a.resolveRemotePath(projectRoot)
+		projectRoot = a.resolveRemotePath(projectRoot, host)
 	}
 	return a.cp.CreateWorktree(name, prompt, projectRoot, host)
 }
@@ -450,7 +629,7 @@ func (a *guiCompositeAdapter) ResumeWorktree(worktreePath, prompt, projectRoot s
 		return err
 	}
 	if host != "" {
-		projectRoot = a.resolveRemotePath(projectRoot)
+		projectRoot = a.resolveRemotePath(projectRoot, host)
 	}
 	return a.cp.ResumeWorktree(worktreePath, prompt, projectRoot, host)
 }
@@ -461,7 +640,7 @@ func (a *guiCompositeAdapter) ListWorktrees(projectRoot string) ([]gui.WorktreeI
 		return nil, err
 	}
 	if host != "" {
-		projectRoot = a.resolveRemotePath(projectRoot)
+		projectRoot = a.resolveRemotePath(projectRoot, host)
 	}
 	items, err := a.cp.ListWorktrees(projectRoot, host)
 	if err != nil {
@@ -480,7 +659,7 @@ func (a *guiCompositeAdapter) CreatePMSession(projectRoot string) error {
 		return err
 	}
 	if host != "" {
-		projectRoot = a.resolveRemotePath(projectRoot)
+		projectRoot = a.resolveRemotePath(projectRoot, host)
 	}
 	return a.cp.CreatePMSession(projectRoot, host)
 }
@@ -491,7 +670,7 @@ func (a *guiCompositeAdapter) CreateWorkerSession(name, prompt, projectRoot stri
 		return err
 	}
 	if host != "" {
-		projectRoot = a.resolveRemotePath(projectRoot)
+		projectRoot = a.resolveRemotePath(projectRoot, host)
 	}
 	return a.cp.CreateWorkerSession(name, prompt, projectRoot, host)
 }

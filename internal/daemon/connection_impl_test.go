@@ -57,6 +57,7 @@ func (m *mockClientAPI) MsgCreate(context.Context, MsgCreateRequest) (*MsgCreate
 }
 func (m *mockClientAPI) MsgSessions(context.Context) (*MsgSessionsResponse, error) { return nil, nil }
 func (m *mockClientAPI) Shutdown(context.Context, ShutdownRequest) error            { return nil }
+func (m *mockClientAPI) CWD(context.Context) (string, error)                       { return "", nil }
 func (m *mockClientAPI) SubscribeNotifications(context.Context) (<-chan NotificationEvent, error) {
 	return nil, nil
 }

@@ -105,6 +105,13 @@ func (c *CompositeProvider) AddRemote(host string, rp SessionProvider) {
 	c.remotes[host] = rp
 }
 
+// RemoteProvider returns the remote provider for the given host, or nil.
+func (c *CompositeProvider) RemoteProvider(host string) SessionProvider {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.remotes[host]
+}
+
 // RemoveRemote unregisters a remote provider.
 func (c *CompositeProvider) RemoveRemote(host string) {
 	c.mu.Lock()

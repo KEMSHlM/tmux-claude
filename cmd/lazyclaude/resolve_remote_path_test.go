@@ -3,50 +3,36 @@ package main
 import (
 	"testing"
 
+	"github.com/any-context/lazyclaude/internal/daemon"
 	"github.com/stretchr/testify/assert"
 )
 
-func TestResolveRemotePath_NoPendingRemotePath_Passthrough(t *testing.T) {
-	t.Parallel()
-	a := &guiCompositeAdapter{localProjectRoot: "/Users/kenshin/project"}
-	assert.Equal(t, "/Users/kenshin/project", a.resolveRemotePath("/Users/kenshin/project"))
-}
-
-func TestResolveRemotePath_DotPath(t *testing.T) {
+func TestResolveRemotePath_NonLocalPath_Passthrough(t *testing.T) {
 	t.Parallel()
 	a := &guiCompositeAdapter{
-		pendingRemotePath: "/home/user/project",
-		localProjectRoot:  "/Users/kenshin/project",
+		cp:               daemon.NewCompositeProvider(nil, nil),
+		localProjectRoot: "/local/project",
 	}
-	assert.Equal(t, "/home/user/project", a.resolveRemotePath("."))
+	// A path that is neither "." nor localProjectRoot passes through unchanged.
+	assert.Equal(t, "/home/user/other-project", a.resolveRemotePath("/home/user/other-project", "remote"))
 }
 
-func TestResolveRemotePath_LocalProjectRoot(t *testing.T) {
+func TestResolveRemotePath_DotPath_NoProvider_Passthrough(t *testing.T) {
 	t.Parallel()
 	a := &guiCompositeAdapter{
-		pendingRemotePath: "/home/user/project",
-		localProjectRoot:  "/Users/kenshin/project",
+		cp:               daemon.NewCompositeProvider(nil, nil),
+		localProjectRoot: "/local/project",
 	}
-	assert.Equal(t, "/home/user/project", a.resolveRemotePath("/Users/kenshin/project"))
+	// "." path with no remote provider falls back to the original path.
+	assert.Equal(t, ".", a.resolveRemotePath(".", "remote"))
 }
 
-func TestResolveRemotePath_RemotePath_Passthrough(t *testing.T) {
+func TestResolveRemotePath_LocalProjectRoot_NoProvider_Passthrough(t *testing.T) {
 	t.Parallel()
 	a := &guiCompositeAdapter{
-		pendingRemotePath: "/home/user/project",
-		localProjectRoot:  "/Users/kenshin/project",
+		cp:               daemon.NewCompositeProvider(nil, nil),
+		localProjectRoot: "/local/project",
 	}
-	// A path from an existing remote session should pass through unchanged.
-	assert.Equal(t, "/home/user/other-project", a.resolveRemotePath("/home/user/other-project"))
-}
-
-func TestResolveRemotePath_NoPendingRemotePath(t *testing.T) {
-	t.Parallel()
-	a := &guiCompositeAdapter{
-		pendingRemotePath: "",
-		localProjectRoot:  "/Users/kenshin/project",
-	}
-	// No remote path detected: passthrough even for local paths.
-	assert.Equal(t, "/Users/kenshin/project", a.resolveRemotePath("/Users/kenshin/project"))
-	assert.Equal(t, ".", a.resolveRemotePath("."))
+	// localProjectRoot with no remote provider falls back to the original path.
+	assert.Equal(t, "/local/project", a.resolveRemotePath("/local/project", "remote"))
 }

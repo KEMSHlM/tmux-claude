@@ -268,10 +268,24 @@ func (a *App) createSession(localPath string) {
 				a.showError(g, fmt.Sprintf("Error: %v", err))
 			} else {
 				a.setStatus(g, "Session created")
+				a.moveCursorToLastSession()
 			}
 			return nil
 		})
 	}()
+}
+
+// moveCursorToLastSession moves the cursor to the last session node in the
+// tree. Used after session creation to select the newly created session.
+func (a *App) moveCursorToLastSession() {
+	a.refreshTreeNodes()
+	nodes := a.treeNodes()
+	for i := len(nodes) - 1; i >= 0; i-- {
+		if nodes[i].Kind == SessionNode {
+			a.cursor = i
+			return
+		}
+	}
 }
 
 func (a *App) DeleteSession() {

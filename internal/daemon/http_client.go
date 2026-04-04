@@ -193,6 +193,16 @@ func (c *HTTPClient) MsgSessions(ctx context.Context) (*MsgSessionsResponse, err
 	return &resp, nil
 }
 
+// --- System Info ---
+
+func (c *HTTPClient) CWD(ctx context.Context) (string, error) {
+	var resp CWDResponse
+	if err := c.getJSON(ctx, "/cwd", &resp); err != nil {
+		return "", fmt.Errorf("cwd: %w", err)
+	}
+	return resp.CWD, nil
+}
+
 // --- Health / Lifecycle ---
 
 func (c *HTTPClient) Health(ctx context.Context) (*HealthResponse, error) {

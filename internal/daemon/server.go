@@ -121,6 +121,9 @@ func NewDaemonServer(
 	mux.HandleFunc("POST /msg/create", s.withAuth(s.handleMsgCreate))
 	mux.HandleFunc("GET /msg/sessions", s.withAuth(s.handleMsgSessions))
 
+	// System info
+	mux.HandleFunc("GET /cwd", s.withAuth(s.handleCWD))
+
 	// Health / Lifecycle
 	mux.HandleFunc("GET /health", s.handleHealth) // no auth for health check
 	mux.HandleFunc("POST /shutdown", s.withAuth(s.handleShutdown))
@@ -625,6 +628,22 @@ func (s *DaemonServer) handleMsgSessions(w http.ResponseWriter, r *http.Request)
 		}
 	}
 	writeJSON(w, http.StatusOK, MsgSessionsResponse{Sessions: items})
+}
+
+// --- CWD handler ---
+
+// CWDResponse is the JSON response for GET /cwd.
+type CWDResponse struct {
+	CWD string `json:"cwd"`
+}
+
+func (s *DaemonServer) handleCWD(w http.ResponseWriter, _ *http.Request) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, CWDResponse{CWD: cwd})
 }
 
 // --- Health handler ---
