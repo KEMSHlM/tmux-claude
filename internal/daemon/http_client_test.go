@@ -176,7 +176,7 @@ func TestHTTPClient_HistorySize(t *testing.T) {
 	}
 }
 
-func TestHTTPClient_SendChoice(t *testing.T) {
+func TestHTTPClient_SendChoice_WithSessionID(t *testing.T) {
 	srv := newTestServer(t, map[string]http.HandlerFunc{
 		"POST /sessions/s1/choice": func(w http.ResponseWriter, r *http.Request) {
 			var req SendChoiceRequest
@@ -192,6 +192,99 @@ func TestHTTPClient_SendChoice(t *testing.T) {
 	c := NewHTTPClient(srv.URL, "")
 	if err := c.SendChoice(context.Background(), "s1", "@1", 1); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestHTTPClient_SendChoice_WithoutSessionID(t *testing.T) {
+	srv := newTestServer(t, map[string]http.HandlerFunc{
+		"POST /sessions/choice": func(w http.ResponseWriter, r *http.Request) {
+			var req SendChoiceRequest
+			json.NewDecoder(r.Body).Decode(&req)
+			if req.Window != "@2" {
+				t.Errorf("got window=%q, want @2", req.Window)
+			}
+			w.WriteHeader(http.StatusOK)
+		},
+	})
+	defer srv.Close()
+
+	c := NewHTTPClient(srv.URL, "")
+	if err := c.SendChoice(context.Background(), "", "@2", 1); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHTTPClient_CaptureScrollback(t *testing.T) {
+	srv := newTestServer(t, map[string]http.HandlerFunc{
+		"GET /sessions/s1/scrollback": func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Query().Get("start") != "10" {
+				t.Errorf("unexpected start: %s", r.URL.Query().Get("start"))
+			}
+			writeJSON(w, ScrollbackResponse{Content: "scrollback", CursorX: 0, CursorY: 5})
+		},
+	})
+	defer srv.Close()
+
+	c := NewHTTPClient(srv.URL, "")
+	resp, err := c.CaptureScrollback(context.Background(), "s1", 80, 10, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Content != "scrollback" {
+		t.Errorf("got content=%q", resp.Content)
+	}
+}
+
+func TestHTTPClient_Shutdown(t *testing.T) {
+	srv := newTestServer(t, map[string]http.HandlerFunc{
+		"POST /shutdown": func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		},
+	})
+	defer srv.Close()
+
+	c := NewHTTPClient(srv.URL, "")
+	if err := c.Shutdown(context.Background(), ShutdownRequest{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHTTPClient_MsgSend(t *testing.T) {
+	srv := newTestServer(t, map[string]http.HandlerFunc{
+		"POST /msg/send": func(w http.ResponseWriter, _ *http.Request) {
+			writeJSON(w, MsgSendResponse{Delivered: true})
+		},
+	})
+	defer srv.Close()
+
+	c := NewHTTPClient(srv.URL, "")
+	resp, err := c.MsgSend(context.Background(), MsgSendRequest{From: "a", To: "b", Body: "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !resp.Delivered {
+		t.Error("expected delivered=true")
+	}
+}
+
+func TestHTTPClient_ResumeWorktree(t *testing.T) {
+	srv := newTestServer(t, map[string]http.HandlerFunc{
+		"POST /worktrees/resume": func(w http.ResponseWriter, _ *http.Request) {
+			writeJSON(w, WorktreeResumeResponse{SessionID: "wt-resume"})
+		},
+	})
+	defer srv.Close()
+
+	c := NewHTTPClient(srv.URL, "")
+	resp, err := c.ResumeWorktree(context.Background(), WorktreeResumeRequest{
+		WorktreePath: "/tmp/wt",
+		ProjectRoot:  "/project",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.SessionID != "wt-resume" {
+		t.Errorf("got session=%q", resp.SessionID)
 	}
 }
 

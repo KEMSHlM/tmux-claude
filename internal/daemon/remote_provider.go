@@ -26,6 +26,7 @@ type RemoteProvider struct {
 	notifications []*model.ToolNotification
 
 	cancelSSE context.CancelFunc
+	sseDone   chan struct{} // closed when the current SSE goroutine exits
 }
 
 // NewRemoteProvider creates a RemoteProvider for the given host.
@@ -41,7 +42,13 @@ func NewRemoteProvider(host string, conn ConnectionManager) *RemoteProvider {
 // StartSSE begins consuming the SSE notification stream in a background
 // goroutine. Call StopSSE to cancel. If the connection is not yet ready,
 // this is a no-op and can be retried later.
+//
+// If a previous SSE goroutine is running, it is stopped and waited on
+// before starting the new one, preventing goroutine accumulation.
 func (rp *RemoteProvider) StartSSE() error {
+	// Stop any previous SSE goroutine and wait for it to exit.
+	rp.stopAndWaitSSE()
+
 	client, err := rp.conn.Client()
 	if err != nil {
 		return fmt.Errorf("start SSE: %w", err)
@@ -54,25 +61,41 @@ func (rp *RemoteProvider) StartSSE() error {
 		return fmt.Errorf("subscribe notifications: %w", err)
 	}
 
+	done := make(chan struct{})
+
 	rp.mu.Lock()
-	// Stop any previous SSE goroutine.
-	if rp.cancelSSE != nil {
-		rp.cancelSSE()
-	}
 	rp.cancelSSE = cancel
+	rp.sseDone = done
 	rp.mu.Unlock()
 
-	go rp.consumeSSE(ch)
+	go func() {
+		defer close(done)
+		rp.consumeSSE(ch)
+	}()
+
 	return nil
 }
 
-// StopSSE cancels the SSE subscription goroutine.
+// StopSSE cancels the SSE subscription goroutine and waits for it to exit.
 func (rp *RemoteProvider) StopSSE() {
+	rp.stopAndWaitSSE()
+}
+
+// stopAndWaitSSE cancels the current SSE goroutine (if any) and blocks
+// until it has exited.
+func (rp *RemoteProvider) stopAndWaitSSE() {
 	rp.mu.Lock()
-	defer rp.mu.Unlock()
-	if rp.cancelSSE != nil {
-		rp.cancelSSE()
-		rp.cancelSSE = nil
+	cancel := rp.cancelSSE
+	done := rp.sseDone
+	rp.cancelSSE = nil
+	rp.sseDone = nil
+	rp.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+	if done != nil {
+		<-done
 	}
 }
 
@@ -222,12 +245,15 @@ func (rp *RemoteProvider) HistorySize(id string) (int, error) {
 
 // --- SessionActioner ---
 
-// SendChoice sends a permission choice to the daemon.
+// SendChoice sends a permission choice to the daemon. The choice is routed
+// by window name; the session ID is carried in the request body for the
+// daemon to resolve.
 func (rp *RemoteProvider) SendChoice(window string, choice int) error {
 	client, err := rp.conn.Client()
 	if err != nil {
 		return fmt.Errorf("send choice: %w", err)
 	}
+	// Session ID is empty; the daemon routes by window name.
 	return client.SendChoice(context.Background(), "", window, choice)
 }
 

@@ -8,15 +8,19 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
+
+// maxErrorBodySize limits how much of an error response body we read.
+const maxErrorBodySize = 4096
 
 // HTTPClient implements ClientAPI over HTTP against a lazyclaude daemon.
 type HTTPClient struct {
 	baseURL string
 	token   string
-	http    *http.Client
+	httpCli *http.Client
 }
 
 // NewHTTPClient creates a new daemon HTTP client.
@@ -24,10 +28,15 @@ func NewHTTPClient(baseURL, token string) *HTTPClient {
 	return &HTTPClient{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		token:   token,
-		http: &http.Client{
+		httpCli: &http.Client{
 			Timeout: 10 * time.Second,
 		},
 	}
+}
+
+// sessionPath returns an escaped path for a session endpoint.
+func sessionPath(id, suffix string) string {
+	return "/sessions/" + url.PathEscape(id) + suffix
 }
 
 // --- Session CRUD ---
@@ -41,12 +50,12 @@ func (c *HTTPClient) CreateSession(ctx context.Context, req SessionCreateRequest
 }
 
 func (c *HTTPClient) DeleteSession(ctx context.Context, id string) error {
-	return c.delete(ctx, "/sessions/"+id)
+	return c.delete(ctx, sessionPath(id, ""))
 }
 
 func (c *HTTPClient) RenameSession(ctx context.Context, id, newName string) error {
 	req := SessionRenameRequest{ID: id, NewName: newName}
-	return c.postJSON(ctx, "/sessions/"+id+"/rename", req, nil)
+	return c.postJSON(ctx, sessionPath(id, "/rename"), req, nil)
 }
 
 func (c *HTTPClient) Sessions(ctx context.Context) ([]SessionInfo, error) {
@@ -70,18 +79,24 @@ func (c *HTTPClient) PurgeOrphans(ctx context.Context) (int, error) {
 // --- Preview / Scrollback ---
 
 func (c *HTTPClient) CapturePreview(ctx context.Context, id string, width, height int) (*PreviewResponse, error) {
-	path := fmt.Sprintf("/sessions/%s/preview?width=%d&height=%d", id, width, height)
+	q := url.Values{"width": {fmt.Sprint(width)}, "height": {fmt.Sprint(height)}}
+	p := sessionPath(id, "/preview") + "?" + q.Encode()
 	var resp PreviewResponse
-	if err := c.getJSON(ctx, path, &resp); err != nil {
+	if err := c.getJSON(ctx, p, &resp); err != nil {
 		return nil, fmt.Errorf("capture preview: %w", err)
 	}
 	return &resp, nil
 }
 
 func (c *HTTPClient) CaptureScrollback(ctx context.Context, id string, width, startLine, endLine int) (*ScrollbackResponse, error) {
-	path := fmt.Sprintf("/sessions/%s/scrollback?width=%d&start=%d&end=%d", id, width, startLine, endLine)
+	q := url.Values{
+		"width": {fmt.Sprint(width)},
+		"start": {fmt.Sprint(startLine)},
+		"end":   {fmt.Sprint(endLine)},
+	}
+	p := sessionPath(id, "/scrollback") + "?" + q.Encode()
 	var resp ScrollbackResponse
-	if err := c.getJSON(ctx, path, &resp); err != nil {
+	if err := c.getJSON(ctx, p, &resp); err != nil {
 		return nil, fmt.Errorf("capture scrollback: %w", err)
 	}
 	return &resp, nil
@@ -89,7 +104,7 @@ func (c *HTTPClient) CaptureScrollback(ctx context.Context, id string, width, st
 
 func (c *HTTPClient) HistorySize(ctx context.Context, id string) (*HistorySizeResponse, error) {
 	var resp HistorySizeResponse
-	if err := c.getJSON(ctx, "/sessions/"+id+"/history-size", &resp); err != nil {
+	if err := c.getJSON(ctx, sessionPath(id, "/history-size"), &resp); err != nil {
 		return nil, fmt.Errorf("history size: %w", err)
 	}
 	return &resp, nil
@@ -99,19 +114,26 @@ func (c *HTTPClient) HistorySize(ctx context.Context, id string) (*HistorySizeRe
 
 func (c *HTTPClient) SendKeys(ctx context.Context, id, keys string) error {
 	req := SendKeysRequest{ID: id, Keys: keys}
-	return c.postJSON(ctx, "/sessions/"+id+"/keys", req, nil)
+	return c.postJSON(ctx, sessionPath(id, "/keys"), req, nil)
 }
 
 func (c *HTTPClient) SendChoice(ctx context.Context, id, window string, choice int) error {
 	req := SendChoiceRequest{ID: id, Window: window, Choice: choice}
-	return c.postJSON(ctx, "/sessions/"+id+"/choice", req, nil)
+	// SendChoice posts to a dedicated endpoint. The request body carries
+	// window and choice; the session ID in the path may be empty when
+	// the caller routes by window name instead of session ID.
+	path := "/sessions/choice"
+	if id != "" {
+		path = sessionPath(id, "/choice")
+	}
+	return c.postJSON(ctx, path, req, nil)
 }
 
 // --- Attach ---
 
 func (c *HTTPClient) AttachSession(ctx context.Context, id string) (*AttachResponse, error) {
 	var resp AttachResponse
-	if err := c.getJSON(ctx, "/sessions/"+id+"/attach", &resp); err != nil {
+	if err := c.getJSON(ctx, sessionPath(id, "/attach"), &resp); err != nil {
 		return nil, fmt.Errorf("attach session: %w", err)
 	}
 	return &resp, nil
@@ -136,9 +158,10 @@ func (c *HTTPClient) ResumeWorktree(ctx context.Context, req WorktreeResumeReque
 }
 
 func (c *HTTPClient) ListWorktrees(ctx context.Context, projectRoot string) ([]WorktreeInfo, error) {
-	path := "/worktrees?root=" + projectRoot
+	q := url.Values{"root": {projectRoot}}
+	p := "/worktrees?" + q.Encode()
 	var resp WorktreeListResponse
-	if err := c.getJSON(ctx, path, &resp); err != nil {
+	if err := c.getJSON(ctx, p, &resp); err != nil {
 		return nil, fmt.Errorf("list worktrees: %w", err)
 	}
 	return resp.Worktrees, nil
@@ -267,6 +290,9 @@ func parseSSEStream(ctx context.Context, r io.ReadCloser, ch chan<- Notification
 		} else if strings.HasPrefix(line, "data:") {
 			data := strings.TrimPrefix(line, "data:")
 			data = strings.TrimSpace(data)
+			if dataBuf.Len() > 0 {
+				dataBuf.WriteByte('\n')
+			}
 			dataBuf.WriteString(data)
 		}
 		// Ignore "id:", "retry:", and comment lines starting with ":"
@@ -314,14 +340,14 @@ func (c *HTTPClient) doJSON(req *http.Request, dest interface{}) error {
 	if c.token != "" {
 		req.Header.Set(AuthHeader, c.token)
 	}
-	resp, err := c.http.Do(req)
+	resp, err := c.httpCli.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodySize))
 		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 

@@ -245,13 +245,48 @@ func TestRemoteProvider_HistorySize(t *testing.T) {
 
 func TestRemoteProvider_SendChoice(t *testing.T) {
 	rp, srv := newRemoteTestSetup(t, map[string]http.HandlerFunc{
-		"POST /sessions//choice": func(w http.ResponseWriter, _ *http.Request) {
+		"POST /sessions/choice": func(w http.ResponseWriter, r *http.Request) {
+			var req SendChoiceRequest
+			json.NewDecoder(r.Body).Decode(&req)
+			if req.Window != "@1" {
+				t.Errorf("got window=%q, want @1", req.Window)
+			}
 			w.WriteHeader(http.StatusOK)
 		},
 	})
 	defer srv.Close()
 
 	if err := rp.SendChoice("@1", 1); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRemoteProvider_CaptureScrollback(t *testing.T) {
+	rp, srv := newRemoteTestSetup(t, map[string]http.HandlerFunc{
+		"GET /sessions/s1/scrollback": func(w http.ResponseWriter, _ *http.Request) {
+			writeJSON(w, ScrollbackResponse{Content: "scroll", CursorX: 0, CursorY: 10})
+		},
+	})
+	defer srv.Close()
+
+	resp, err := rp.CaptureScrollback("s1", 80, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Content != "scroll" {
+		t.Errorf("got content=%q", resp.Content)
+	}
+}
+
+func TestRemoteProvider_ResumeWorktree(t *testing.T) {
+	rp, srv := newRemoteTestSetup(t, map[string]http.HandlerFunc{
+		"POST /worktrees/resume": func(w http.ResponseWriter, _ *http.Request) {
+			writeJSON(w, WorktreeResumeResponse{SessionID: "wt-resume"})
+		},
+	})
+	defer srv.Close()
+
+	if err := rp.ResumeWorktree("/tmp/wt", "continue", "/project"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -472,10 +507,21 @@ func TestRemoteProvider_StartSSE(t *testing.T) {
 	}
 	defer rp.StopSSE()
 
-	// Wait for the event to be processed.
-	time.Sleep(300 * time.Millisecond)
+	// Poll for the notification to arrive instead of sleeping.
+	deadline := time.After(2 * time.Second)
+	var notifs []*model.ToolNotification
+	for {
+		notifs = rp.PendingNotifications()
+		if len(notifs) > 0 {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for SSE notification")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
 
-	notifs := rp.PendingNotifications()
 	if len(notifs) != 1 {
 		t.Fatalf("got %d notifications, want 1", len(notifs))
 	}
