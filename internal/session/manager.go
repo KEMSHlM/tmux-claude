@@ -534,6 +534,7 @@ func cleanSessionCommands() [][]string {
 	return [][]string{
 		{"set-option", "-g", "status", "off"},
 		{"set-option", "-g", "automatic-rename", "off"},
+		{"set-option", "-g", "allow-rename", "off"},
 		{"set-option", "-g", "remain-on-exit", "on"},
 		{"set-option", "-g", "window-size", "largest"},
 		{"set-option", "-g", "exit-empty", "off"},

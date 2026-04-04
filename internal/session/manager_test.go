@@ -303,6 +303,25 @@ func TestManager_CleanSessionCommands_ExitEmpty(t *testing.T) {
 	assert.True(t, found, "cleanSessionCommands should include exit-empty off")
 }
 
+func TestManager_Create_PostCommands_AllowRenameOff(t *testing.T) {
+	t.Parallel()
+	mgr, mock := newTestManager(t)
+
+	_, err := mgr.Create(context.Background(), "/home/user/app")
+	require.NoError(t, err)
+
+	// allow-rename=off prevents processes from renaming windows via escape
+	// sequences (OSC 2), which would break SyncWithTmux's name-based matching.
+	found := false
+	for _, cmd := range mock.LastNewSessionOpts.PostCommands {
+		if len(cmd) >= 4 && cmd[0] == "set-option" && cmd[2] == "allow-rename" && cmd[3] == "off" {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "cleanSessionCommands should include allow-rename off")
+}
+
 func TestManager_Create_PostCommands_NoWindowFlag(t *testing.T) {
 	t.Parallel()
 	mgr, mock := newTestManager(t)
