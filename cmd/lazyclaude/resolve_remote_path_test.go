@@ -6,17 +6,10 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestResolveRemotePath_NoHost(t *testing.T) {
+func TestResolveRemotePath_NoPendingRemotePath_Passthrough(t *testing.T) {
 	t.Parallel()
-	a := &guiCompositeAdapter{
-		pendingRemotePath: "/home/user/project",
-		localProjectRoot:  "/Users/kenshin/project",
-	}
-	// When host is empty, resolveRemotePath is not called (guarded by caller).
-	// But verify the method itself: no pendingRemotePath → passthrough.
-	a2 := &guiCompositeAdapter{localProjectRoot: "/Users/kenshin/project"}
-	assert.Equal(t, "/Users/kenshin/project", a2.resolveRemotePath("/Users/kenshin/project"))
-	_ = a
+	a := &guiCompositeAdapter{localProjectRoot: "/Users/kenshin/project"}
+	assert.Equal(t, "/Users/kenshin/project", a.resolveRemotePath("/Users/kenshin/project"))
 }
 
 func TestResolveRemotePath_DotPath(t *testing.T) {

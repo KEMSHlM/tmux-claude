@@ -182,7 +182,10 @@ func newRootCmd() *cobra.Command {
 
 			// Snapshot local project root so the adapter can distinguish
 			// local-fallback paths from genuine remote paths.
-			localCWD, _ := filepath.Abs(".")
+			localCWD, err := filepath.Abs(".")
+			if err != nil {
+				localCWD = "."
+			}
 			localProjectRoot := session.InferProjectRoot(localCWD)
 
 			compositeAdapter := &guiCompositeAdapter{
