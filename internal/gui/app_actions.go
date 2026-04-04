@@ -312,7 +312,7 @@ func (a *App) LaunchLazygit() {
 	g := a.gui
 	if err := g.Suspend(); err != nil {
 		a.gui.Update(func(g *gocui.Gui) error {
-			a.setStatus(g, fmt.Sprintf("Suspend error: %v", err))
+			a.showError(g, fmt.Sprintf("Suspend error: %v", err))
 			return nil
 		})
 		return
@@ -323,7 +323,7 @@ func (a *App) LaunchLazygit() {
 	}
 	if launchErr != nil {
 		a.gui.Update(func(g *gocui.Gui) error {
-			a.setStatus(g, fmt.Sprintf("lazygit error: %v", launchErr))
+			a.showError(g, fmt.Sprintf("lazygit error: %v", launchErr))
 			return nil
 		})
 	}
@@ -340,7 +340,7 @@ func (a *App) AttachSession() {
 	g := a.gui
 	if err := g.Suspend(); err != nil {
 		a.gui.Update(func(g *gocui.Gui) error {
-			a.setStatus(g, fmt.Sprintf("Suspend error: %v", err))
+			a.showError(g, fmt.Sprintf("Suspend error: %v", err))
 			return nil
 		})
 		return
@@ -351,7 +351,7 @@ func (a *App) AttachSession() {
 	}
 	if attachErr != nil {
 		a.gui.Update(func(g *gocui.Gui) error {
-			a.setStatus(g, fmt.Sprintf("Attach error: %v", attachErr))
+			a.showError(g, fmt.Sprintf("Attach error: %v", attachErr))
 			return nil
 		})
 	}
@@ -410,7 +410,7 @@ func (a *App) StartWorktreeInput() {
 	}
 	a.gui.Update(func(g *gocui.Gui) error {
 		if !a.showWorktreeDialog(g) {
-			a.setStatus(g, "Error: could not open worktree dialog")
+			a.showError(g, "Error: could not open worktree dialog")
 		}
 		return nil
 	})
@@ -435,7 +435,7 @@ func (a *App) SelectWorktree() {
 			wtItems := make([]WorktreeInfo, len(items))
 			copy(wtItems, items)
 			if !a.showWorktreeChooser(g, wtItems) {
-				a.setStatus(g, "Error: could not open worktree chooser")
+				a.showError(g, "Error: could not open worktree chooser")
 			}
 			return nil
 		})
@@ -448,7 +448,7 @@ func (a *App) ConnectRemote() {
 	}
 	a.gui.Update(func(g *gocui.Gui) error {
 		if !a.showConnectDialog(g) {
-			a.setStatus(g, "Error: could not open connect dialog")
+			a.showError(g, "Error: could not open connect dialog")
 		}
 		return nil
 	})
