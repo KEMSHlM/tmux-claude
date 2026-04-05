@@ -527,18 +527,16 @@ func (a *guiCompositeAdapter) triggerGUIUpdate() {
 // the remote connection to be established first (call ensureRemoteConnected
 // before this method).
 func (a *guiCompositeAdapter) resolveRemotePath(path, host string) string {
-	// "." comes from CreateSessionAtCWD (N key).
-	// localProjectRoot match comes from CreateSession (n key) when no
-	// remote sessions exist yet and currentProjectRoot() falls back to
-	// the local working directory.
-	if path != "." && path != a.localProjectRoot {
-		return path
-	}
-
-	// Query remote daemon for its working directory.
+	// Always query the remote daemon for its CWD when the host is set.
+	// Local paths (from currentProjectRoot fallback) are meaningless on
+	// the remote machine.
 	remoteCWD := a.queryRemoteCWD(host)
 	if remoteCWD != "" {
 		return remoteCWD
+	}
+	// Fallback: use "." so the daemon uses its own CWD.
+	if host != "" {
+		return "."
 	}
 	return path
 }
