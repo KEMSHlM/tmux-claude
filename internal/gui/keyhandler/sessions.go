@@ -81,6 +81,12 @@ func (p *SessionsPanel) HandleKey(ev KeyEvent, actions SessionActions) HandlerRe
 		actions.SendKeyToPane("3")
 	case keymap.ActionStartSearch:
 		actions.StartSearch()
+	case keymap.ActionConnectRemote:
+		actions.ConnectRemote()
+	case keymap.ActionDismissError:
+		actions.DismissError()
+	case keymap.ActionCopyError:
+		actions.CopyError()
 	default:
 		return Unhandled
 	}

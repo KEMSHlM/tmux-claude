@@ -19,6 +19,7 @@ import (
 	"github.com/any-context/lazyclaude/internal/core/lifecycle"
 	"github.com/any-context/lazyclaude/internal/core/model"
 	"github.com/any-context/lazyclaude/internal/core/tmux"
+	"github.com/any-context/lazyclaude/internal/daemon"
 	"github.com/any-context/lazyclaude/internal/gui"
 	"github.com/any-context/lazyclaude/internal/mcp"
 	"github.com/any-context/lazyclaude/internal/notify"
@@ -26,6 +27,7 @@ import (
 	"github.com/any-context/lazyclaude/internal/server"
 	"github.com/any-context/lazyclaude/internal/session"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/jesseduffield/gocui"
 	"github.com/spf13/cobra"
 )
 
@@ -114,14 +116,116 @@ func newRootCmd() *cobra.Command {
 			gc.Start()
 			lc.Register("gc", gc.Stop)
 
-			adapter := &sessionAdapter{mgr: mgr, tmux: tmuxClient, paths: paths}
-
 			app, err := gui.NewApp(gui.ModeMain)
 			if err != nil {
 				return fmt.Errorf("init TUI: %w", err)
 			}
-			adapter.windowActivityFn = app.WindowActivityMap
-			app.SetSessions(adapter)
+
+			// Always use CompositeProvider so manual 'c' connect can add remotes.
+			localProvider := &localDaemonProvider{mgr: mgr, tmux: tmuxClient, paths: paths}
+			composite := daemon.NewCompositeProvider(localProvider, nil)
+
+			ssh := &daemon.ExecSSHExecutor{}
+			lifecycleMgr := daemon.NewLifecycleManager(ssh)
+			clientFactory := func(addr, token string) daemon.ClientAPI {
+				return daemon.NewHTTPClient(addr, token)
+			}
+
+			// remoteConns tracks active RemoteConnections for status display.
+			var remoteConnsMu sync.Mutex
+			remoteConns := make(map[string]*daemon.RemoteConnection)
+			sockChecker := &socketHealthChecker{}
+
+			// connectRemoteHost establishes a full remote connection pipeline:
+			// daemon connection + socket tunnel + provider registration.
+			connectRemoteHost := func(host string) error {
+				remoteConn := daemon.NewRemoteConnection(host, lifecycleMgr, clientFactory)
+				if connErr := remoteConn.Connect(context.Background()); connErr != nil {
+					return fmt.Errorf("lazyclaude is not installed on %s: %w", host, connErr)
+				}
+
+				remoteProvider := daemon.NewRemoteProvider(host, remoteConn)
+				lc.Register("remote-conn-"+host, func() { remoteConn.Disconnect() })
+
+				// Socket forwarding for direct tmux pane operations.
+				sockPath := daemon.SocketTunnelLocalPath(host)
+				sockTunnel := daemon.NewSocketTunnel(host, sockPath, "")
+				if sockErr := sockTunnel.Start(context.Background()); sockErr != nil {
+					fmt.Fprintf(os.Stderr, "warning: tmux socket tunnel to %s: %v\n", host, sockErr)
+				} else {
+					remoteProvider.SetTmuxClient(sockTunnel.TmuxClient())
+					lc.Register("sock-tunnel-"+host, func() { sockTunnel.Stop() })
+					sockChecker.set(host, sockTunnel, remoteProvider)
+
+					// Re-establish socket tunnel on reconnection.
+					remoteConn.OnReconnect(func() {
+						newSock := daemon.NewSocketTunnel(host, sockPath, "")
+						if err := newSock.Start(context.Background()); err == nil {
+							remoteProvider.SetTmuxClient(newSock.TmuxClient())
+							sockChecker.set(host, newSock, remoteProvider)
+						}
+					})
+				}
+
+				composite.AddRemote(host, remoteProvider)
+
+				remoteConnsMu.Lock()
+				remoteConns[host] = remoteConn
+				remoteConnsMu.Unlock()
+
+				return nil
+			}
+
+			// Auto-detect SSH host from the originating pane.
+			// Connection is deferred until the user performs a remote operation.
+			// Remote CWD is obtained via daemon API after connection is established.
+			pendingSSHHost := gui.DetectSSHHost()
+
+			// Snapshot local project root so the adapter can distinguish
+			// local-fallback paths from genuine remote paths.
+			localCWD, err := filepath.Abs(".")
+			if err != nil {
+				localCWD = "."
+			}
+			localProjectRoot := session.InferProjectRoot(localCWD)
+
+			compositeAdapter := &guiCompositeAdapter{
+				cp:               composite,
+				localMgr:         mgr,
+				tmuxClient:       tmuxClient,
+				paths:            paths,
+				pendingHost:      pendingSSHHost,
+				localProjectRoot: localProjectRoot,
+				connectFn:        connectRemoteHost,
+			}
+			compositeAdapter.windowActivityFn = app.WindowActivityMap
+			compositeAdapter.onError = app.ScheduleError
+			compositeAdapter.guiUpdateFn = func() {
+				app.Gui().Update(func(_ *gocui.Gui) error { return nil })
+			}
+			app.SetSessions(compositeAdapter)
+
+			// Wire connection status for the options bar.
+			app.SetConnectionStatus(func() []gui.ConnectionStatus {
+				remoteConnsMu.Lock()
+				defer remoteConnsMu.Unlock()
+				var statuses []gui.ConnectionStatus
+				for host, conn := range remoteConns {
+					mismatch := false
+					if rv := conn.RemoteVersion(); rv != "" && rv != version {
+						mismatch = true
+					}
+					statuses = append(statuses, gui.ConnectionStatus{
+						Host:            host,
+						State:           conn.State().String(),
+						VersionMismatch: mismatch,
+					})
+				}
+				return statuses
+			})
+
+			// Wire connect dialog handler.
+			app.SetConnectFn(connectRemoteHost)
 
 			// Plugin manager: wraps `claude plugins` CLI (project scope only)
 			var pluginOpts []plugin.Option
@@ -153,7 +257,10 @@ func newRootCmd() *cobra.Command {
 				logger:   logger,
 			}
 			ctrlMgr.tryConnect()
-			app.SetOnTick(ctrlMgr.ensureConnected)
+			app.SetOnTick(func() {
+				ctrlMgr.ensureConnected()
+				sockChecker.check()
+			})
 			lc.Register("control-client", ctrlMgr.close)
 
 			return app.Run()
@@ -167,6 +274,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newSetupCmd())
 	cmd.AddCommand(newSessionsCmd())
 	cmd.AddCommand(newMsgCmd())
+	cmd.AddCommand(newDaemonCmd())
 
 	return cmd
 }
@@ -279,7 +387,7 @@ func (a *sessionCreatorAdapter) FindProjectForSession(id string) *server.Session
 }
 
 func (a *sessionCreatorAdapter) CreateWorkerSession(ctx context.Context, name, prompt, projectRoot string) (*server.SessionCreateResult, error) {
-	sess, err := a.mgr.CreateWorkerSession(ctx, name, prompt, projectRoot, "")
+	sess, err := a.mgr.CreateWorkerSession(ctx, name, prompt, projectRoot)
 	if err != nil {
 		return nil, fmt.Errorf("create worker session: %w", err)
 	}
@@ -295,7 +403,7 @@ func (a *sessionCreatorAdapter) CreateWorkerSession(ctx context.Context, name, p
 // CreateLocalSession creates a plain session at projectPath and renames it
 // to the caller-specified name.
 func (a *sessionCreatorAdapter) CreateLocalSession(ctx context.Context, name, projectPath string) (*server.SessionCreateResult, error) {
-	sess, err := a.mgr.Create(ctx, projectPath, "")
+	sess, err := a.mgr.Create(ctx, projectPath)
 	if err != nil {
 		return nil, fmt.Errorf("create local session: %w", err)
 	}
@@ -542,7 +650,7 @@ func (a *sessionAdapter) HistorySize(id string) (int, error) {
 	return n, nil
 }
 
-func (a *sessionAdapter) Create(path, host string) error {
+func (a *sessionAdapter) Create(path string) error {
 	if path == "." {
 		abs, err := filepath.Abs(".")
 		if err != nil {
@@ -550,7 +658,7 @@ func (a *sessionAdapter) Create(path, host string) error {
 		}
 		path = abs
 	}
-	_, err := a.mgr.Create(context.Background(), path, host)
+	_, err := a.mgr.Create(context.Background(), path)
 	return err
 }
 
@@ -578,28 +686,28 @@ func (a *sessionAdapter) SendChoice(window string, c gui.Choice) error {
 	return tmuxadapter.SendToPane(context.Background(), a.tmux, window, c)
 }
 
-func (a *sessionAdapter) CreateWorktree(name, prompt, projectRoot, host string) error {
-	_, err := a.mgr.CreateWorktree(context.Background(), name, prompt, projectRoot, host)
+func (a *sessionAdapter) CreateWorktree(name, prompt, projectRoot string) error {
+	_, err := a.mgr.CreateWorktree(context.Background(), name, prompt, projectRoot)
 	return err
 }
 
-func (a *sessionAdapter) ResumeWorktree(worktreePath, prompt, projectRoot, host string) error {
-	_, err := a.mgr.ResumeWorktree(context.Background(), worktreePath, prompt, projectRoot, host)
+func (a *sessionAdapter) ResumeWorktree(worktreePath, prompt, projectRoot string) error {
+	_, err := a.mgr.ResumeWorktree(context.Background(), worktreePath, prompt, projectRoot)
 	return err
 }
 
-func (a *sessionAdapter) CreatePMSession(projectRoot, host string) error {
-	_, err := a.mgr.CreatePMSession(context.Background(), projectRoot, host)
+func (a *sessionAdapter) CreatePMSession(projectRoot string) error {
+	_, err := a.mgr.CreatePMSession(context.Background(), projectRoot)
 	return err
 }
 
-func (a *sessionAdapter) CreateWorkerSession(name, prompt, projectRoot, host string) error {
-	_, err := a.mgr.CreateWorkerSession(context.Background(), name, prompt, projectRoot, host)
+func (a *sessionAdapter) CreateWorkerSession(name, prompt, projectRoot string) error {
+	_, err := a.mgr.CreateWorkerSession(context.Background(), name, prompt, projectRoot)
 	return err
 }
 
-func (a *sessionAdapter) ListWorktrees(projectRoot, host string) ([]gui.WorktreeInfo, error) {
-	items, err := session.ListWorktrees(context.Background(), projectRoot, host)
+func (a *sessionAdapter) ListWorktrees(projectRoot string) ([]gui.WorktreeInfo, error) {
+	items, err := session.ListWorktrees(context.Background(), projectRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -610,15 +718,7 @@ func (a *sessionAdapter) ListWorktrees(projectRoot, host string) ([]gui.Worktree
 	return result, nil
 }
 
-func (a *sessionAdapter) LaunchLazygit(path, host string) error {
-	if host != "" {
-		bin, args := session.BuildLazygitSSHArgs(host, path)
-		cmd := exec.Command(bin, args...)
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		return cmd.Run()
-	}
+func (a *sessionAdapter) LaunchLazygit(path string) error {
 	if _, err := exec.LookPath("lazygit"); err != nil {
 		return fmt.Errorf("lazygit is not installed")
 	}
@@ -649,6 +749,73 @@ func (a *sessionAdapter) AttachSession(id string) error {
 }
 
 // controlManager handles control mode connection lifecycle.
+// socketHealthEntry tracks a socket tunnel and its associated remote provider
+// for periodic health checking and reconnection.
+type socketHealthEntry struct {
+	tunnel   *daemon.SocketTunnel
+	provider *daemon.RemoteProvider
+}
+
+// socketHealthChecker periodically checks socket tunnel health and reconnects.
+// Designed to be called from the GUI ticker (every 100ms); internally throttles
+// to ~5s intervals using a counter. Uses host-keyed map to prevent stale entries
+// from accumulating across reconnections.
+type socketHealthChecker struct {
+	mu      sync.Mutex
+	entries map[string]socketHealthEntry // host -> entry
+	counter int                          // ticker call counter for throttling
+}
+
+// set registers or replaces the socket tunnel for a host.
+// Replaces any previous entry for the same host.
+func (s *socketHealthChecker) set(host string, tunnel *daemon.SocketTunnel, provider *daemon.RemoteProvider) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.entries == nil {
+		s.entries = make(map[string]socketHealthEntry)
+	}
+	s.entries[host] = socketHealthEntry{tunnel: tunnel, provider: provider}
+}
+
+// check is called from the ticker. Throttles to roughly every 5 seconds
+// (50 ticks at 100ms interval).
+func (s *socketHealthChecker) check() {
+	s.mu.Lock()
+	s.counter++
+	if s.counter < 50 {
+		s.mu.Unlock()
+		return
+	}
+	s.counter = 0
+
+	// Snapshot entries under lock.
+	type snapshot struct {
+		host  string
+		entry socketHealthEntry
+	}
+	snaps := make([]snapshot, 0, len(s.entries))
+	for host, e := range s.entries {
+		snaps = append(snaps, snapshot{host: host, entry: e})
+	}
+	s.mu.Unlock()
+
+	for _, snap := range snaps {
+		if snap.entry.tunnel != nil && !snap.entry.tunnel.IsAlive() {
+			sockPath := daemon.SocketTunnelLocalPath(snap.host)
+			newTunnel := daemon.NewSocketTunnel(snap.host, sockPath, "")
+			if err := newTunnel.Start(context.Background()); err == nil {
+				snap.entry.provider.SetTmuxClient(newTunnel.TmuxClient())
+				s.mu.Lock()
+				s.entries[snap.host] = socketHealthEntry{
+					tunnel:   newTunnel,
+					provider: snap.entry.provider,
+				}
+				s.mu.Unlock()
+			}
+		}
+	}
+}
+
 type controlManager struct {
 	client   *tmux.ControlClient
 	onOutput func(string)

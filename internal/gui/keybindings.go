@@ -94,14 +94,22 @@ func (a *App) setupGlobalKeybindings() error {
 	// 5. Rename input
 	if err := a.gui.SetKeybinding("rename-input", gocui.KeyEnter, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
 		newName := strings.TrimSpace(v.TextArea.GetContent())
-		if newName != "" && a.dialog.RenameID != "" {
-			if err := a.sessions.Rename(a.dialog.RenameID, newName); err != nil {
-				a.showError(g, fmt.Sprintf("Error: %v", err))
-			} else {
-				a.setStatus(g, "Renamed to "+newName)
-			}
-		}
+		renameID := a.dialog.RenameID
 		a.closeRenameInput(g)
+		if newName == "" || renameID == "" {
+			return nil
+		}
+		go func() {
+			err := a.sessions.Rename(renameID, newName)
+			a.gui.Update(func(g *gocui.Gui) error {
+				if err != nil {
+					a.showError(g, fmt.Sprintf("Error: %v", err))
+				} else {
+					a.setStatus(g, "Renamed to "+newName)
+				}
+				return nil
+			})
+		}()
 		return nil
 	}); err != nil {
 		return err
@@ -132,7 +140,6 @@ func (a *App) setupGlobalKeybindings() error {
 			return nil
 		}
 
-		host := a.currentSessionHost()
 		projectRoot := a.currentProjectRoot()
 		a.closeWorktreeDialog(g)
 
@@ -140,7 +147,7 @@ func (a *App) setupGlobalKeybindings() error {
 			if a.sessions == nil {
 				return
 			}
-			if err := a.sessions.CreateWorktree(branchName, userPrompt, projectRoot, host); err != nil {
+			if err := a.sessions.CreateWorktree(branchName, userPrompt, projectRoot); err != nil {
 				a.gui.Update(func(g *gocui.Gui) error {
 					a.showError(g, fmt.Sprintf("Error: %v", err))
 					return nil
@@ -245,13 +252,13 @@ func (a *App) setupGlobalKeybindings() error {
 		if idx >= len(items) {
 			// "New worktree" selected
 			if !a.showWorktreeDialog(g) {
-				a.setStatus(g, "Error: could not open worktree dialog")
+				a.showError(g, "Error: could not open worktree dialog")
 			}
 		} else {
 			// Existing worktree selected
 			a.dialog.SelectedPath = items[idx].Path
 			if !a.showWorktreeResumePrompt(g, items[idx].Name) {
-				a.setStatus(g, "Error: could not open prompt dialog")
+				a.showError(g, "Error: could not open prompt dialog")
 			}
 		}
 		return nil
@@ -270,7 +277,6 @@ func (a *App) setupGlobalKeybindings() error {
 	if err := a.gui.SetKeybinding("worktree-resume-prompt", gocui.KeyEnter, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
 		userPrompt := v.TextArea.GetContent()
 		wtPath := a.dialog.SelectedPath
-		host := a.currentSessionHost()
 		projectRoot := a.currentProjectRoot()
 		a.closeWorktreeResumePrompt(g)
 
@@ -278,7 +284,7 @@ func (a *App) setupGlobalKeybindings() error {
 			if a.sessions == nil {
 				return
 			}
-			if err := a.sessions.ResumeWorktree(wtPath, userPrompt, projectRoot, host); err != nil {
+			if err := a.sessions.ResumeWorktree(wtPath, userPrompt, projectRoot); err != nil {
 				a.gui.Update(func(g *gocui.Gui) error {
 					a.showError(g, fmt.Sprintf("Error: %v", err))
 					return nil
@@ -325,7 +331,41 @@ func (a *App) setupGlobalKeybindings() error {
 		return err
 	}
 
-	// 10. Keybind help overlay bindings
+	// 10. Connect dialog bindings (Enter to connect, Esc to cancel)
+	if err := a.gui.SetKeybinding("connect-input", gocui.KeyEnter, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		host := strings.TrimSpace(v.TextArea.GetContent())
+		a.closeConnectDialog(g)
+		if host == "" {
+			return nil
+		}
+		if a.connectFn == nil {
+			a.showError(g, "Remote connection not available")
+			return nil
+		}
+		a.setStatus(g, "Connecting to "+host+"...")
+		go func() {
+			err := a.connectFn(host)
+			a.gui.Update(func(g *gocui.Gui) error {
+				if err != nil {
+					a.showError(g, fmt.Sprintf("Connection failed: %v", err))
+				} else {
+					a.setStatus(g, "Connected to "+host)
+				}
+				return nil
+			})
+		}()
+		return nil
+	}); err != nil {
+		return err
+	}
+	if err := a.gui.SetKeybinding("connect-input", gocui.KeyEsc, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		a.closeConnectDialog(g)
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	// 11. Keybind help overlay bindings
 	// Esc: close help
 	for _, viewName := range []string{helpInputView, helpListView} {
 		if err := a.gui.SetKeybinding(viewName, gocui.KeyEsc, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {

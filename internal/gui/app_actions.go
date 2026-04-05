@@ -106,6 +106,7 @@ func (a *App) MoveCursorDown() {
 	if a.cursor < len(nodes)-1 {
 		a.cursor++
 	}
+	a.clearError()
 	a.syncPluginProject()
 }
 
@@ -113,6 +114,7 @@ func (a *App) MoveCursorUp() {
 	if a.cursor > 0 {
 		a.cursor--
 	}
+	a.clearError()
 	a.syncPluginProject()
 }
 
@@ -182,26 +184,6 @@ func (a *App) syncPluginProject() {
 			return a.mcpServers.Refresh(ctx)
 		})
 	}
-}
-
-// currentSessionHost returns the SSH host of the currently selected tree node.
-// Returns "" for local sessions.
-func (a *App) currentSessionHost() string {
-	node := a.currentNode()
-	if node == nil {
-		return ""
-	}
-	switch node.Kind {
-	case SessionNode:
-		if node.Session != nil {
-			return node.Session.Host
-		}
-	case ProjectNode:
-		if node.Project != nil {
-			return node.Project.Host
-		}
-	}
-	return ""
 }
 
 // --- Path helpers ---
@@ -276,54 +258,62 @@ func (a *App) CreateSessionAtCWD() { a.createSession(".") }
 
 // createSession is the shared implementation for CreateSession and CreateSessionAtCWD.
 // localPath is the fallback directory for non-SSH sessions.
+// Runs asynchronously to avoid blocking the GUI thread during remote operations.
 func (a *App) createSession(localPath string) {
-	if a.sessions == nil {
+	if a.sessions == nil || a.HasActiveDialog() {
 		return
 	}
-	host := DetectSSHHost()
-	path := localPath
-	if host != "" {
-		path = "."
-		if rp := DetectRemotePath(); rp != "" {
-			path = rp
-		}
-	}
-	if err := a.sessions.Create(path, host); err != nil {
+	go func() {
+		err := a.sessions.Create(localPath)
 		a.gui.Update(func(g *gocui.Gui) error {
-			a.showError(g, fmt.Sprintf("Error: %v", err))
+			if err != nil {
+				a.showError(g, fmt.Sprintf("Error: %v", err))
+			} else {
+				a.setStatus(g, "Session created")
+				a.moveCursorToLastSession()
+			}
 			return nil
 		})
-		return
+	}()
+}
+
+// moveCursorToLastSession moves the cursor to the last session node in the
+// tree. Used after session creation to select the newly created session.
+func (a *App) moveCursorToLastSession() {
+	a.refreshTreeNodes()
+	nodes := a.treeNodes()
+	for i := len(nodes) - 1; i >= 0; i-- {
+		if nodes[i].Kind == SessionNode {
+			a.cursor = i
+			return
+		}
 	}
-	a.gui.Update(func(g *gocui.Gui) error {
-		a.setStatus(g, "Session created")
-		return nil
-	})
 }
 
 func (a *App) DeleteSession() {
-	if a.sessions == nil {
+	if a.sessions == nil || a.HasActiveDialog() {
 		return
 	}
 	sess := a.currentSession()
 	if sess == nil {
 		return
 	}
-	if err := a.sessions.Delete(sess.ID); err != nil {
+	sessID := sess.ID
+	go func() {
+		err := a.sessions.Delete(sessID)
 		a.gui.Update(func(g *gocui.Gui) error {
-			a.showError(g, fmt.Sprintf("Error: %v", err))
+			if err != nil {
+				a.showError(g, fmt.Sprintf("Error: %v", err))
+			} else {
+				nodes := a.treeNodes()
+				if a.cursor > 0 && a.cursor >= len(nodes) {
+					a.cursor--
+				}
+				a.setStatus(g, "Session deleted")
+			}
 			return nil
 		})
-		return
-	}
-	nodes := a.treeNodes()
-	if a.cursor > 0 && a.cursor >= len(nodes) {
-		a.cursor--
-	}
-	a.gui.Update(func(g *gocui.Gui) error {
-		a.setStatus(g, "Session deleted")
-		return nil
-	})
+	}()
 }
 
 func (a *App) LaunchLazygit() {
@@ -338,18 +328,18 @@ func (a *App) LaunchLazygit() {
 	g := a.gui
 	if err := g.Suspend(); err != nil {
 		a.gui.Update(func(g *gocui.Gui) error {
-			a.setStatus(g, fmt.Sprintf("Suspend error: %v", err))
+			a.showError(g, fmt.Sprintf("Suspend error: %v", err))
 			return nil
 		})
 		return
 	}
-	launchErr := a.sessions.LaunchLazygit(sess.Path, sess.Host)
+	launchErr := a.sessions.LaunchLazygit(sess.Path)
 	if err := g.Resume(); err != nil {
 		return
 	}
 	if launchErr != nil {
 		a.gui.Update(func(g *gocui.Gui) error {
-			a.setStatus(g, fmt.Sprintf("lazygit error: %v", launchErr))
+			a.showError(g, fmt.Sprintf("lazygit error: %v", launchErr))
 			return nil
 		})
 	}
@@ -366,7 +356,7 @@ func (a *App) AttachSession() {
 	g := a.gui
 	if err := g.Suspend(); err != nil {
 		a.gui.Update(func(g *gocui.Gui) error {
-			a.setStatus(g, fmt.Sprintf("Suspend error: %v", err))
+			a.showError(g, fmt.Sprintf("Suspend error: %v", err))
 			return nil
 		})
 		return
@@ -377,7 +367,7 @@ func (a *App) AttachSession() {
 	}
 	if attachErr != nil {
 		a.gui.Update(func(g *gocui.Gui) error {
-			a.setStatus(g, fmt.Sprintf("Attach error: %v", attachErr))
+			a.showError(g, fmt.Sprintf("Attach error: %v", attachErr))
 			return nil
 		})
 	}
@@ -392,6 +382,17 @@ func (a *App) EnterFullScreen() {
 		return
 	}
 	a.enterFullScreen(sess.ID)
+}
+
+func (a *App) DismissError() {
+	a.clearError()
+}
+
+func (a *App) CopyError() {
+	if a.errorMsg == "" {
+		return
+	}
+	copyToClipboard(a.errorMsg)
 }
 
 func (a *App) StartRename() {
@@ -417,9 +418,8 @@ func (a *App) StartPMSession() {
 		return
 	}
 	projectRoot := a.currentProjectRoot()
-	host := a.currentSessionHost()
 	go func() {
-		err := a.sessions.CreatePMSession(projectRoot, host)
+		err := a.sessions.CreatePMSession(projectRoot)
 		a.gui.Update(func(g *gocui.Gui) error {
 			if err != nil {
 				a.showError(g, fmt.Sprintf("PM error: %v", err))
@@ -437,7 +437,7 @@ func (a *App) StartWorktreeInput() {
 	}
 	a.gui.Update(func(g *gocui.Gui) error {
 		if !a.showWorktreeDialog(g) {
-			a.setStatus(g, "Error: could not open worktree dialog")
+			a.showError(g, "Error: could not open worktree dialog")
 		}
 		return nil
 	})
@@ -448,9 +448,8 @@ func (a *App) SelectWorktree() {
 		return
 	}
 	projectRoot := a.currentProjectRoot()
-	host := a.currentSessionHost()
 	go func() {
-		items, err := a.sessions.ListWorktrees(projectRoot, host)
+		items, err := a.sessions.ListWorktrees(projectRoot)
 		a.gui.Update(func(g *gocui.Gui) error {
 			if err != nil {
 				a.showError(g, fmt.Sprintf("Error: %v", err))
@@ -463,29 +462,40 @@ func (a *App) SelectWorktree() {
 			wtItems := make([]WorktreeInfo, len(items))
 			copy(wtItems, items)
 			if !a.showWorktreeChooser(g, wtItems) {
-				a.setStatus(g, "Error: could not open worktree chooser")
+				a.showError(g, "Error: could not open worktree chooser")
 			}
 			return nil
 		})
 	}()
 }
 
-func (a *App) PurgeOrphans() {
-	if a.sessions == nil {
-		return
-	}
-	count, err := a.sessions.PurgeOrphans()
-	if err != nil {
-		a.gui.Update(func(g *gocui.Gui) error {
-			a.showError(g, fmt.Sprintf("Error: %v", err))
-			return nil
-		})
+func (a *App) ConnectRemote() {
+	if a.HasActiveDialog() {
 		return
 	}
 	a.gui.Update(func(g *gocui.Gui) error {
-		a.setStatus(g, fmt.Sprintf("Purged %d orphans", count))
+		if !a.showConnectDialog(g) {
+			a.showError(g, "Error: could not open connect dialog")
+		}
 		return nil
 	})
+}
+
+func (a *App) PurgeOrphans() {
+	if a.sessions == nil || a.HasActiveDialog() {
+		return
+	}
+	go func() {
+		count, err := a.sessions.PurgeOrphans()
+		a.gui.Update(func(g *gocui.Gui) error {
+			if err != nil {
+				a.showError(g, fmt.Sprintf("Error: %v", err))
+			} else {
+				a.setStatus(g, fmt.Sprintf("Purged %d orphans", count))
+			}
+			return nil
+		})
+	}()
 }
 
 // --- Popup ---
@@ -649,7 +659,10 @@ func (a *App) PluginUninstall() {
 	}
 	p := installed[a.pluginState.installedCursor]
 	if p.Scope != "project" {
-		a.pluginState.errMsg = "only project-scoped plugins can be uninstalled"
+		a.gui.Update(func(g *gocui.Gui) error {
+			a.showError(g, "Only project-scoped plugins can be uninstalled")
+			return nil
+		})
 		return
 	}
 	a.runPluginAsync(func(ctx context.Context) error {
@@ -697,13 +710,12 @@ func (a *App) PluginRefresh() {
 // runPluginAsync runs a plugin operation asynchronously with loading state management.
 func (a *App) runPluginAsync(fn func(ctx context.Context) error) {
 	a.pluginState.loading = true
-	a.pluginState.errMsg = ""
 	go func() {
 		err := fn(context.Background())
 		a.gui.Update(func(g *gocui.Gui) error {
 			a.pluginState.loading = false
 			if err != nil {
-				a.pluginState.errMsg = err.Error()
+				a.showError(g, fmt.Sprintf("Plugin error: %v", err))
 			}
 			return nil
 		})
@@ -766,13 +778,12 @@ func (a *App) MCPRefresh() {
 
 func (a *App) runMCPAsync(fn func(ctx context.Context) error) {
 	a.mcpState.loading = true
-	a.mcpState.errMsg = ""
 	go func() {
 		err := fn(context.Background())
 		a.gui.Update(func(g *gocui.Gui) error {
 			a.mcpState.loading = false
 			if err != nil {
-				a.mcpState.errMsg = err.Error()
+				a.showError(g, fmt.Sprintf("MCP error: %v", err))
 			}
 			return nil
 		})
@@ -854,15 +865,8 @@ func (a *App) ScrollModeEnter() {
 		return
 	}
 	a.scroll.Enter(viewH)
-	// Query history_size to set maxOffset so g/G work correctly.
-	target := a.fullscreen.Target()
-	if target != "" {
-		if histSize, err := a.sessions.HistorySize(target); err == nil && histSize > 0 {
-			a.scroll.SetMaxOffset(histSize)
-		}
-	}
 	a.scroll.BumpGeneration()
-	a.captureScrollbackAsync()
+	a.captureScrollbackWithHistorySize()
 }
 
 func (a *App) ScrollModeExit() {
@@ -916,16 +920,9 @@ func (a *App) ScrollModeHalfDown() {
 }
 
 func (a *App) ScrollModeToTop() {
-	// Re-query history_size since it grows while the session is active.
-	target := a.fullscreen.Target()
-	if target != "" {
-		if histSize, err := a.sessions.HistorySize(target); err == nil && histSize > 0 {
-			a.scroll.SetMaxOffset(histSize)
-		}
-	}
 	a.scroll.ToTop()
 	a.scroll.BumpGeneration()
-	a.captureScrollbackAsync()
+	a.captureScrollbackWithHistorySize()
 }
 
 func (a *App) ScrollModeToBottom() {
@@ -992,6 +989,42 @@ func (a *App) scrollViewHeight() int {
 	return v.InnerHeight()
 }
 
+
+// captureScrollbackWithHistorySize is like captureScrollbackAsync but also
+// queries HistorySize asynchronously to update the scroll maxOffset. Used by
+// ScrollModeEnter and ScrollModeToTop where the history size is needed for
+// correct g/G navigation but must not block the GUI thread.
+//
+// Both HistorySize and CaptureScrollback run sequentially in the same goroutine.
+// Their gui.Update callbacks are delivered in FIFO order (gocui channel semantics).
+// The generation guard discards stale results if the user scrolls during the
+// network round-trips.
+func (a *App) captureScrollbackWithHistorySize() {
+	target := a.fullscreen.Target()
+	if target == "" {
+		return
+	}
+	gen := a.scroll.Generation()
+	startLine, endLine := a.scroll.CaptureRange()
+	viewW := a.scrollViewWidth()
+
+	go func() {
+		histSize, histErr := a.sessions.HistorySize(target)
+		result, scrollErr := a.sessions.CaptureScrollback(target, viewW, startLine, endLine)
+		a.gui.Update(func(g *gocui.Gui) error {
+			if a.scroll.Generation() != gen {
+				return nil
+			}
+			if histErr == nil && histSize > 0 {
+				a.scroll.SetMaxOffset(histSize)
+			}
+			if scrollErr == nil {
+				a.scroll.SetLines(splitLines(result.Content))
+			}
+			return nil
+		})
+	}()
+}
 
 // captureScrollbackAsync launches a goroutine to capture scrollback content.
 func (a *App) captureScrollbackAsync() {

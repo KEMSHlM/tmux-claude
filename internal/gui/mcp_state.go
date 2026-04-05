@@ -25,7 +25,6 @@ type MCPProvider interface {
 type MCPState struct {
 	cursor  int
 	loading bool
-	errMsg  string
 }
 
 // NewMCPState creates a new MCPState.

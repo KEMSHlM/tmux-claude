@@ -397,7 +397,7 @@ func (s *Store) MarkAllStatus(status Status) {
 }
 
 // GenerateName creates a unique session name from a directory path.
-func (s *Store) GenerateName(dirPath, host string) string {
+func (s *Store) GenerateName(dirPath string) string {
 	base := filepath.Base(dirPath)
 
 	s.mu.RLock()
@@ -538,6 +538,15 @@ func (s *Store) SyncWithTmux(windows []tmux.WindowInfo, panes []tmux.PaneInfo) {
 
 	paneByWindow := make(map[string]tmux.PaneInfo, len(panes))
 	for _, p := range panes {
+		if existing, ok := paneByWindow[p.Window]; ok {
+			// When multiple panes exist in a window (e.g. remain-on-exit keeps
+			// dead panes), prefer the alive one to avoid false StatusDead.
+			if existing.Dead && !p.Dead {
+				paneByWindow[p.Window] = p
+			}
+			// If both are alive (or both are dead), keep the first-seen pane.
+			continue
+		}
 		paneByWindow[p.Window] = p
 	}
 

@@ -112,7 +112,7 @@ func TestStore_GenerateName_Simple(t *testing.T) {
 	t.Parallel()
 	s := session.NewStore("")
 
-	name := s.GenerateName("/home/user/my-app", "")
+	name := s.GenerateName("/home/user/my-app")
 	assert.Equal(t, "my-app", name)
 }
 
@@ -121,7 +121,7 @@ func TestStore_GenerateName_Dedup(t *testing.T) {
 	s := session.NewStore("")
 	s.Add(newTestSession("id-1", "my-app", "/path1"), "")
 
-	name := s.GenerateName("/other/path/my-app", "")
+	name := s.GenerateName("/other/path/my-app")
 	assert.Equal(t, "my-app-2", name)
 }
 
@@ -131,15 +131,15 @@ func TestStore_GenerateName_Dedup_Multiple(t *testing.T) {
 	s.Add(newTestSession("id-1", "my-app", "/path1"), "")
 	s.Add(newTestSession("id-2", "my-app-2", "/path2"), "")
 
-	name := s.GenerateName("/other/my-app", "")
+	name := s.GenerateName("/other/my-app")
 	assert.Equal(t, "my-app-3", name)
 }
 
-func TestStore_GenerateName_Remote(t *testing.T) {
+func TestStore_GenerateName_PathOnly(t *testing.T) {
 	t.Parallel()
 	s := session.NewStore("")
 
-	name := s.GenerateName("/home/user/work", "srv1")
+	name := s.GenerateName("/home/user/work")
 	assert.Equal(t, "work", name)
 }
 
@@ -367,6 +367,51 @@ func TestStore_SyncWithTmux_Detached(t *testing.T) {
 	all := s.All()
 	require.Len(t, all, 1)
 	assert.Equal(t, session.StatusDetached, all[0].Status)
+}
+
+func TestStore_SyncWithTmux_PrefersAlivePaneOverDead(t *testing.T) {
+	t.Parallel()
+	s := session.NewStore("")
+	s.Add(newTestSession("aabbccdd-eee", "my-app", "/path"), "")
+
+	windows := []tmux.WindowInfo{
+		{ID: "@5", Name: "lc-aabbccdd", Session: "lazyclaude"},
+	}
+	// Multiple panes in same window: dead pane listed first, alive pane second.
+	// With remain-on-exit=on a dead pane can coexist with a respawned one.
+	panes := []tmux.PaneInfo{
+		{ID: "%10", Window: "@5", PID: 0, Dead: true},
+		{ID: "%11", Window: "@5", PID: 9999, Dead: false},
+	}
+
+	s.SyncWithTmux(windows, panes)
+
+	all := s.All()
+	require.Len(t, all, 1)
+	assert.Equal(t, session.StatusRunning, all[0].Status, "alive pane should take precedence over dead pane")
+	assert.Equal(t, 9999, all[0].PID)
+}
+
+func TestStore_SyncWithTmux_PrefersAlivePaneOverDead_ReverseOrder(t *testing.T) {
+	t.Parallel()
+	s := session.NewStore("")
+	s.Add(newTestSession("aabbccdd-eee", "my-app", "/path"), "")
+
+	windows := []tmux.WindowInfo{
+		{ID: "@5", Name: "lc-aabbccdd", Session: "lazyclaude"},
+	}
+	// Alive pane listed first, dead pane second — alive should still win.
+	panes := []tmux.PaneInfo{
+		{ID: "%11", Window: "@5", PID: 9999, Dead: false},
+		{ID: "%10", Window: "@5", PID: 0, Dead: true},
+	}
+
+	s.SyncWithTmux(windows, panes)
+
+	all := s.All()
+	require.Len(t, all, 1)
+	assert.Equal(t, session.StatusRunning, all[0].Status, "alive pane should take precedence over dead pane")
+	assert.Equal(t, 9999, all[0].PID)
 }
 
 // --- Host-aware project matching tests ---

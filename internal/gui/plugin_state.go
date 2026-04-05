@@ -44,7 +44,6 @@ type PluginState struct {
 	installedCursor int
 	marketCursor    int
 	loading         bool
-	errMsg          string
 	projectDir      string // current project context (from Sessions cursor)
 }
 
