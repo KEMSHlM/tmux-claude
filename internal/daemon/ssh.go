@@ -19,7 +19,7 @@ type ExecSSHExecutor struct{}
 
 func (e *ExecSSHExecutor) Run(ctx context.Context, host, command string) ([]byte, error) {
 	sshHost, port := splitHostPort(host)
-	args := []string{"-o", "BatchMode=yes", "-o", "ConnectTimeout=10"}
+	args := []string{"-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ControlMaster=no", "-o", "ControlPath=none"}
 	if port != "" {
 		args = append(args, "-p", port)
 	}
@@ -29,7 +29,7 @@ func (e *ExecSSHExecutor) Run(ctx context.Context, host, command string) ([]byte
 
 func (e *ExecSSHExecutor) Copy(ctx context.Context, host, localPath, remotePath string) error {
 	sshHost, port := splitHostPort(host)
-	args := []string{"-o", "BatchMode=yes", "-o", "ConnectTimeout=10"}
+	args := []string{"-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ControlMaster=no", "-o", "ControlPath=none"}
 	if port != "" {
 		args = append(args, "-P", port)
 	}

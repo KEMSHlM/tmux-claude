@@ -43,7 +43,7 @@ func sessionPath(id, suffix string) string {
 
 func (c *HTTPClient) CreateSession(ctx context.Context, req SessionCreateRequest) (*SessionCreateResponse, error) {
 	var resp SessionCreateResponse
-	if err := c.postJSON(ctx, "/sessions", req, &resp); err != nil {
+	if err := c.postJSON(ctx, "/session/create", req, &resp); err != nil {
 		return nil, fmt.Errorf("create session: %w", err)
 	}
 	return &resp, nil

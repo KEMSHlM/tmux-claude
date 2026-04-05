@@ -63,6 +63,8 @@ func (t *Tunnel) Start(ctx context.Context) error {
 		"-o", "ServerAliveCountMax=3",
 		"-o", "ExitOnForwardFailure=yes",
 		"-o", "BatchMode=yes",
+		"-o", "ControlMaster=no",
+		"-o", "ControlPath=none",
 	}
 	if port != "" {
 		args = append(args, "-p", port)
@@ -222,6 +224,8 @@ func (t *Tunnel) SSHArgs() []string {
 		"-o", "ServerAliveCountMax=3",
 		"-o", "ExitOnForwardFailure=yes",
 		"-o", "BatchMode=yes",
+		"-o", "ControlMaster=no",
+		"-o", "ControlPath=none",
 	}
 	if port != "" {
 		args = append(args, "-p", port)
@@ -313,6 +317,8 @@ func (st *SocketTunnel) Start(ctx context.Context) error {
 		"-o", "ServerAliveCountMax=3",
 		"-o", "ExitOnForwardFailure=yes",
 		"-o", "BatchMode=yes",
+		"-o", "ControlMaster=no",
+		"-o", "ControlPath=none",
 		"-o", "StreamLocalBindUnlink=yes",
 	}
 	if port != "" {
@@ -409,6 +415,8 @@ func (st *SocketTunnel) SSHArgs() []string {
 		"-o", "ServerAliveCountMax=3",
 		"-o", "ExitOnForwardFailure=yes",
 		"-o", "BatchMode=yes",
+		"-o", "ControlMaster=no",
+		"-o", "ControlPath=none",
 		"-o", "StreamLocalBindUnlink=yes",
 	}
 	if port != "" {
