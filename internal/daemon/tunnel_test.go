@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"strings"
@@ -234,7 +235,6 @@ func TestSocketTunnel_TmuxClient(t *testing.T) {
 }
 
 func TestWaitForPort_ImmediateSuccess(t *testing.T) {
-	// Start a TCP listener before calling waitForPort.
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
@@ -242,37 +242,35 @@ func TestWaitForPort_ImmediateSuccess(t *testing.T) {
 	defer ln.Close()
 
 	port := ln.Addr().(*net.TCPAddr).Port
-	tun := NewTunnelWithPort("user@host", 8080, port)
 	done := make(chan error, 1)
 
-	if err := tun.waitForPort(port, done); err != nil {
+	if err := waitForPort(context.Background(), "user@host", port, done); err != nil {
 		t.Errorf("waitForPort() returned error: %v", err)
 	}
 }
 
 func TestWaitForPort_DelayedSuccess(t *testing.T) {
-	// Pick a free port but don't listen yet.
 	port, err := pickFreePort()
 	if err != nil {
 		t.Fatalf("pickFreePort: %v", err)
 	}
 
-	tun := NewTunnelWithPort("user@host", 8080, port)
 	done := make(chan error, 1)
+	ready := make(chan struct{})
 
-	// Start listener after a short delay.
 	go func() {
 		time.Sleep(300 * time.Millisecond)
-		ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", itoa(port)))
-		if err != nil {
+		ln, listenErr := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+		if listenErr != nil {
 			return
 		}
-		defer ln.Close()
-		// Keep listener alive until test completes.
-		time.Sleep(5 * time.Second)
+		// Keep listener alive until test signals completion.
+		<-ready
+		ln.Close()
 	}()
+	t.Cleanup(func() { close(ready) })
 
-	if err := tun.waitForPort(port, done); err != nil {
+	if err := waitForPort(context.Background(), "user@host", port, done); err != nil {
 		t.Errorf("waitForPort() returned error: %v", err)
 	}
 }
@@ -283,13 +281,10 @@ func TestWaitForPort_ProcessExit(t *testing.T) {
 		t.Fatalf("pickFreePort: %v", err)
 	}
 
-	tun := NewTunnelWithPort("user@host", 8080, port)
 	done := make(chan error, 1)
-
-	// Simulate SSH process exiting immediately.
 	done <- fmt.Errorf("process exited")
 
-	err = tun.waitForPort(port, done)
+	err = waitForPort(context.Background(), "user@host", port, done)
 	if err == nil {
 		t.Fatal("waitForPort() should have returned error when process exits")
 	}
@@ -298,7 +293,23 @@ func TestWaitForPort_ProcessExit(t *testing.T) {
 	}
 }
 
-// itoa converts an int to a string without importing strconv.
-func itoa(n int) string {
-	return fmt.Sprintf("%d", n)
+func TestWaitForPort_ContextCanceled(t *testing.T) {
+	port, err := pickFreePort()
+	if err != nil {
+		t.Fatalf("pickFreePort: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+
+	// Cancel immediately so waitForPort should return quickly.
+	cancel()
+
+	err = waitForPort(ctx, "user@host", port, done)
+	if err == nil {
+		t.Fatal("waitForPort() should have returned error when context is canceled")
+	}
+	if !strings.Contains(err.Error(), "timed out") {
+		t.Errorf("unexpected error message: %v", err)
+	}
 }

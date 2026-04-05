@@ -39,14 +39,15 @@ func NewTunnel(host string, remotePort int) *Tunnel {
 // The context controls the lifetime of the SSH process.
 func (t *Tunnel) Start(ctx context.Context) error {
 	t.mu.Lock()
-	defer t.mu.Unlock()
 
 	if t.cmd != nil {
+		t.mu.Unlock()
 		return fmt.Errorf("tunnel already started")
 	}
 
 	localPort, err := pickFreePort()
 	if err != nil {
+		t.mu.Unlock()
 		return fmt.Errorf("failed to pick free port: %w", err)
 	}
 	t.localPort = localPort
@@ -74,6 +75,7 @@ func (t *Tunnel) Start(ctx context.Context) error {
 	if err := t.cmd.Start(); err != nil {
 		t.cmd = nil
 		t.done = nil
+		t.mu.Unlock()
 		return fmt.Errorf("failed to start SSH tunnel: %w", err)
 	}
 
@@ -82,9 +84,19 @@ func (t *Tunnel) Start(ctx context.Context) error {
 		close(t.done)
 	}()
 
-	// Wait for the tunnel to become connectable.
-	if err := t.waitForPort(t.localPort, t.done); err != nil {
-		_ = t.cmd.Process.Kill()
+	// Capture fields before releasing the lock.
+	host := t.host
+	done := t.done
+	cmd := t.cmd
+	t.mu.Unlock()
+
+	// Wait for the tunnel to become connectable (lock-free).
+	if err := waitForPort(ctx, host, localPort, done); err != nil {
+		_ = cmd.Process.Kill()
+		// Mark the tunnel as failed so it can be retried.
+		t.mu.Lock()
+		t.cmd = nil
+		t.mu.Unlock()
 		return err
 	}
 
@@ -98,19 +110,21 @@ const tunnelTimeout = 10 * time.Second
 const tunnelPollInterval = 100 * time.Millisecond
 
 // waitForPort polls the given local port until a TCP connection succeeds,
-// the deadline expires, or the SSH process exits.
-func (t *Tunnel) waitForPort(port int, done <-chan error) error {
-	deadline := time.After(tunnelTimeout)
+// the context is canceled, the deadline expires, or the SSH process exits.
+func waitForPort(ctx context.Context, host string, port int, done <-chan error) error {
+	ctx, cancel := context.WithTimeout(ctx, tunnelTimeout)
+	defer cancel()
+
 	ticker := time.NewTicker(tunnelPollInterval)
 	defer ticker.Stop()
 
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	for {
 		select {
-		case <-deadline:
-			return fmt.Errorf("SSH tunnel to %s timed out after %s", t.host, tunnelTimeout)
+		case <-ctx.Done():
+			return fmt.Errorf("SSH tunnel to %s timed out: %w", host, ctx.Err())
 		case err := <-done:
-			return fmt.Errorf("SSH tunnel to %s exited before becoming ready: %w", t.host, err)
+			return fmt.Errorf("SSH tunnel to %s exited before becoming ready: %w", host, err)
 		case <-ticker.C:
 			conn, err := net.DialTimeout("tcp", addr, tunnelPollInterval)
 			if err == nil {
