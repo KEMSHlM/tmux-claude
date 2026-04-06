@@ -5,17 +5,17 @@ package daemon
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 )
 
-// shellNames lists interactive shell command names to search for.
-var shellNames = map[string]bool{
-	"bash": true,
-	"zsh":  true,
-	"fish": true,
-	"sh":   true,
+// isShellName reports whether the given command name is an interactive shell.
+func isShellName(name string) bool {
+	switch name {
+	case "bash", "zsh", "fish", "sh":
+		return true
+	}
+	return false
 }
 
 // detectUserShellCWD finds the CWD of the user's interactive shell by
@@ -65,7 +65,7 @@ func detectUserShellCWD() (string, error) {
 		if !info.hasPTY {
 			continue
 		}
-		if !shellNames[info.comm] {
+		if !isShellName(info.comm) {
 			continue
 		}
 
@@ -92,10 +92,8 @@ type procInfo struct {
 
 // readProcInfo reads uid, comm, and tty info for a given PID from /proc.
 func readProcInfo(pid int) (procInfo, error) {
-	base := fmt.Sprintf("/proc/%d", pid)
-
 	// Read UID from /proc/{pid}/status
-	statusData, err := os.ReadFile(filepath.Join(base, "status"))
+	statusData, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", pid))
 	if err != nil {
 		return procInfo{}, err
 	}
@@ -105,14 +103,14 @@ func readProcInfo(pid int) (procInfo, error) {
 	}
 
 	// Read comm from /proc/{pid}/comm
-	commData, err := os.ReadFile(filepath.Join(base, "comm"))
+	commData, err := os.ReadFile(fmt.Sprintf("/proc/%d/comm", pid))
 	if err != nil {
 		return procInfo{}, err
 	}
 	comm := strings.TrimSpace(string(commData))
 
 	// Check if process has a PTY by reading tty_nr from /proc/{pid}/stat
-	hasPTY, err := checkPTY(filepath.Join(base, "stat"))
+	hasPTY, err := checkPTY(fmt.Sprintf("/proc/%d/stat", pid))
 	if err != nil {
 		return procInfo{}, err
 	}
@@ -164,9 +162,8 @@ func parseTTYFromStat(stat string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("parse tty_nr: %w", err)
 	}
-	// Major number is bits 15..8 and 31..20 combined, but for PTY (136)
-	// the simple extraction works: major = (tty_nr >> 8) & 0xff
-	major := (ttyNr >> 8) & 0xff
+	// Linux new_encode_dev: major occupies bits 19..8 (12 bits)
+	major := (ttyNr >> 8) & 0xfff
 	return major == 136, nil
 }
 

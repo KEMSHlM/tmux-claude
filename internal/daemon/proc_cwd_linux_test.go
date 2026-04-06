@@ -94,6 +94,13 @@ func TestParseTTYFromStat(t *testing.T) {
 			wantPTY: true,
 		},
 		{
+			name: "high PTY minor number over 255",
+			// new_encode_dev: (minor & 0xff) | (major << 8) | ((minor & ~0xff) << 12)
+			// major=136, minor=300: (44) | (136 << 8) | (1 << 20) = 1083436
+			input:   "123 (bash) S 122 123 123 1083436 123 4194304 ...",
+			wantPTY: true,
+		},
+		{
 			name:    "malformed no paren",
 			input:   "123 bash S 122 123",
 			wantErr: true,
@@ -124,14 +131,14 @@ func TestParseTTYFromStat(t *testing.T) {
 	}
 }
 
-func TestShellNames(t *testing.T) {
+func TestIsShellName(t *testing.T) {
 	for _, name := range []string{"bash", "zsh", "fish", "sh"} {
-		if !shellNames[name] {
+		if !isShellName(name) {
 			t.Errorf("expected %q to be a shell name", name)
 		}
 	}
 	for _, name := range []string{"python", "node", "claude", ""} {
-		if shellNames[name] {
+		if isShellName(name) {
 			t.Errorf("expected %q to NOT be a shell name", name)
 		}
 	}

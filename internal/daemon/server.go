@@ -641,7 +641,11 @@ func (s *DaemonServer) handleCWD(w http.ResponseWriter, _ *http.Request) {
 	cwd, err := detectUserShellCWD()
 	if err != nil {
 		// Fallback: daemon's own CWD
-		cwd, _ = os.Getwd()
+		cwd, err = os.Getwd()
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
 	}
 	writeJSON(w, http.StatusOK, CWDResponse{CWD: cwd})
 }
