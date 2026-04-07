@@ -68,8 +68,9 @@ func (rp *RemoteProvider) QueryCWD(ctx context.Context) (string, error) {
 }
 
 // SetTmuxClient sets the forwarded tmux.Client for direct pane operations.
-// When set, CapturePreview, CaptureScrollback, HistorySize, and SendChoice
-// use the forwarded socket directly instead of the daemon API.
+// When set, CapturePreview, CaptureScrollback, HistorySize, SendChoice,
+// and SendKeys use the forwarded socket directly instead of the daemon API.
+// If the forwarded socket fails, these methods fall back to the daemon API.
 // Must be called before the GUI event loop starts.
 func (rp *RemoteProvider) SetTmuxClient(tc tmux.Client) {
 	rp.mu.Lock()
@@ -281,7 +282,11 @@ func (rp *RemoteProvider) resolveTmuxTarget(id string) string {
 
 func (rp *RemoteProvider) CapturePreview(id string, width, height int) (*PreviewResponse, error) {
 	if tc := rp.getTmuxClient(); tc != nil {
-		return rp.capturePreviewDirect(tc, id, width, height)
+		result, err := rp.capturePreviewDirect(tc, id, width, height)
+		if err == nil {
+			return result, nil
+		}
+		// tmux operation failed; fall through to daemon API.
 	}
 	client, err := rp.conn.Client()
 	if err != nil {
@@ -333,7 +338,11 @@ func (rp *RemoteProvider) capturePreviewDirect(tc tmux.Client, id string, width,
 
 func (rp *RemoteProvider) CaptureScrollback(id string, width, startLine, endLine int) (*ScrollbackResponse, error) {
 	if tc := rp.getTmuxClient(); tc != nil {
-		return rp.captureScrollbackDirect(tc, id, startLine, endLine)
+		result, err := rp.captureScrollbackDirect(tc, id, startLine, endLine)
+		if err == nil {
+			return result, nil
+		}
+		// tmux operation failed; fall through to daemon API.
 	}
 	client, err := rp.conn.Client()
 	if err != nil {
@@ -350,7 +359,11 @@ func (rp *RemoteProvider) captureScrollbackDirect(tc tmux.Client, id string, sta
 
 func (rp *RemoteProvider) HistorySize(id string) (int, error) {
 	if tc := rp.getTmuxClient(); tc != nil {
-		return rp.historySizeDirect(tc, id)
+		n, err := rp.historySizeDirect(tc, id)
+		if err == nil {
+			return n, nil
+		}
+		// tmux operation failed; fall through to daemon API.
 	}
 	client, err := rp.conn.Client()
 	if err != nil {
@@ -380,13 +393,35 @@ func (rp *RemoteProvider) historySizeDirect(tc tmux.Client, id string) (int, err
 // Otherwise falls back to the daemon API.
 func (rp *RemoteProvider) SendChoice(window string, choiceVal int) error {
 	if tc := rp.getTmuxClient(); tc != nil {
-		return tmuxadapter.SendToPane(context.Background(), tc, window, choice.Choice(choiceVal))
+		if err := tmuxadapter.SendToPane(context.Background(), tc, window, choice.Choice(choiceVal)); err == nil {
+			return nil
+		}
+		// tmux operation failed; fall through to daemon API.
 	}
 	client, err := rp.conn.Client()
 	if err != nil {
 		return fmt.Errorf("send choice: %w", err)
 	}
 	return client.SendChoice(context.Background(), "", window, choiceVal)
+}
+
+// SendKeys sends raw keys to the remote session's tmux pane.
+// When tmuxClient is set, sends directly via the forwarded socket.
+// Falls back to the daemon API if the tmux operation fails or
+// tmuxClient is nil.
+func (rp *RemoteProvider) SendKeys(id, keys string) error {
+	if tc := rp.getTmuxClient(); tc != nil {
+		target := rp.resolveTmuxTarget(id)
+		if err := tc.SendKeys(context.Background(), target, keys); err == nil {
+			return nil
+		}
+		// tmux operation failed; fall through to daemon API.
+	}
+	client, err := rp.conn.Client()
+	if err != nil {
+		return fmt.Errorf("send keys: %w", err)
+	}
+	return client.SendKeys(context.Background(), id, keys)
 }
 
 // AttachSession attaches to a remote session via SSH -t tmux attach.
