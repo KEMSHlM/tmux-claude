@@ -257,6 +257,47 @@ func TestHTTPClient_SendKeys(t *testing.T) {
 	}
 }
 
+func TestHTTPClient_SendKeysLiteral(t *testing.T) {
+	srv := newClientTestServer(t, map[string]http.HandlerFunc{
+		"POST /session/s1/send-keys": func(w http.ResponseWriter, r *http.Request) {
+			var req SendKeysRequest
+			json.NewDecoder(r.Body).Decode(&req)
+			if req.Keys != "hello" {
+				t.Errorf("got keys=%q, want hello", req.Keys)
+			}
+			if !req.Literal {
+				t.Error("expected Literal=true")
+			}
+			w.WriteHeader(http.StatusOK)
+		},
+	})
+	defer srv.Close()
+
+	c := NewHTTPClient(srv.URL, "")
+	if err := c.SendKeysLiteral(context.Background(), "s1", "hello"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHTTPClient_SendKeys_LiteralFalse(t *testing.T) {
+	srv := newClientTestServer(t, map[string]http.HandlerFunc{
+		"POST /session/s1/send-keys": func(w http.ResponseWriter, r *http.Request) {
+			var req SendKeysRequest
+			json.NewDecoder(r.Body).Decode(&req)
+			if req.Literal {
+				t.Error("expected Literal=false for SendKeys")
+			}
+			w.WriteHeader(http.StatusOK)
+		},
+	})
+	defer srv.Close()
+
+	c := NewHTTPClient(srv.URL, "")
+	if err := c.SendKeys(context.Background(), "s1", "Enter"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestHTTPClient_Shutdown(t *testing.T) {
 	srv := newClientTestServer(t, map[string]http.HandlerFunc{
 		"POST /shutdown": func(w http.ResponseWriter, _ *http.Request) {

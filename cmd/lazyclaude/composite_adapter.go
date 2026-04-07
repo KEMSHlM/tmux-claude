@@ -883,10 +883,11 @@ func newCompositeInputForwarder(local gui.InputForwarder, cp *daemon.CompositePr
 	return &compositeInputForwarder{local: local, cp: cp}
 }
 
-// SetSessionContext updates the forwarding target. Called when entering fullscreen.
+// SetSessionContext updates the forwarding target. Called when entering/exiting fullscreen.
 func (f *compositeInputForwarder) SetSessionContext(sessionID, host string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	debugLog("compositeInputForwarder.SetSessionContext: sessionID=%q host=%q", sessionID, host)
 	f.sessionID = sessionID
 	f.host = host
 }
@@ -943,9 +944,14 @@ func (f *compositeInputForwarder) ForwardPaste(target string, text string) error
 func (f *compositeInputForwarder) remoteProvider(host string) *daemon.RemoteProvider {
 	sp := f.cp.RemoteProvider(host)
 	if sp == nil {
+		debugLog("compositeInputForwarder.remoteProvider: no provider for host=%q", host)
 		return nil
 	}
-	rp, _ := sp.(*daemon.RemoteProvider)
+	rp, ok := sp.(*daemon.RemoteProvider)
+	if !ok {
+		debugLog("compositeInputForwarder.remoteProvider: provider for host=%q is %T, not *RemoteProvider", host, sp)
+		return nil
+	}
 	return rp
 }
 

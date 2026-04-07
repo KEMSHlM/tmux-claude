@@ -37,6 +37,10 @@ func (a *App) findSessionByID(id string) *SessionItem {
 
 // exitFullScreen exits fullscreen mode.
 func (a *App) exitFullScreen() {
+	// Clear session context so stale host values don't route keys incorrectly.
+	if setter, ok := a.fullscreen.forwarder.(SessionContextSetter); ok {
+		setter.SetSessionContext("", "")
+	}
 	a.fullscreen.Exit()
 }
 

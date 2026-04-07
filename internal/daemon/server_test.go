@@ -213,6 +213,55 @@ func TestSendKeys_NotFound(t *testing.T) {
 	}
 }
 
+func TestSendKeys_LiteralFlag(t *testing.T) {
+	srv, ts, mock := newTestServer(t)
+
+	// Add a session directly to the store.
+	sess := session.Session{
+		ID:        "sk-lit-test",
+		Name:      "test-literal",
+		Path:      "/tmp",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	srv.mgr.Store().Add(sess, "/tmp")
+
+	tests := []struct {
+		name    string
+		literal bool
+	}{
+		{"key name mode", false},
+		{"literal mode", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Clear recorded keys before each subtest.
+			mock.SentKeys = make(map[string][]string)
+
+			body := `{"keys":"Enter"}`
+			if tt.literal {
+				body = `{"keys":"Enter","literal":true}`
+			}
+			req := authReq("POST", ts.URL+"/session/sk-lit-test/send-keys", body)
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusNoContent {
+				t.Errorf("want 204, got %d", resp.StatusCode)
+			}
+			// Verify the mock received the keys.
+			// WindowName() uses first 8 chars: "lc-sk-lit-t" -> "lc-sk-lit-"
+			target := "lazyclaude:" + sess.WindowName()
+			sent := mock.SentKeys[target]
+			if len(sent) != 1 || sent[0] != "Enter" {
+				t.Errorf("sent keys=%v, want [Enter]", sent)
+			}
+		})
+	}
+}
+
 func TestAttach_NotFound(t *testing.T) {
 	_, ts, _ := newTestServer(t)
 
