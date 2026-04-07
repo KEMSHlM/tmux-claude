@@ -137,6 +137,7 @@ func (rc *RemoteConnection) connectLocked(ctx context.Context) error {
 
 	debugLog("connectLocked: discovering daemon on %s...", rc.host)
 	info, err := rc.lifecycle.DiscoverRemoteDaemon(ctx, rc.host)
+	discovered := err == nil
 	if err != nil {
 		debugLog("connectLocked: discover failed: %v, starting daemon...", err)
 		info, err = rc.lifecycle.StartRemoteDaemon(ctx, rc.host)
@@ -146,7 +147,7 @@ func (rc *RemoteConnection) connectLocked(ctx context.Context) error {
 			return fmt.Errorf("connect to %s: %w", rc.host, err)
 		}
 	}
-	debugLog("connectLocked: daemon info: port=%d token=%q pid=%d", info.Port, info.Token, info.PID)
+	debugLog("connectLocked: daemon info: port=%d token=%q pid=%d discovered=%v", info.Port, info.Token, info.PID, discovered)
 
 	if info.Token == "" {
 		rc.setState(ConnectionError)
@@ -167,6 +168,26 @@ func (rc *RemoteConnection) connectLocked(ctx context.Context) error {
 
 	debugLog("connectLocked: health check at %s", addr)
 	health, err := client.Health(ctx)
+	if err != nil && discovered {
+		// Stale daemon.json: discovered daemon is dead. Kill tunnel and
+		// start a fresh daemon.
+		debugLog("connectLocked: health check failed on discovered daemon, restarting: %v", err)
+		tunnel.Stop()
+		info, err = rc.lifecycle.StartRemoteDaemon(ctx, rc.host)
+		if err != nil {
+			rc.setState(ConnectionError)
+			return fmt.Errorf("restart daemon on %s: %w", rc.host, err)
+		}
+		debugLog("connectLocked: restarted daemon port=%d", info.Port)
+		tunnel = NewTunnel(rc.host, info.Port)
+		if err := tunnel.Start(ctx); err != nil {
+			rc.setState(ConnectionError)
+			return fmt.Errorf("start tunnel to %s: %w", rc.host, err)
+		}
+		addr = fmt.Sprintf("http://127.0.0.1:%d", tunnel.LocalPort())
+		client = rc.clientFactory(addr, info.Token)
+		health, err = client.Health(ctx)
+	}
 	if err != nil {
 		debugLog("connectLocked: health check failed: %v", err)
 		tunnel.Stop()
