@@ -235,6 +235,7 @@ func (rp *RemoteProvider) PurgeOrphans() (int, error) {
 // --- PreviewProvider ---
 
 // resolveTmuxTarget returns the tmux target string for a session.
+// Used by AttachSession to construct the SSH attach command.
 // Looks up the session's TmuxWindow in the local cache; falls back to
 // constructing from session ID.
 func (rp *RemoteProvider) resolveTmuxTarget(id string) string {
