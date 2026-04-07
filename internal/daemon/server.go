@@ -405,7 +405,13 @@ func (s *DaemonServer) handleSendKeys(w http.ResponseWriter, r *http.Request) {
 	}
 
 	target := "lazyclaude:" + sess.WindowName()
-	if err := s.tmux.SendKeysLiteral(r.Context(), target, req.Keys); err != nil {
+	var err error
+	if req.Literal {
+		err = s.tmux.SendKeysLiteral(r.Context(), target, req.Keys)
+	} else {
+		err = s.tmux.SendKeys(r.Context(), target, req.Keys)
+	}
+	if err != nil {
 		http.Error(w, "send-keys failed", http.StatusInternalServerError)
 		return
 	}

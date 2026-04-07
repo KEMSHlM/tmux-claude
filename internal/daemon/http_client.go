@@ -117,6 +117,11 @@ func (c *HTTPClient) SendKeys(ctx context.Context, id, keys string) error {
 	return c.postJSON(ctx, sessionPath(id, "/send-keys"), req, nil)
 }
 
+func (c *HTTPClient) SendKeysLiteral(ctx context.Context, id, text string) error {
+	req := SendKeysRequest{ID: id, Keys: text, Literal: true}
+	return c.postJSON(ctx, sessionPath(id, "/send-keys"), req, nil)
+}
+
 func (c *HTTPClient) SendChoice(ctx context.Context, id, window string, choice int) error {
 	req := SendChoiceRequest{ID: id, Window: window, Choice: choice}
 	// SendChoice posts to a dedicated endpoint. The request body carries

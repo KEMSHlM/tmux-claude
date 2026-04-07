@@ -424,6 +424,44 @@ func (rp *RemoteProvider) SendKeys(id, keys string) error {
 	return client.SendKeys(context.Background(), id, keys)
 }
 
+// SendKeysLiteral sends literal text to the remote session's tmux pane.
+// When tmuxClient is set, sends directly via the forwarded socket.
+// Falls back to the daemon API if the tmux operation fails or
+// tmuxClient is nil.
+func (rp *RemoteProvider) SendKeysLiteral(id, text string) error {
+	if tc := rp.getTmuxClient(); tc != nil {
+		target := rp.resolveTmuxTarget(id)
+		if err := tc.SendKeysLiteral(context.Background(), target, text); err == nil {
+			return nil
+		}
+		// tmux operation failed; fall through to daemon API.
+	}
+	client, err := rp.conn.Client()
+	if err != nil {
+		return fmt.Errorf("send keys literal: %w", err)
+	}
+	return client.SendKeysLiteral(context.Background(), id, text)
+}
+
+// PasteToPane sends text as a bracketed paste to the remote session's tmux pane.
+// When tmuxClient is set, sends directly via the forwarded socket.
+// Falls back to literal send via daemon API since PasteToPane is not
+// supported over the daemon HTTP API.
+func (rp *RemoteProvider) PasteToPane(id, text string) error {
+	if tc := rp.getTmuxClient(); tc != nil {
+		target := rp.resolveTmuxTarget(id)
+		if err := tc.PasteToPane(context.Background(), target, text); err == nil {
+			return nil
+		}
+		// tmux operation failed; fall through to literal send.
+	}
+	client, err := rp.conn.Client()
+	if err != nil {
+		return fmt.Errorf("paste to pane: %w", err)
+	}
+	return client.SendKeysLiteral(context.Background(), id, text)
+}
+
 // AttachSession attaches to a remote session via SSH -t tmux attach.
 // Attach always uses SSH because the user's terminal must be connected
 // to the remote tmux process directly.

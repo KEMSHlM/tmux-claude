@@ -36,6 +36,7 @@ func (m *mockClientAPI) HistorySize(context.Context, string) (*HistorySizeRespon
 	return nil, nil
 }
 func (m *mockClientAPI) SendKeys(context.Context, string, string) error        { return nil }
+func (m *mockClientAPI) SendKeysLiteral(context.Context, string, string) error { return nil }
 func (m *mockClientAPI) SendChoice(context.Context, string, string, int) error { return nil }
 func (m *mockClientAPI) AttachSession(context.Context, string) (*AttachResponse, error) {
 	return nil, nil

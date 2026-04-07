@@ -283,8 +283,9 @@ func newRootCmd() *cobra.Command {
 			// Wire the notify broker (nil-safe: falls back to file polling only).
 			app.SetNotifyBroker(notifyBroker)
 
-			// Key forwarding via subprocess
-			app.SetInputForwarder(gui.NewTmuxInputForwarder(tmuxClient))
+			// Key forwarding: local tmux with remote daemon API fallback.
+			localForwarder := gui.NewTmuxInputForwarder(tmuxClient)
+			app.SetInputForwarder(newCompositeInputForwarder(localForwarder, composite))
 
 			// Control mode for event-driven refresh.
 			// The connection dies when all tmux windows are deleted.

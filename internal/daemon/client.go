@@ -45,8 +45,11 @@ type ClientAPI interface {
 
 	// --- Input ---
 
-	// SendKeys sends raw keys to a session's tmux pane.
+	// SendKeys sends key names to a session's tmux pane (e.g., "Enter", "Space").
 	SendKeys(ctx context.Context, id, keys string) error
+
+	// SendKeysLiteral sends literal text to a session's tmux pane (send-keys -l).
+	SendKeysLiteral(ctx context.Context, id, text string) error
 
 	// SendChoice sends a permission choice to a session.
 	SendChoice(ctx context.Context, id, window string, choice int) error

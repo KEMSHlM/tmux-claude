@@ -860,6 +860,95 @@ func (a *guiCompositeAdapter) createWorkerSessionWithHost(name, prompt, projectR
 	return a.cp.CreateWorkerSession(name, prompt, projectRoot, host)
 }
 
+// --- compositeInputForwarder ---
+
+// compositeInputForwarder routes key forwarding to local tmux or remote daemon
+// based on the current fullscreen session context. When host is empty, keys are
+// forwarded via the local tmux client. When host is set, keys are routed through
+// the RemoteProvider (direct socket with daemon API fallback).
+type compositeInputForwarder struct {
+	local gui.InputForwarder       // local tmux send-keys
+	cp    *daemon.CompositeProvider // for finding the remote provider
+
+	mu        sync.RWMutex
+	sessionID string // current fullscreen session ID
+	host      string // empty for local sessions
+}
+
+// Compile-time checks.
+var _ gui.InputForwarder = (*compositeInputForwarder)(nil)
+var _ gui.SessionContextSetter = (*compositeInputForwarder)(nil)
+
+func newCompositeInputForwarder(local gui.InputForwarder, cp *daemon.CompositeProvider) *compositeInputForwarder {
+	return &compositeInputForwarder{local: local, cp: cp}
+}
+
+// SetSessionContext updates the forwarding target. Called when entering fullscreen.
+func (f *compositeInputForwarder) SetSessionContext(sessionID, host string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.sessionID = sessionID
+	f.host = host
+}
+
+func (f *compositeInputForwarder) ForwardKey(target string, key string) error {
+	f.mu.RLock()
+	host := f.host
+	sid := f.sessionID
+	f.mu.RUnlock()
+
+	if host == "" {
+		return f.local.ForwardKey(target, key)
+	}
+	rp := f.remoteProvider(host)
+	if rp == nil {
+		return fmt.Errorf("no remote provider for host %q", host)
+	}
+	return rp.SendKeys(sid, key)
+}
+
+func (f *compositeInputForwarder) ForwardLiteral(target string, text string) error {
+	f.mu.RLock()
+	host := f.host
+	sid := f.sessionID
+	f.mu.RUnlock()
+
+	if host == "" {
+		return f.local.ForwardLiteral(target, text)
+	}
+	rp := f.remoteProvider(host)
+	if rp == nil {
+		return fmt.Errorf("no remote provider for host %q", host)
+	}
+	return rp.SendKeysLiteral(sid, text)
+}
+
+func (f *compositeInputForwarder) ForwardPaste(target string, text string) error {
+	f.mu.RLock()
+	host := f.host
+	sid := f.sessionID
+	f.mu.RUnlock()
+
+	if host == "" {
+		return f.local.ForwardPaste(target, text)
+	}
+	rp := f.remoteProvider(host)
+	if rp == nil {
+		return fmt.Errorf("no remote provider for host %q", host)
+	}
+	return rp.PasteToPane(sid, text)
+}
+
+// remoteProvider returns the concrete RemoteProvider for the given host.
+func (f *compositeInputForwarder) remoteProvider(host string) *daemon.RemoteProvider {
+	sp := f.cp.RemoteProvider(host)
+	if sp == nil {
+		return nil
+	}
+	rp, _ := sp.(*daemon.RemoteProvider)
+	return rp
+}
+
 // daemonInfoToGUIItem converts daemon.SessionInfo to gui.SessionItem.
 func daemonInfoToGUIItem(s daemon.SessionInfo, pending map[string]bool, windowActivity map[string]gui.WindowActivityEntry) gui.SessionItem {
 	activity := model.ActivityUnknown
