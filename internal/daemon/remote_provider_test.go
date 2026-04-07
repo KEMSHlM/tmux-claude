@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/any-context/lazyclaude/internal/core/model"
+	"github.com/any-context/lazyclaude/internal/core/tmux"
 )
 
 // --- Mock ConnectionManager ---
@@ -593,6 +594,153 @@ func TestParseSSEStream_ContextCancellation(t *testing.T) {
 	// May deliver 0 or 1 depending on timing; just ensure it terminates.
 	if count > 1 {
 		t.Errorf("got %d events after cancel, want <= 1", count)
+	}
+}
+
+// --- Fallback tests: tmux failure -> daemon API ---
+
+func TestRemoteProvider_CapturePreview_Fallback(t *testing.T) {
+	rp, srv := newRemoteTestSetup(t, map[string]http.HandlerFunc{
+		"GET /session/s1/preview": func(w http.ResponseWriter, _ *http.Request) {
+			testWriteJSON(w, PreviewResponse{Content: "daemon-preview", CursorX: 5})
+		},
+	})
+	defer srv.Close()
+
+	// Set a tmux client that always fails captures.
+	mock := tmux.NewMockClient()
+	mock.ErrCapture = fmt.Errorf("socket not connected")
+	rp.SetTmuxClient(mock)
+
+	// Pre-populate session cache for target resolution.
+	rp.mu.Lock()
+	rp.sessions = []SessionInfo{{ID: "s1", TmuxWindow: "lazyclaude:lc-s1"}}
+	rp.mu.Unlock()
+
+	resp, err := rp.CapturePreview("s1", 80, 24)
+	if err != nil {
+		t.Fatalf("expected fallback to daemon API, got error: %v", err)
+	}
+	if resp.Content != "daemon-preview" {
+		t.Errorf("got content=%q, want daemon-preview", resp.Content)
+	}
+}
+
+func TestRemoteProvider_CaptureScrollback_Fallback(t *testing.T) {
+	rp, srv := newRemoteTestSetup(t, map[string]http.HandlerFunc{
+		"GET /session/s1/scrollback": func(w http.ResponseWriter, _ *http.Request) {
+			testWriteJSON(w, ScrollbackResponse{Content: "daemon-scroll"})
+		},
+	})
+	defer srv.Close()
+
+	mock := tmux.NewMockClient()
+	mock.ErrCapture = fmt.Errorf("socket not connected")
+	rp.SetTmuxClient(mock)
+
+	resp, err := rp.CaptureScrollback("s1", 80, 0, 100)
+	if err != nil {
+		t.Fatalf("expected fallback, got error: %v", err)
+	}
+	if resp.Content != "daemon-scroll" {
+		t.Errorf("got content=%q, want daemon-scroll", resp.Content)
+	}
+}
+
+func TestRemoteProvider_HistorySize_Fallback(t *testing.T) {
+	rp, srv := newRemoteTestSetup(t, map[string]http.HandlerFunc{
+		"GET /session/s1/history-size": func(w http.ResponseWriter, _ *http.Request) {
+			testWriteJSON(w, HistorySizeResponse{Lines: 500})
+		},
+	})
+	defer srv.Close()
+
+	mock := tmux.NewMockClient()
+	mock.ErrShowMessage = fmt.Errorf("socket not connected")
+	rp.SetTmuxClient(mock)
+
+	rp.mu.Lock()
+	rp.sessions = []SessionInfo{{ID: "s1", TmuxWindow: "lazyclaude:lc-s1"}}
+	rp.mu.Unlock()
+
+	lines, err := rp.HistorySize("s1")
+	if err != nil {
+		t.Fatalf("expected fallback, got error: %v", err)
+	}
+	if lines != 500 {
+		t.Errorf("got %d, want 500", lines)
+	}
+}
+
+func TestRemoteProvider_SendChoice_Fallback(t *testing.T) {
+	rp, srv := newRemoteTestSetup(t, map[string]http.HandlerFunc{
+		"POST /session/choice": func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		},
+	})
+	defer srv.Close()
+
+	mock := tmux.NewMockClient()
+	mock.ErrCapture = fmt.Errorf("socket not connected")
+	mock.ErrSendKeys = fmt.Errorf("socket not connected")
+	rp.SetTmuxClient(mock)
+
+	if err := rp.SendChoice("@1", 1); err != nil {
+		t.Fatalf("expected fallback, got error: %v", err)
+	}
+}
+
+func TestRemoteProvider_SendKeys(t *testing.T) {
+	rp, srv := newRemoteTestSetup(t, map[string]http.HandlerFunc{
+		"POST /session/s1/send-keys": func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		},
+	})
+	defer srv.Close()
+
+	// Without tmuxClient: uses daemon API.
+	if err := rp.SendKeys("s1", "Enter"); err != nil {
+		t.Fatalf("daemon API failed: %v", err)
+	}
+}
+
+func TestRemoteProvider_SendKeys_Fallback(t *testing.T) {
+	rp, srv := newRemoteTestSetup(t, map[string]http.HandlerFunc{
+		"POST /session/s1/send-keys": func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		},
+	})
+	defer srv.Close()
+
+	mock := tmux.NewMockClient()
+	mock.ErrSendKeys = fmt.Errorf("socket not connected")
+	rp.SetTmuxClient(mock)
+
+	rp.mu.Lock()
+	rp.sessions = []SessionInfo{{ID: "s1", TmuxWindow: "lazyclaude:lc-s1"}}
+	rp.mu.Unlock()
+
+	if err := rp.SendKeys("s1", "Enter"); err != nil {
+		t.Fatalf("expected fallback, got error: %v", err)
+	}
+}
+
+func TestRemoteProvider_SendKeys_TmuxSuccess(t *testing.T) {
+	conn := &mockConnManager{state: Connected}
+	rp := NewRemoteProvider("host", conn)
+
+	mock := tmux.NewMockClient()
+	rp.SetTmuxClient(mock)
+
+	rp.mu.Lock()
+	rp.sessions = []SessionInfo{{ID: "s1", TmuxWindow: "lazyclaude:lc-s1"}}
+	rp.mu.Unlock()
+
+	if err := rp.SendKeys("s1", "Enter"); err != nil {
+		t.Fatalf("tmux send-keys failed: %v", err)
+	}
+	if keys := mock.SentKeys["lazyclaude:lc-s1"]; len(keys) != 1 || keys[0] != "Enter" {
+		t.Errorf("unexpected sent keys: %v", keys)
 	}
 }
 
