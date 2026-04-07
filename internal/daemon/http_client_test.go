@@ -33,7 +33,7 @@ func testWriteJSON(w http.ResponseWriter, v interface{}) {
 
 func TestHTTPClient_CreateSession(t *testing.T) {
 	srv := newClientTestServer(t, map[string]http.HandlerFunc{
-		"POST /sessions": func(w http.ResponseWriter, r *http.Request) {
+		"POST /session/create": func(w http.ResponseWriter, r *http.Request) {
 			var req SessionCreateRequest
 			json.NewDecoder(r.Body).Decode(&req)
 			if req.Path != "/home/user/project" {

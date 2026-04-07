@@ -31,6 +31,8 @@ func TestTunnel_SSHArgs_Basic(t *testing.T) {
 		"-o", "ServerAliveCountMax=3",
 		"-o", "ExitOnForwardFailure=yes",
 		"-o", "BatchMode=yes",
+		"-o", "ControlMaster=no",
+		"-o", "ControlPath=none",
 		"user@host",
 	}
 
@@ -56,6 +58,8 @@ func TestTunnel_SSHArgs_WithPort(t *testing.T) {
 		"-o", "ServerAliveCountMax=3",
 		"-o", "ExitOnForwardFailure=yes",
 		"-o", "BatchMode=yes",
+		"-o", "ControlMaster=no",
+		"-o", "ControlPath=none",
 		"-p", "2222",
 		"user@host",
 	}
@@ -157,6 +161,8 @@ func TestSocketTunnel_SSHArgs_Basic(t *testing.T) {
 		"-o", "ServerAliveCountMax=3",
 		"-o", "ExitOnForwardFailure=yes",
 		"-o", "BatchMode=yes",
+		"-o", "ControlMaster=no",
+		"-o", "ControlPath=none",
 		"-o", "StreamLocalBindUnlink=yes",
 		"user@host",
 	}
@@ -183,6 +189,8 @@ func TestSocketTunnel_SSHArgs_WithPort(t *testing.T) {
 		"-o", "ServerAliveCountMax=3",
 		"-o", "ExitOnForwardFailure=yes",
 		"-o", "BatchMode=yes",
+		"-o", "ControlMaster=no",
+		"-o", "ControlPath=none",
 		"-o", "StreamLocalBindUnlink=yes",
 		"-p", "2222",
 		"user@host",

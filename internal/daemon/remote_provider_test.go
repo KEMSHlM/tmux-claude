@@ -149,7 +149,7 @@ func TestRemoteProvider_HasSession(t *testing.T) {
 func TestRemoteProvider_Create(t *testing.T) {
 	var gotReq SessionCreateRequest
 	rp, srv := newRemoteTestSetup(t, map[string]http.HandlerFunc{
-		"POST /sessions": func(w http.ResponseWriter, r *http.Request) {
+		"POST /session/create": func(w http.ResponseWriter, r *http.Request) {
 			json.NewDecoder(r.Body).Decode(&gotReq)
 			testWriteJSON(w, SessionCreateResponse{ID: "new1"})
 		},
@@ -332,7 +332,7 @@ func TestRemoteProvider_ListWorktrees(t *testing.T) {
 func TestRemoteProvider_CreatePMSession(t *testing.T) {
 	var gotReq SessionCreateRequest
 	rp, srv := newRemoteTestSetup(t, map[string]http.HandlerFunc{
-		"POST /sessions": func(w http.ResponseWriter, r *http.Request) {
+		"POST /session/create": func(w http.ResponseWriter, r *http.Request) {
 			json.NewDecoder(r.Body).Decode(&gotReq)
 			testWriteJSON(w, SessionCreateResponse{ID: "pm1"})
 		},
@@ -350,7 +350,7 @@ func TestRemoteProvider_CreatePMSession(t *testing.T) {
 func TestRemoteProvider_CreateWorkerSession(t *testing.T) {
 	var gotReq SessionCreateRequest
 	rp, srv := newRemoteTestSetup(t, map[string]http.HandlerFunc{
-		"POST /sessions": func(w http.ResponseWriter, r *http.Request) {
+		"POST /session/create": func(w http.ResponseWriter, r *http.Request) {
 			json.NewDecoder(r.Body).Decode(&gotReq)
 			testWriteJSON(w, SessionCreateResponse{ID: "w1"})
 		},
