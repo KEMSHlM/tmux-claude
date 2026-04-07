@@ -235,6 +235,25 @@ func TestHTTPClient_CaptureScrollback(t *testing.T) {
 	}
 }
 
+func TestHTTPClient_SendKeys(t *testing.T) {
+	srv := newClientTestServer(t, map[string]http.HandlerFunc{
+		"POST /session/s1/send-keys": func(w http.ResponseWriter, r *http.Request) {
+			var req SendKeysRequest
+			json.NewDecoder(r.Body).Decode(&req)
+			if req.Keys != "Enter" {
+				t.Errorf("got keys=%q, want Enter", req.Keys)
+			}
+			w.WriteHeader(http.StatusOK)
+		},
+	})
+	defer srv.Close()
+
+	c := NewHTTPClient(srv.URL, "")
+	if err := c.SendKeys(context.Background(), "s1", "Enter"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestHTTPClient_Shutdown(t *testing.T) {
 	srv := newClientTestServer(t, map[string]http.HandlerFunc{
 		"POST /shutdown": func(w http.ResponseWriter, _ *http.Request) {
