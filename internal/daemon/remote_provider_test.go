@@ -167,6 +167,30 @@ func TestRemoteProvider_Create(t *testing.T) {
 	}
 }
 
+func TestRemoteProvider_Create_DoesNotCallPostCreateHook(t *testing.T) {
+	hookCalled := false
+	srv := newClientTestServer(t, map[string]http.HandlerFunc{
+		"POST /session/create": func(w http.ResponseWriter, _ *http.Request) {
+			testWriteJSON(w, SessionCreateResponse{ID: "new1"})
+		},
+	})
+	defer srv.Close()
+
+	client := NewHTTPClient(srv.URL, "test-token")
+	conn := &mockConnManager{state: Connected, client: client}
+	rp := NewRemoteProvider("host", conn, WithPostCreate(func(_, _ string, _ *SessionCreateResponse) error {
+		hookCalled = true
+		return nil
+	}))
+
+	if err := rp.Create("/project"); err != nil {
+		t.Fatal(err)
+	}
+	if hookCalled {
+		t.Fatal("PostCreateHook must NOT be called from Create (mirror setup is caller's responsibility)")
+	}
+}
+
 func TestRemoteProvider_Delete(t *testing.T) {
 	rp, srv := newRemoteTestSetup(t, map[string]http.HandlerFunc{
 		"DELETE /session/s1": func(w http.ResponseWriter, _ *http.Request) {

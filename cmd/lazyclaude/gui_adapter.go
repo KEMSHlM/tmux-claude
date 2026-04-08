@@ -88,8 +88,9 @@ func (a *guiCompositeAdapter) readPendingHost() string {
 // Prefers the cached host (updated by Sessions() on each layout cycle),
 // falling back to the default pendingHost (set by connect dialog or DetectSSHHost).
 //
-// Thread-safe: reads cachedHost under RLock instead of calling currentHostFn
-// directly, so it can be called from any goroutine.
+// Thread-safe: reads cachedHost updated by Sessions() each layout cycle.
+// May return stale value between cycles, acceptable because operations
+// are synchronous on the calling goroutine.
 func (a *guiCompositeAdapter) resolveHost() string {
 	a.hostCacheMu.RLock()
 	h := a.cachedHost
@@ -266,6 +267,8 @@ func (a *guiCompositeAdapter) completeRemoteCreate(placeholderID, localPath, hos
 }
 
 // remoteProvider returns the concrete RemoteProvider for the given host.
+// Type assertion escape hatch for Delete, Rename, and completeRemoteCreate
+// which bypass PostCreateHook and need direct access to the provider.
 func (a *guiCompositeAdapter) remoteProvider(host string) *daemon.RemoteProvider {
 	sp := a.cp.RemoteProvider(host)
 	if sp == nil {

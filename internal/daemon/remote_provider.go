@@ -219,6 +219,10 @@ func (rp *RemoteProvider) Create(path string) error {
 // response containing the ID and tmux window name. Used by the mirror
 // window creation flow which needs the session ID to construct the
 // mirror window's SSH attach command.
+//
+// Callers are responsible for mirror setup. postCreate is NOT called
+// from this method because the optimistic UI flow (Create → placeholder
+// → completeRemoteCreate) handles mirrors separately.
 func (rp *RemoteProvider) CreateSession(path string) (*SessionCreateResponse, error) {
 	client, err := rp.conn.Client()
 	if err != nil {
