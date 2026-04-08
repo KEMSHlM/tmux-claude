@@ -210,7 +210,6 @@ func TestRemoteProvider_PurgeOrphans(t *testing.T) {
 	}
 }
 
-
 func TestRemoteProvider_ResumeWorktree(t *testing.T) {
 	rp, srv := newRemoteTestSetup(t, map[string]http.HandlerFunc{
 		"POST /worktree/resume": func(w http.ResponseWriter, _ *http.Request) {
@@ -360,6 +359,39 @@ func TestRemoteProvider_PostCreateHook_CalledOnCreatePMSession(t *testing.T) {
 	}
 	if !hookCalled {
 		t.Fatal("PostCreateHook was not called for CreatePMSession")
+	}
+}
+
+func TestRemoteProvider_PostCreateHook_CalledOnResumeWorktree(t *testing.T) {
+	var hookCalled bool
+	var gotHost, gotPath string
+	srv := newClientTestServer(t, map[string]http.HandlerFunc{
+		"POST /worktree/resume": func(w http.ResponseWriter, _ *http.Request) {
+			testWriteJSON(w, WorktreeResumeResponse{SessionID: "wt-resume", Name: "feat", TmuxWindow: "lc-resume"})
+		},
+	})
+	defer srv.Close()
+
+	client := NewHTTPClient(srv.URL, "test-token")
+	conn := &mockConnManager{state: Connected, client: client}
+	rp := NewRemoteProvider("remote-host", conn, WithPostCreate(func(host, path string, resp *SessionCreateResponse) error {
+		hookCalled = true
+		gotHost = host
+		gotPath = path
+		return nil
+	}))
+
+	if err := rp.ResumeWorktree("/tmp/wt", "continue", "/project"); err != nil {
+		t.Fatal(err)
+	}
+	if !hookCalled {
+		t.Fatal("PostCreateHook was not called for ResumeWorktree")
+	}
+	if gotHost != "remote-host" {
+		t.Errorf("hook host=%q, want remote-host", gotHost)
+	}
+	if gotPath != "/project" {
+		t.Errorf("hook path=%q, want /project", gotPath)
 	}
 }
 

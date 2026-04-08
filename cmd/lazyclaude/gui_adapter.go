@@ -639,4 +639,3 @@ func (a *guiCompositeAdapter) CreateWorkerSession(name, prompt, projectRoot stri
 	}
 	return a.cp.CreateWorkerSession(name, prompt, projectRoot, host)
 }
-

@@ -36,7 +36,7 @@ func WithPostCreate(hook PostCreateHook) RemoteProviderOption {
 type RemoteProvider struct {
 	host       string
 	conn       ConnectionManager
-	postCreate PostCreateHook
+	postCreate PostCreateHook // immutable after construction
 
 	mu            sync.Mutex
 	sessions      []SessionInfo
