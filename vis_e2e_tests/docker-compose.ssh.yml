@@ -35,6 +35,7 @@ services:
     volumes:
       - ../vis_e2e_tests/outputs:/app/outputs
       - ../vis_e2e_tests/outputs/${TAPE:-ssh_launch}/log:/tmp/lazyclaude
+      - ../vis_e2e_tests/outputs/${TAPE:-ssh_launch}/log/debug.log:/tmp/lazyclaude-debug.log
     tty: true
     privileged: true
     entrypoint: ["/bin/bash-real", "-c"]

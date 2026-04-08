@@ -311,6 +311,27 @@ func (a *guiCompositeAdapter) createMirrorWindow(host, remoteWindow, localWindow
 	}
 
 	ctx := context.Background()
+
+	// Ensure the lazyclaude tmux session exists. On a fresh start where the
+	// first operation is remote (no local sessions yet), the session won't
+	// exist and NewWindow would fail with "no server running".
+	exists, err := a.tmuxClient.HasSession(ctx, "lazyclaude")
+	if err != nil {
+		debugLog("createMirrorWindow: HasSession error (non-fatal): %v", err)
+	}
+	if !exists {
+		if err := a.tmuxClient.NewSession(ctx, tmux.NewSessionOpts{
+			Name:       "lazyclaude",
+			WindowName: localWindowName,
+			Command:    command,
+			StartDir:   abs,
+			Detached:   true,
+		}); err != nil {
+			return fmt.Errorf("new-session: %w", err)
+		}
+		return nil
+	}
+
 	return a.tmuxClient.NewWindow(ctx, tmux.NewWindowOpts{
 		Session:  "lazyclaude",
 		Name:     localWindowName,
@@ -623,13 +644,18 @@ func (a *guiCompositeAdapter) ListWorktrees(projectRoot string) ([]gui.WorktreeI
 
 func (a *guiCompositeAdapter) CreatePMSession(projectRoot string) error {
 	host := a.resolveHost()
+	debugLog("CreatePMSession: host=%q projectRoot=%q", host, projectRoot)
 	if err := a.ensureRemoteConnected(host); err != nil {
+		debugLog("CreatePMSession: ensureRemoteConnected failed: %v", err)
 		return err
 	}
 	if host != "" {
 		projectRoot = a.resolveRemotePath(projectRoot, host)
 	}
-	return a.cp.CreatePMSession(projectRoot, host)
+	debugLog("CreatePMSession: calling cp.CreatePMSession projectRoot=%q host=%q", projectRoot, host)
+	err := a.cp.CreatePMSession(projectRoot, host)
+	debugLog("CreatePMSession: result: %v", err)
+	return err
 }
 
 func (a *guiCompositeAdapter) CreateWorkerSession(name, prompt, projectRoot string) error {

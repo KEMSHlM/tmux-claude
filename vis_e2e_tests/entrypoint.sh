@@ -13,6 +13,9 @@ mkdir -p "$OUTDIR"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/scripts/show_frame.sh"
 
+# --- デバッグログ有効化 ---
+export LAZYCLAUDE_DEBUG=1
+
 # --- 共通セットアップ ---
 # Docker DNS が ttyd 内で効かない場合があるため、remote の IP を /etc/hosts に追加
 if [ -n "${REMOTE_HOST:-}" ]; then
@@ -28,6 +31,25 @@ case "$TAPE_NAME" in
     smoke) ;;
     # hero: README 用デモ。セットアップ不要
     hero) ;;
+    # worktree_pm: w/W/P キーの動作確認。git repo 必要
+    worktree_pm)
+        cd /app
+        git config --global user.email "test@test.com"
+        git config --global user.name "test"
+        git init -q
+        git add go.mod
+        git commit -q -m "init"
+        ;;
+    # ssh_worktree_pm: SSH経由でw/W/Pキーの動作確認
+    # ユーザー環境の模擬: 既存セッションがありlazyclaude tmuxセッションが存在する状態
+    ssh_worktree_pm)
+        # リモート: .env のトークンを SSH セッションで使えるようにする
+        if [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+            ssh -o ConnectTimeout=10 remote "echo 'export CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}' >> /root/.bashrc"
+        fi
+        # リモート: git repo + CLAUDE.md マーカーを準備
+        ssh -o ConnectTimeout=10 remote 'cd /root && git init -q && git commit -q --allow-empty -m init && echo "# REMOTE_HOST_MARKER" > CLAUDE.md'
+        ;;
 esac
 
 # --- フレーム監視 (バックグラウンド) ---
