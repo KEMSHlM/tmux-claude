@@ -367,6 +367,7 @@ func TestRemoteProvider_PostCreateHook_CalledOnCreateWorktree(t *testing.T) {
 
 func TestRemoteProvider_PostCreateHook_CalledOnCreatePMSession(t *testing.T) {
 	var hookCalled bool
+	var gotPath string
 	var gotResp *SessionCreateResponse
 	srv := newClientTestServer(t, map[string]http.HandlerFunc{
 		"POST /session/create": func(w http.ResponseWriter, _ *http.Request) {
@@ -377,8 +378,9 @@ func TestRemoteProvider_PostCreateHook_CalledOnCreatePMSession(t *testing.T) {
 
 	client := NewHTTPClient(srv.URL, "test-token")
 	conn := &mockConnManager{state: Connected, client: client}
-	rp := NewRemoteProvider("host", conn, WithPostCreate(func(_, _ string, resp *SessionCreateResponse) error {
+	rp := NewRemoteProvider("host", conn, WithPostCreate(func(_, path string, resp *SessionCreateResponse) error {
 		hookCalled = true
+		gotPath = path
 		gotResp = resp
 		return nil
 	}))
@@ -388,6 +390,9 @@ func TestRemoteProvider_PostCreateHook_CalledOnCreatePMSession(t *testing.T) {
 	}
 	if !hookCalled {
 		t.Fatal("PostCreateHook was not called for CreatePMSession")
+	}
+	if gotPath != "/project" {
+		t.Errorf("hook path=%q, want /project", gotPath)
 	}
 	if gotResp != nil && gotResp.Role != "pm" {
 		t.Errorf("hook resp.Role=%q, want pm", gotResp.Role)
@@ -426,6 +431,40 @@ func TestRemoteProvider_PostCreateHook_CalledOnResumeWorktree(t *testing.T) {
 	}
 	if gotPath != "/tmp/wt" {
 		t.Errorf("hook path=%q, want /tmp/wt", gotPath)
+	}
+	if gotResp != nil && gotResp.Role != "worker" {
+		t.Errorf("hook resp.Role=%q, want worker", gotResp.Role)
+	}
+}
+
+func TestRemoteProvider_PostCreateHook_CalledOnCreateWorkerSession(t *testing.T) {
+	var hookCalled bool
+	var gotPath string
+	var gotResp *SessionCreateResponse
+	srv := newClientTestServer(t, map[string]http.HandlerFunc{
+		"POST /session/create": func(w http.ResponseWriter, _ *http.Request) {
+			testWriteJSON(w, SessionCreateResponse{ID: "w1", Path: "/project", TmuxWindow: "lc-w1", Role: "worker"})
+		},
+	})
+	defer srv.Close()
+
+	client := NewHTTPClient(srv.URL, "test-token")
+	conn := &mockConnManager{state: Connected, client: client}
+	rp := NewRemoteProvider("host", conn, WithPostCreate(func(_, path string, resp *SessionCreateResponse) error {
+		hookCalled = true
+		gotPath = path
+		gotResp = resp
+		return nil
+	}))
+
+	if err := rp.CreateWorkerSession("w1", "task", "/project"); err != nil {
+		t.Fatal(err)
+	}
+	if !hookCalled {
+		t.Fatal("PostCreateHook was not called for CreateWorkerSession")
+	}
+	if gotPath != "/project" {
+		t.Errorf("hook path=%q, want /project", gotPath)
 	}
 	if gotResp != nil && gotResp.Role != "worker" {
 		t.Errorf("hook resp.Role=%q, want worker", gotResp.Role)
