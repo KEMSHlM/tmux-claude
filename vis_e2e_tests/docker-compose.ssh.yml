@@ -4,6 +4,7 @@ services:
       context: ..
       dockerfile: vis_e2e_tests/Dockerfile
       target: remote
+    hostname: remote-host
     env_file:
       - path: .env
         required: false
@@ -20,6 +21,7 @@ services:
       context: ..
       dockerfile: vis_e2e_tests/Dockerfile
       target: vhs
+    hostname: local-host
     depends_on:
       remote:
         condition: service_healthy

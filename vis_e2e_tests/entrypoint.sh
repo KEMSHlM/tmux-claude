@@ -43,12 +43,14 @@ case "$TAPE_NAME" in
     # ssh_worktree_pm: SSH経由でw/W/Pキーの動作確認
     # ユーザー環境の模擬: 既存セッションがありlazyclaude tmuxセッションが存在する状態
     ssh_worktree_pm)
+        # リモート: 古い daemon/state をクリーンアップ
+        ssh -o ConnectTimeout=10 remote 'tmux -L lazyclaude kill-server 2>/dev/null; rm -rf /tmp/lazyclaude-* /tmp/tmux-*/lazyclaude ~/.local/share/lazyclaude/state.json 2>/dev/null; true'
         # リモート: .env のトークンを SSH セッションで使えるようにする
         if [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
             ssh -o ConnectTimeout=10 remote "echo 'export CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}' >> /root/.bashrc"
         fi
-        # リモート: git repo + CLAUDE.md マーカーを準備
-        ssh -o ConnectTimeout=10 remote 'cd /root && git init -q && git commit -q --allow-empty -m init && echo "# REMOTE_HOST_MARKER" > CLAUDE.md'
+        # リモート: /root/app/test-app にプロジェクトを作成
+        ssh -o ConnectTimeout=10 remote 'mkdir -p /root/app/test-app && cd /root/app/test-app && git init -q && git commit -q --allow-empty -m init'
         ;;
 esac
 

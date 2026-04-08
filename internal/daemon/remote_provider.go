@@ -366,7 +366,7 @@ func (rp *RemoteProvider) CreateWorktree(name, prompt, projectRoot string) error
 		return err
 	}
 	if rp.postCreate != nil {
-		return rp.postCreate(rp.host, resp.Path, resp)
+		return rp.postCreate(rp.host, projectRoot, resp)
 	}
 	return nil
 }
@@ -401,7 +401,7 @@ func (rp *RemoteProvider) ResumeWorktree(worktreePath, prompt, projectRoot strin
 		return err
 	}
 	if rp.postCreate != nil {
-		return rp.postCreate(rp.host, resp.Path, resp)
+		return rp.postCreate(rp.host, projectRoot, resp)
 	}
 	return nil
 }
@@ -446,7 +446,7 @@ func (rp *RemoteProvider) CreatePMSession(projectRoot string) error {
 		return err
 	}
 	if rp.postCreate != nil {
-		return rp.postCreate(rp.host, resp.Path, resp)
+		return rp.postCreate(rp.host, projectRoot, resp)
 	}
 	return nil
 }
@@ -470,7 +470,7 @@ func (rp *RemoteProvider) CreateWorkerSession(name, prompt, projectRoot string) 
 		return err
 	}
 	if rp.postCreate != nil {
-		return rp.postCreate(rp.host, resp.Path, resp)
+		return rp.postCreate(rp.host, projectRoot, resp)
 	}
 	return nil
 }

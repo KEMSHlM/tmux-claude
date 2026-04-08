@@ -354,8 +354,8 @@ func TestRemoteProvider_PostCreateHook_CalledOnCreateWorktree(t *testing.T) {
 	if gotHost != "remote-host" {
 		t.Errorf("hook host=%q, want remote-host", gotHost)
 	}
-	if gotPath != "/project/.lazyclaude/worktrees/feat" {
-		t.Errorf("hook path=%q, want /project/.lazyclaude/worktrees/feat", gotPath)
+	if gotPath != "/project" {
+		t.Errorf("hook path=%q, want /project (projectRoot, not resp.Path)", gotPath)
 	}
 	if gotResp == nil || gotResp.ID != "wt1" {
 		t.Errorf("hook resp=%v, want ID=wt1", gotResp)
@@ -429,8 +429,8 @@ func TestRemoteProvider_PostCreateHook_CalledOnResumeWorktree(t *testing.T) {
 	if gotHost != "remote-host" {
 		t.Errorf("hook host=%q, want remote-host", gotHost)
 	}
-	if gotPath != "/tmp/wt" {
-		t.Errorf("hook path=%q, want /tmp/wt", gotPath)
+	if gotPath != "/project" {
+		t.Errorf("hook path=%q, want /project (projectRoot, not resp.Path)", gotPath)
 	}
 	if gotResp != nil && gotResp.Role != "worker" {
 		t.Errorf("hook resp.Role=%q, want worker", gotResp.Role)

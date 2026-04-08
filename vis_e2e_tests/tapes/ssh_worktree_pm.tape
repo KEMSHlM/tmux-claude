@@ -7,17 +7,22 @@ Set Height 1200
 Set FontSize 16
 Set WaitTimeout 90s
 
-# SSH into remote to create SSH pane context
+# SSH into remote-host, cd to project directory
 Sleep 1s
-Type "ssh remote" Enter
+Type "ssh -t remote 'cd /root/app/test-app && exec bash'" Enter
 Sleep 3s
 
 # Launch lazyclaude (Ctrl+\) — detects SSH pane, pendingHost="remote"
 Ctrl+\
 Wait+Screen /No sessions/
-Sleep 1s
+Sleep 3s
 
-# w: create worktree on remote
+# P: create PM session first (under project root)
+Type "P"
+Wait+Screen /\[PM\]/
+Sleep 3s
+
+# w: create worktree (under same project root)
 Type "w"
 Wait+Screen /Branch/
 Type "feat-test"
@@ -25,29 +30,31 @@ Tab
 Type "test worktree"
 Enter
 
-# Verify: session appears under remote project with remote path
-Wait+Screen /remote: root/
-Sleep 2s
+# Verify: both [PM] and [W] under same project "remote: test-app"
+Wait+Screen /\[W\]/
+Sleep 3s
 
-# Enter fullscreen on worktree session — verify remote CWD /root
+# Verify tree structure:
+#   remote: test-app
+#     [PM] pm ?
+#     [W] feat-test ?
+
+# Enter fullscreen on [W] feat-test — verify independent session
+Down
 Down
 Enter
-Wait+Screen /\/root/
+Wait+Screen /Claude Code/
 Sleep 3s
 
 # Exit fullscreen
 Ctrl+\
+Wait+Screen /Sessions/
 Sleep 2s
 
-# P: create PM session on remote
-Type "P"
-Wait+Screen /pm/
-Sleep 2s
-
-# Navigate to PM session and enter fullscreen — verify remote
-Down
+# Enter fullscreen on [PM] pm — verify it shows different content
+Up
 Enter
-Wait+Screen /\/root/
+Wait+Screen /Claude Code/
 Sleep 3s
 
 # Exit fullscreen

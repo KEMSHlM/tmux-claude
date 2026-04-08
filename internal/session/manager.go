@@ -362,7 +362,7 @@ func (m *Manager) launchErrorSession(ctx context.Context, sess Session, buildErr
 // in a worktree session. Writes a temp launcher script and returns
 // the command, start directory, optional cleanup function, and error.
 func (m *Manager) buildLaunchCommand(sess Session, systemPrompt, userPrompt string) (claudeCmd string, startDir string, cleanup func(), err error) {
-	launcher, launcherErr := writeWorktreeLauncher(systemPrompt, userPrompt, m.paths.RuntimeDir)
+	launcher, launcherErr := writeWorktreeLauncher(systemPrompt, userPrompt, sess.Path, m.paths.RuntimeDir)
 	if launcherErr != nil {
 		return "", "", nil, fmt.Errorf("write launcher: %w", launcherErr)
 	}
@@ -373,7 +373,7 @@ func (m *Manager) buildLaunchCommand(sess Session, systemPrompt, userPrompt stri
 // writeWorktreeLauncher writes a shell script that launches claude with
 // --append-system-prompt and an optional user prompt as positional argument.
 // Returns the script path. The script self-deletes after execution.
-func writeWorktreeLauncher(systemPrompt, userPrompt, runtimeDir string) (string, error) {
+func writeWorktreeLauncher(systemPrompt, userPrompt, workDir, runtimeDir string) (string, error) {
 	f, err := os.CreateTemp("", "lazyclaude-wt-*.sh")
 	if err != nil {
 		return "", fmt.Errorf("create temp script: %w", err)
@@ -383,6 +383,10 @@ func writeWorktreeLauncher(systemPrompt, userPrompt, runtimeDir string) (string,
 	sb.WriteString("#!/bin/sh\n")
 	// Self-delete the launcher script (already read by shell at this point).
 	sb.WriteString("rm -f \"$0\"\n")
+	// Ensure CWD is correct even when launched via login shell (-l).
+	sb.WriteString("cd ")
+	sb.WriteString(shell.Quote(workDir))
+	sb.WriteString(" 2>/dev/null\n")
 	sb.WriteString("exec claude")
 
 	// Inject hooks via --settings file so ~/.claude/settings.json stays untouched.
