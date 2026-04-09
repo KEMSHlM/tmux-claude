@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/any-context/lazyclaude/internal/core/model"
+	"github.com/any-context/lazyclaude/internal/core/shell"
 )
 
 // Compile-time check: RemoteProvider implements SessionProvider.
@@ -315,7 +316,7 @@ func (rp *RemoteProvider) HistorySize(_ string) (int, error) {
 // LaunchLazygit launches lazygit on the remote host via SSH -t.
 // This bypasses the daemon API entirely.
 func (rp *RemoteProvider) LaunchLazygit(path string) error {
-	remoteCmd := fmt.Sprintf("cd %s && lazygit", PosixQuote(path))
+	remoteCmd := fmt.Sprintf("cd %s && lazygit", shell.Quote(path))
 	return rp.runSSHInteractive(remoteCmd)
 }
 
@@ -354,21 +355,27 @@ func buildTmuxAttachCommand(tmuxTarget string) string {
 			"tmux -L lazyclaude new-session -t lazyclaude -s attach-$$ "+
 			"\\; set-option destroy-unattached on "+
 			"\\; select-window -t %s",
-		PosixQuote(window),
+		shell.Quote(window),
 	)
 }
 
 // --- WorktreeProvider ---
+
+// invokePostCreate calls the postCreate hook if one is registered.
+// projectRoot is the local grouping path; resp contains the newly created session details.
+func (rp *RemoteProvider) invokePostCreate(projectRoot string, resp *SessionCreateResponse) error {
+	if rp.postCreate != nil {
+		return rp.postCreate(rp.host, projectRoot, resp)
+	}
+	return nil
+}
 
 func (rp *RemoteProvider) CreateWorktree(name, prompt, projectRoot string) error {
 	resp, err := rp.createWorktreeResp(name, prompt, projectRoot)
 	if err != nil {
 		return err
 	}
-	if rp.postCreate != nil {
-		return rp.postCreate(rp.host, projectRoot, resp)
-	}
-	return nil
+	return rp.invokePostCreate(projectRoot, resp)
 }
 
 // createWorktreeResp creates a worktree on the remote daemon and returns the
@@ -400,10 +407,7 @@ func (rp *RemoteProvider) ResumeWorktree(worktreePath, prompt, projectRoot strin
 	if err != nil {
 		return err
 	}
-	if rp.postCreate != nil {
-		return rp.postCreate(rp.host, projectRoot, resp)
-	}
-	return nil
+	return rp.invokePostCreate(projectRoot, resp)
 }
 
 // resumeWorktreeResp resumes a worktree on the remote daemon and returns the
@@ -445,10 +449,7 @@ func (rp *RemoteProvider) CreatePMSession(projectRoot string) error {
 	if err != nil {
 		return err
 	}
-	if rp.postCreate != nil {
-		return rp.postCreate(rp.host, projectRoot, resp)
-	}
-	return nil
+	return rp.invokePostCreate(projectRoot, resp)
 }
 
 // createPMSessionResp creates a PM session on the remote daemon and returns
@@ -470,10 +471,7 @@ func (rp *RemoteProvider) CreateWorkerSession(name, prompt, projectRoot string) 
 	if err != nil {
 		return err
 	}
-	if rp.postCreate != nil {
-		return rp.postCreate(rp.host, projectRoot, resp)
-	}
-	return nil
+	return rp.invokePostCreate(projectRoot, resp)
 }
 
 // createWorkerSessionResp creates a worker session on the remote daemon and

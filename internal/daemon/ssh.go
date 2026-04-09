@@ -38,12 +38,6 @@ func (e *ExecSSHExecutor) Copy(ctx context.Context, host, localPath, remotePath 
 	return cmd.Run()
 }
 
-// PosixQuote wraps a string in single quotes, escaping embedded single quotes.
-// This prevents shell interpretation of metacharacters in remote commands.
-func PosixQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
-}
-
 // SplitHostPort separates "user@host:port" into ("user@host", "port").
 // If no port is specified, returns (host, "").
 // Handles: "host", "host:22", "user@host", "user@host:22",

@@ -10,6 +10,7 @@ import (
 
 	"github.com/any-context/lazyclaude/internal/core/config"
 	"github.com/any-context/lazyclaude/internal/core/model"
+	"github.com/any-context/lazyclaude/internal/core/shell"
 	"github.com/any-context/lazyclaude/internal/core/tmux"
 	"github.com/any-context/lazyclaude/internal/daemon"
 	"github.com/any-context/lazyclaude/internal/gui"
@@ -299,8 +300,8 @@ func (a *guiCompositeAdapter) createMirrorWindow(host, remoteWindow, localWindow
 			"tmux -L lazyclaude new-session -t lazyclaude -s %s "+
 			"\\; set-option destroy-unattached on "+
 			"\\; select-window -t %s",
-		daemon.PosixQuote(localWindowName),
-		daemon.PosixQuote(remoteWindow),
+		shell.Quote(localWindowName),
+		shell.Quote(remoteWindow),
 	)
 
 	// Base64-encode the remote command to prevent shell injection.
@@ -349,6 +350,47 @@ func (a *guiCompositeAdapter) createMirrorWindow(host, remoteWindow, localWindow
 	})
 }
 
+// mirrorParams carries the fields required to create a local mirror window
+// and store entry for a remote session.
+type mirrorParams struct {
+	ID         string
+	Name       string
+	Path       string // session display path (e.g. worktree path)
+	TmuxWindow string // remote tmux window identifier
+	Host       string
+	Role       session.Role
+}
+
+// addMirrorSession creates a local tmux mirror window for a remote session
+// and adds the session to the local store under groupPath.
+// It is the shared implementation used by createMirrorForExisting and
+// ensureMirrorForRemoteSession.
+func (a *guiCompositeAdapter) addMirrorSession(p mirrorParams, groupPath string) error {
+	mirrorName := session.MirrorWindowName(p.ID)
+	if err := a.createMirrorWindow(p.Host, p.TmuxWindow, mirrorName); err != nil {
+		return fmt.Errorf("create mirror window: %w", err)
+	}
+
+	sess := session.Session{
+		ID:         p.ID,
+		Name:       p.Name,
+		Path:       p.Path,
+		Host:       p.Host,
+		Status:     session.StatusRunning,
+		TmuxWindow: mirrorName,
+		Role:       p.Role,
+	}
+	a.localMgr.Store().Add(sess, groupPath)
+	if err := a.localMgr.Store().Save(); err != nil {
+		debugLog("addMirrorSession: save store failed: %v", err)
+		if a.onError != nil {
+			a.onError(fmt.Sprintf("save store: %v", err))
+		}
+	}
+	debugLog("addMirrorSession: mirror %q created for session %q path=%q role=%q", mirrorName, p.ID, p.Path, p.Role)
+	return nil
+}
+
 // createMirrorForExisting creates a mirror window and local store entry for
 // an existing remote session discovered during host connection (c key).
 // Skips sessions that already have a mirror window in the local store.
@@ -359,26 +401,17 @@ func (a *guiCompositeAdapter) createMirrorForExisting(host string, s daemon.Sess
 		return
 	}
 
-	mirrorName := session.MirrorWindowName(s.ID)
-	if err := a.createMirrorWindow(host, s.TmuxWindow, mirrorName); err != nil {
-		debugLog("createMirrorForExisting: failed for %q: %v", s.ID, err)
-		return
-	}
-
-	sess := session.Session{
+	p := mirrorParams{
 		ID:         s.ID,
 		Name:       s.Name,
 		Path:       s.Path,
+		TmuxWindow: s.TmuxWindow,
 		Host:       host,
-		Status:     session.StatusRunning,
-		TmuxWindow: mirrorName,
 		Role:       session.Role(s.Role),
 	}
-	a.localMgr.Store().Add(sess, s.Path)
-	if err := a.localMgr.Store().Save(); err != nil {
-		debugLog("createMirrorForExisting: save store failed: %v", err)
+	if err := a.addMirrorSession(p, s.Path); err != nil {
+		debugLog("createMirrorForExisting: failed for %q: %v", s.ID, err)
 	}
-	debugLog("createMirrorForExisting: mirror %q created for session %q", mirrorName, s.ID)
 }
 
 // ensureMirrorForRemoteSession creates a local mirror window and adds the
@@ -392,11 +425,6 @@ func (a *guiCompositeAdapter) ensureMirrorForRemoteSession(host, path string, re
 		return nil
 	}
 
-	mirrorName := session.MirrorWindowName(resp.ID)
-	if err := a.createMirrorWindow(host, resp.TmuxWindow, mirrorName); err != nil {
-		return fmt.Errorf("create mirror window: %w", err)
-	}
-
 	// sess.Path: use the daemon's response path (accurate session path,
 	// e.g. worktree path for [W] display). Falls back to projectRoot.
 	// Store.Add grouping key: always use projectRoot (path parameter)
@@ -406,23 +434,18 @@ func (a *guiCompositeAdapter) ensureMirrorForRemoteSession(host, path string, re
 		sessionPath = resp.Path
 	}
 
-	sess := session.Session{
+	p := mirrorParams{
 		ID:         resp.ID,
 		Name:       resp.Name,
 		Path:       sessionPath,
+		TmuxWindow: resp.TmuxWindow,
 		Host:       host,
-		Status:     session.StatusRunning,
-		TmuxWindow: mirrorName,
 		Role:       session.Role(resp.Role),
 	}
-	a.localMgr.Store().Add(sess, path)
-	if err := a.localMgr.Store().Save(); err != nil {
-		debugLog("ensureMirrorForRemoteSession: save store failed: %v", err)
-		if a.onError != nil {
-			a.onError(fmt.Sprintf("save store: %v", err))
-		}
+	if err := a.addMirrorSession(p, path); err != nil {
+		return err
 	}
-	debugLog("ensureMirrorForRemoteSession: mirror %q created for session %q path=%q role=%q respPath=%q", mirrorName, resp.ID, sessionPath, resp.Role, resp.Path)
+	debugLog("ensureMirrorForRemoteSession: mirror created for session %q path=%q role=%q respPath=%q", resp.ID, sessionPath, resp.Role, resp.Path)
 	a.triggerGUIUpdate()
 	return nil
 }

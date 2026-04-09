@@ -54,6 +54,10 @@ type DaemonServer struct {
 
 	sseEventID atomic.Uint64
 
+	// pendingTools stores PreToolUse tool info keyed by tmux window ID.
+	// Consumed by the subsequent Notification hook to build ToolNotification events.
+	pendingTools sync.Map
+
 	mu         sync.RWMutex
 	shutdown   bool
 	shutdownCh chan struct{} // closed on shutdown request
@@ -773,14 +777,12 @@ type pendingToolEntry struct {
 	input    string
 }
 
-var pendingTools sync.Map // window -> pendingToolEntry
-
 func (s *DaemonServer) setPendingTool(window, toolName, input string) {
-	pendingTools.Store(window, pendingToolEntry{toolName: toolName, input: input})
+	s.pendingTools.Store(window, pendingToolEntry{toolName: toolName, input: input})
 }
 
 func (s *DaemonServer) consumePendingTool(window string) (string, string) {
-	v, ok := pendingTools.LoadAndDelete(window)
+	v, ok := s.pendingTools.LoadAndDelete(window)
 	if !ok {
 		return "", ""
 	}
