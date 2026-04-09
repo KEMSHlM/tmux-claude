@@ -340,6 +340,10 @@ func (a *App) Run() error {
 							nc.RefreshPendingFrom(pending)
 						}
 						for _, n := range pending {
+							a.setWindowActivity(n.Window, WindowActivityEntry{
+								State:    model.ActivityNeedsInput,
+								ToolName: n.ToolName,
+							})
 							a.showToolPopup(n)
 						}
 					}

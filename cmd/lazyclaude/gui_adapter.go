@@ -607,7 +607,9 @@ func (a *guiCompositeAdapter) PendingNotifications() []*model.ToolNotification {
 	// publishes to the broker instead of writing files, so ReadAll
 	// returns empty — no duplicates.
 	var result []*model.ToolNotification
-	if local, err := notify.ReadAll(a.paths.RuntimeDir); err == nil {
+	if local, err := notify.ReadAll(a.paths.RuntimeDir); err != nil {
+		debugLog("PendingNotifications: ReadAll error: %v", err)
+	} else {
 		result = append(result, local...)
 	}
 

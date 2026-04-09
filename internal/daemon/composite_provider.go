@@ -356,6 +356,11 @@ type notificationDrainer interface {
 // connected remote providers. Window names are remapped from the remote
 // "lc-" prefix to the local mirror "rm-" prefix so that the GUI can
 // match notifications to mirror windows.
+//
+// Lock order: c.mu (RLock) -> rp.mu (Lock via PendingNotifications).
+// This is safe as long as no code path acquires rp.mu first then c.mu.
+// RemoteProvider.handleSSEEvent holds only rp.mu and never calls
+// CompositeProvider, so no inversion exists.
 func (c *CompositeProvider) PendingNotifications() []*model.ToolNotification {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
