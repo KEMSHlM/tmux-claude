@@ -25,6 +25,16 @@ type OperationTarget struct {
 	ProjectRoot string // project root path (local or remote)
 }
 
+// remoteSessionAPI is the subset of *daemon.RemoteProvider methods that
+// SessionCommandService invokes directly. Defining this interface lets
+// tests inject a fake remote backend without a real SSH connection.
+// *daemon.RemoteProvider satisfies it implicitly.
+type remoteSessionAPI interface {
+	CreateSession(path string) (*daemon.SessionCreateResponse, error)
+	Delete(id string) error
+	Rename(id, newName string) error
+}
+
 // SessionCommandService encapsulates all session create/delete/rename
 // operations, hiding the local vs remote branching from the GUI adapter.
 //
@@ -44,6 +54,12 @@ type SessionCommandService struct {
 	ensureConnectedFn func(host string) error
 	// resolveRemotePathFn maps a local path to the remote CWD.
 	resolveRemotePathFn func(path, host string) string
+	// remoteProviderFn overrides the default remote provider lookup.
+	// Used by tests to inject a fake remoteSessionAPI without building
+	// a real SSH-backed *daemon.RemoteProvider. In production this is
+	// left nil and remoteProvider() falls back to the concrete type
+	// assertion via cp.RemoteProvider.
+	remoteProviderFn func(host string) remoteSessionAPI
 }
 
 // MirrorCreator is the subset of MirrorManager needed by SessionCommandService.
@@ -259,8 +275,14 @@ func (s *SessionCommandService) ensureConnected(host string) error {
 	return s.ensureConnectedFn(host)
 }
 
-// remoteProvider returns the concrete RemoteProvider for the given host.
-func (s *SessionCommandService) remoteProvider(host string) *daemon.RemoteProvider {
+// remoteProvider returns the remote API for the given host, or nil if no
+// remote provider is registered. Tests can override lookup via
+// remoteProviderFn; in production this falls back to the concrete
+// *daemon.RemoteProvider obtained from cp.RemoteProvider.
+func (s *SessionCommandService) remoteProvider(host string) remoteSessionAPI {
+	if s.remoteProviderFn != nil {
+		return s.remoteProviderFn(host)
+	}
 	sp := s.cp.RemoteProvider(host)
 	if sp == nil {
 		return nil

@@ -1,27 +1,34 @@
 package main
 
 import (
+	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/any-context/lazyclaude/internal/core/config"
+	"github.com/any-context/lazyclaude/internal/core/tmux"
+	"github.com/any-context/lazyclaude/internal/daemon"
 	"github.com/any-context/lazyclaude/internal/gui"
+	"github.com/any-context/lazyclaude/internal/session"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// mockCommands records the arguments passed to sessionCommander methods so
-// that routing tests can assert the OperationTarget each command receives.
-// Only the fields exercised by a given test need be populated; unused methods
-// return nil.
+// --- sessionCommander mock (adapter-layer tests) -----------------------------
+
+// mockCommands records arguments passed to sessionCommander methods so that
+// adapter-level routing tests can assert the OperationTarget each command
+// receives.
 type mockCommands struct {
-	createCalls           []OperationTarget
-	createWorktreeCalls   []worktreeCall
-	resumeWorktreeCalls   []worktreeCall
-	listWorktreesCalls    []OperationTarget
-	createPMCalls         []OperationTarget
-	createWorkerCalls     []worktreeCall
-	launchLazygitCalls    []OperationTarget
-	deleteCalls           []string
-	renameCalls           []renameCall
+	createCalls         []OperationTarget
+	createWorktreeCalls []worktreeCall
+	resumeWorktreeCalls []worktreeCall
+	listWorktreesCalls  []OperationTarget
+	createPMCalls       []OperationTarget
+	createWorkerCalls   []worktreeCall
+	launchLazygitCalls  []OperationTarget
+	deleteCalls         []string
+	renameCalls         []renameCall
 }
 
 type worktreeCall struct {
@@ -83,8 +90,9 @@ func (m *mockCommands) CreateWorkerSession(target OperationTarget, name, prompt 
 // Compile-time interface check.
 var _ sessionCommander = (*mockCommands)(nil)
 
-// cursorState describes the cursor position for a routing test case. It
-// mirrors the output of App.CurrentSessionHost(): host plus an onNode flag
+// --- shared helpers ----------------------------------------------------------
+
+// cursorState mirrors App.CurrentSessionHost(): host plus an onNode flag
 // that distinguishes "on a local node" (onNode=true, host="") from "no node
 // selected" (onNode=false, host="").
 type cursorState struct {
@@ -95,12 +103,65 @@ type cursorState struct {
 const (
 	localProjPath  = "/Users/me/project"
 	remoteProjPath = "/home/user/remote-project"
+	remoteHost     = "AERO"
 )
 
+// adapterCase describes a single routing scenario used by the n/w/W/P/g
+// adapter-level tests.
+type adapterCase struct {
+	name        string
+	cursor      cursorState
+	pendingHost string
+	inputPath   string // path the app layer would forward to the adapter
+	expectHost  string
+	expectPath  string
+}
+
+// standardCursorCases is the 4-row matrix used by the cursor-based commands
+// (n, w, W, P, g). Each row corresponds to one entry in the plan's routing
+// table and the path column reflects what the app layer would compute via
+// currentProjectRoot().
+func standardCursorCases() []adapterCase {
+	return []adapterCase{
+		{
+			name:        "cursor on local node stays local",
+			cursor:      cursorState{Host: "", OnNode: true},
+			pendingHost: remoteHost,
+			inputPath:   localProjPath,
+			expectHost:  "",
+			expectPath:  localProjPath,
+		},
+		{
+			name:        "cursor on remote node routes to that host",
+			cursor:      cursorState{Host: remoteHost, OnNode: true},
+			pendingHost: remoteHost,
+			inputPath:   remoteProjPath,
+			expectHost:  remoteHost,
+			expectPath:  remoteProjPath,
+		},
+		{
+			name:        "no node selected falls back to pending remote",
+			cursor:      cursorState{Host: "", OnNode: false},
+			pendingHost: remoteHost,
+			inputPath:   ".",
+			expectHost:  remoteHost,
+			expectPath:  ".",
+		},
+		{
+			name:        "no node selected and no pending host stays local",
+			cursor:      cursorState{Host: "", OnNode: false},
+			pendingHost: "",
+			inputPath:   ".",
+			expectHost:  "",
+			expectPath:  ".",
+		},
+	}
+}
+
 // newRoutingAdapter constructs a minimally-wired guiCompositeAdapter with a
-// mockCommands injected as the sessionCommander. The adapter's host caches
-// are pre-populated to simulate the state Sessions() would leave after a
-// layout cycle.
+// mockCommands injected as the sessionCommander. Host caches are
+// pre-populated to simulate the state Sessions() would leave after a layout
+// cycle.
 func newRoutingAdapter(t *testing.T, cursor cursorState, pendingHost string) (*guiCompositeAdapter, *mockCommands) {
 	t.Helper()
 	mock := &mockCommands{}
@@ -114,70 +175,29 @@ func newRoutingAdapter(t *testing.T, cursor cursorState, pendingHost string) (*g
 	return a, mock
 }
 
-// TestRouting_n_Create verifies the routing of `n` (CreateSession). The path
-// is supplied by the caller (currentProjectRoot() in the app layer), and the
-// adapter is responsible for picking the host via resolveHost().
+// --- n (CreateSession) -------------------------------------------------------
+
+// TestRouting_n_Create verifies that `n` resolves host via the cursor:
+// the app layer computes the path via currentProjectRoot(), and the adapter
+// picks the host via resolveHost().
 func TestRouting_n_Create(t *testing.T) {
 	t.Parallel()
-	cases := []struct {
-		name         string
-		cursor       cursorState
-		pendingHost  string
-		inputPath    string // path the app layer would pass
-		expectHost   string
-		expectPath   string
-	}{
-		{
-			name:        "cursor on local node stays local even with pending remote",
-			cursor:      cursorState{Host: "", OnNode: true},
-			pendingHost: "AERO",
-			inputPath:   localProjPath,
-			expectHost:  "",
-			expectPath:  localProjPath,
-		},
-		{
-			name:        "cursor on remote node routes to that host",
-			cursor:      cursorState{Host: "AERO", OnNode: true},
-			pendingHost: "AERO",
-			inputPath:   remoteProjPath,
-			expectHost:  "AERO",
-			expectPath:  remoteProjPath,
-		},
-		{
-			name:        "no node selected falls back to pending remote",
-			cursor:      cursorState{Host: "", OnNode: false},
-			pendingHost: "AERO",
-			inputPath:   ".",
-			expectHost:  "AERO",
-			expectPath:  ".",
-		},
-		{
-			name:        "no node selected and no pending host stays local",
-			cursor:      cursorState{Host: "", OnNode: false},
-			pendingHost: "",
-			inputPath:   ".",
-			expectHost:  "",
-			expectPath:  ".",
-		},
-	}
-	for _, tc := range cases {
-		tc := tc
+	for _, tc := range standardCursorCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			a, mock := newRoutingAdapter(t, tc.cursor, tc.pendingHost)
 			require.NoError(t, a.Create(tc.inputPath))
 			require.Len(t, mock.createCalls, 1)
-			assert.Equal(t, tc.expectHost, mock.createCalls[0].Host)
-			assert.Equal(t, tc.expectPath, mock.createCalls[0].ProjectRoot)
+			assert.Equal(t, OperationTarget{Host: tc.expectHost, ProjectRoot: tc.expectPath}, mock.createCalls[0])
 		})
 	}
 }
 
-// TestRouting_N_CreateAtPaneCWD verifies the routing of `N`
-// (CreateSessionAtCWD). Unlike `n`, this command is pane-based: it must use
-// pendingHost regardless of cursor state so that the pane's CWD semantics are
-// preserved. A previous bug used resolveHost() here, causing a local cursor
-// to override the pane's remote host.
+// --- N (CreateSessionAtCWD) --------------------------------------------------
+
+// TestRouting_N_CreateAtPaneCWD verifies that `N` is pane-based: it uses
+// pendingHost regardless of cursor state, and the project path is always
+// "." (the pane CWD is translated downstream by resolveRemotePathFn).
 func TestRouting_N_CreateAtPaneCWD(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -189,20 +209,20 @@ func TestRouting_N_CreateAtPaneCWD(t *testing.T) {
 		{
 			name:        "cursor on local node still routes to pending remote",
 			cursor:      cursorState{Host: "", OnNode: true},
-			pendingHost: "AERO",
-			expectHost:  "AERO",
+			pendingHost: remoteHost,
+			expectHost:  remoteHost,
 		},
 		{
 			name:        "cursor on remote node routes to pending remote",
-			cursor:      cursorState{Host: "AERO", OnNode: true},
-			pendingHost: "AERO",
-			expectHost:  "AERO",
+			cursor:      cursorState{Host: remoteHost, OnNode: true},
+			pendingHost: remoteHost,
+			expectHost:  remoteHost,
 		},
 		{
 			name:        "no node selected routes to pending remote",
 			cursor:      cursorState{Host: "", OnNode: false},
-			pendingHost: "AERO",
-			expectHost:  "AERO",
+			pendingHost: remoteHost,
+			expectHost:  remoteHost,
 		},
 		{
 			name:        "no node selected and no pending host stays local",
@@ -212,101 +232,265 @@ func TestRouting_N_CreateAtPaneCWD(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			a, mock := newRoutingAdapter(t, tc.cursor, tc.pendingHost)
 			require.NoError(t, a.CreateAtPaneCWD())
 			require.Len(t, mock.createCalls, 1)
-			assert.Equal(t, tc.expectHost, mock.createCalls[0].Host)
-			// N always passes "." — the actual remote CWD translation
-			// happens in SessionCommandService via resolveRemotePathFn.
-			assert.Equal(t, ".", mock.createCalls[0].ProjectRoot)
+			assert.Equal(t, OperationTarget{Host: tc.expectHost, ProjectRoot: "."}, mock.createCalls[0])
 		})
 	}
 }
 
-// TestRouting_CursorBasedCommands verifies commands that follow the same
-// cursor-based host routing as `n`: w (CreateWorktree), P (CreatePMSession),
-// g (LaunchLazygit). All three should resolve host the same way via
-// resolveTarget() and delegate to the matching sessionCommander method.
-func TestRouting_CursorBasedCommands(t *testing.T) {
+// --- w (CreateWorktree) ------------------------------------------------------
+
+// TestRouting_w_CreateWorktree verifies that `w` follows the cursor-based
+// host rule and forwards name/prompt unchanged.
+func TestRouting_w_CreateWorktree(t *testing.T) {
 	t.Parallel()
-	cases := []struct {
-		name        string
-		cursor      cursorState
-		pendingHost string
-		inputPath   string
-		expectHost  string
-	}{
-		{
-			name:        "local cursor stays local",
-			cursor:      cursorState{Host: "", OnNode: true},
-			pendingHost: "AERO",
-			inputPath:   localProjPath,
-			expectHost:  "",
-		},
-		{
-			name:        "remote cursor routes remote",
-			cursor:      cursorState{Host: "AERO", OnNode: true},
-			pendingHost: "AERO",
-			inputPath:   remoteProjPath,
-			expectHost:  "AERO",
-		},
-		{
-			name:        "no cursor falls back to pending",
-			cursor:      cursorState{Host: "", OnNode: false},
-			pendingHost: "AERO",
-			inputPath:   ".",
-			expectHost:  "AERO",
-		},
-	}
-	for _, tc := range cases {
-		tc := tc
+	for _, tc := range standardCursorCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-
-			// w: CreateWorktree
 			a, mock := newRoutingAdapter(t, tc.cursor, tc.pendingHost)
-			require.NoError(t, a.CreateWorktree("wt-name", "wt-prompt", tc.inputPath))
+			require.NoError(t, a.CreateWorktree("feature-x", "do stuff", tc.inputPath))
 			require.Len(t, mock.createWorktreeCalls, 1)
-			assert.Equal(t, tc.expectHost, mock.createWorktreeCalls[0].Target.Host, "w: host")
-			assert.Equal(t, tc.inputPath, mock.createWorktreeCalls[0].Target.ProjectRoot, "w: path")
-			assert.Equal(t, "wt-name", mock.createWorktreeCalls[0].Name)
-			assert.Equal(t, "wt-prompt", mock.createWorktreeCalls[0].Prompt)
-
-			// P: CreatePMSession
-			a, mock = newRoutingAdapter(t, tc.cursor, tc.pendingHost)
-			require.NoError(t, a.CreatePMSession(tc.inputPath))
-			require.Len(t, mock.createPMCalls, 1)
-			assert.Equal(t, tc.expectHost, mock.createPMCalls[0].Host, "P: host")
-			assert.Equal(t, tc.inputPath, mock.createPMCalls[0].ProjectRoot, "P: path")
-
-			// g: LaunchLazygit
-			a, mock = newRoutingAdapter(t, tc.cursor, tc.pendingHost)
-			require.NoError(t, a.LaunchLazygit(tc.inputPath))
-			require.Len(t, mock.launchLazygitCalls, 1)
-			assert.Equal(t, tc.expectHost, mock.launchLazygitCalls[0].Host, "g: host")
-			assert.Equal(t, tc.inputPath, mock.launchLazygitCalls[0].ProjectRoot, "g: path")
+			assert.Equal(t, OperationTarget{Host: tc.expectHost, ProjectRoot: tc.expectPath}, mock.createWorktreeCalls[0].Target)
+			assert.Equal(t, "feature-x", mock.createWorktreeCalls[0].Name)
+			assert.Equal(t, "do stuff", mock.createWorktreeCalls[0].Prompt)
 		})
 	}
 }
 
-// TestRouting_SessionBoundCommands verifies commands whose routing is bound
-// to an existing session (d, R). The adapter's cursor/pending host state must
-// not influence them — they forward the session id unchanged to the command
-// service, which then consults session.Host internally.
-func TestRouting_SessionBoundCommands(t *testing.T) {
+// --- W (ListWorktrees / SelectWorktree) --------------------------------------
+
+// TestRouting_W_ListWorktrees verifies that `W` (open the worktree chooser)
+// follows the same cursor-based host rule as `w`.
+func TestRouting_W_ListWorktrees(t *testing.T) {
 	t.Parallel()
-	// Cursor on local node with a pending remote — a particularly
-	// adversarial state, to confirm routing does not leak into d/R.
-	a, mock := newRoutingAdapter(t, cursorState{Host: "", OnNode: true}, "AERO")
+	for _, tc := range standardCursorCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			a, mock := newRoutingAdapter(t, tc.cursor, tc.pendingHost)
+			_, err := a.ListWorktrees(tc.inputPath)
+			require.NoError(t, err)
+			require.Len(t, mock.listWorktreesCalls, 1)
+			assert.Equal(t, OperationTarget{Host: tc.expectHost, ProjectRoot: tc.expectPath}, mock.listWorktreesCalls[0])
+		})
+	}
+}
 
-	require.NoError(t, a.Delete("sess-id"))
-	require.Len(t, mock.deleteCalls, 1)
-	assert.Equal(t, "sess-id", mock.deleteCalls[0])
+// --- P (CreatePMSession) -----------------------------------------------------
 
-	require.NoError(t, a.Rename("sess-id", "new-name"))
-	require.Len(t, mock.renameCalls, 1)
-	assert.Equal(t, renameCall{ID: "sess-id", NewName: "new-name"}, mock.renameCalls[0])
+// TestRouting_P_CreatePMSession verifies that `P` follows the same
+// cursor-based host rule as `n`.
+func TestRouting_P_CreatePMSession(t *testing.T) {
+	t.Parallel()
+	for _, tc := range standardCursorCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			a, mock := newRoutingAdapter(t, tc.cursor, tc.pendingHost)
+			require.NoError(t, a.CreatePMSession(tc.inputPath))
+			require.Len(t, mock.createPMCalls, 1)
+			assert.Equal(t, OperationTarget{Host: tc.expectHost, ProjectRoot: tc.expectPath}, mock.createPMCalls[0])
+		})
+	}
+}
+
+// --- g (LaunchLazygit) -------------------------------------------------------
+
+// TestRouting_g_LaunchLazygit verifies that `g` follows the same
+// cursor-based host rule as `n`.
+func TestRouting_g_LaunchLazygit(t *testing.T) {
+	t.Parallel()
+	for _, tc := range standardCursorCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			a, mock := newRoutingAdapter(t, tc.cursor, tc.pendingHost)
+			require.NoError(t, a.LaunchLazygit(tc.inputPath))
+			require.Len(t, mock.launchLazygitCalls, 1)
+			assert.Equal(t, OperationTarget{Host: tc.expectHost, ProjectRoot: tc.expectPath}, mock.launchLazygitCalls[0])
+		})
+	}
+}
+
+// --- fakeRemoteAPI for d/R ---------------------------------------------------
+
+// fakeRemoteAPI records Delete / Rename calls and satisfies remoteSessionAPI.
+// Used by d/R routing tests to observe whether SessionCommandService
+// dispatched to the remote path. CreateSession is implemented to satisfy the
+// interface but is not exercised by these tests.
+type fakeRemoteAPI struct {
+	deleteCalls []string
+	renameCalls []renameCall
+}
+
+func (f *fakeRemoteAPI) CreateSession(_ string) (*daemon.SessionCreateResponse, error) {
+	return &daemon.SessionCreateResponse{}, nil
+}
+
+func (f *fakeRemoteAPI) Delete(id string) error {
+	f.deleteCalls = append(f.deleteCalls, id)
+	return nil
+}
+
+func (f *fakeRemoteAPI) Rename(id, newName string) error {
+	f.renameCalls = append(f.renameCalls, renameCall{ID: id, NewName: newName})
+	return nil
+}
+
+var _ remoteSessionAPI = (*fakeRemoteAPI)(nil)
+
+// fakeMirrorCreator records DeleteMirror calls. CreateMirror is implemented
+// to satisfy the interface but is not exercised by these tests.
+type fakeMirrorCreator struct {
+	deleteCalls []string // session id per call
+}
+
+func (f *fakeMirrorCreator) CreateMirror(_, _ string, _ *daemon.SessionCreateResponse) error {
+	return nil
+}
+
+func (f *fakeMirrorCreator) DeleteMirror(sessionID string) error {
+	f.deleteCalls = append(f.deleteCalls, sessionID)
+	return nil
+}
+
+var _ MirrorCreator = (*fakeMirrorCreator)(nil)
+
+// sessionCmdFixture bundles the real SessionCommandService stack needed to
+// test d (Delete) and R (Rename) routing. It uses a real session.Manager so
+// that the local path exercises real store/tmux plumbing, and an injected
+// fakeRemoteAPI so that the remote path is observable without SSH.
+type sessionCmdFixture struct {
+	svc    *SessionCommandService
+	mgr    *session.Manager
+	remote *fakeRemoteAPI
+	mirror *fakeMirrorCreator
+	mock   *tmux.MockClient
+}
+
+func newSessionCmdFixture(t *testing.T) *sessionCmdFixture {
+	t.Helper()
+	tmp := t.TempDir()
+	paths := config.TestPaths(tmp)
+	store := session.NewStore(filepath.Join(paths.DataDir, "state.json"))
+	mock := tmux.NewMockClient()
+	mgr := session.NewManager(store, mock, paths, nil)
+
+	localProv := &localDaemonProvider{mgr: mgr, tmux: mock}
+	composite := daemon.NewCompositeProvider(localProv, nil)
+
+	remote := &fakeRemoteAPI{}
+	mirror := &fakeMirrorCreator{}
+
+	svc := &SessionCommandService{
+		localMgr: mgr,
+		cp:       composite,
+		mirrors:  mirror,
+		tmux:     mock,
+		remoteProviderFn: func(host string) remoteSessionAPI {
+			if host != remoteHost {
+				return nil
+			}
+			return remote
+		},
+	}
+	return &sessionCmdFixture{
+		svc:    svc,
+		mgr:    mgr,
+		remote: remote,
+		mirror: mirror,
+		mock:   mock,
+	}
+}
+
+// addSession inserts a session with the given ID and host into the store.
+// Host="" makes it local; Host=remoteHost makes it remote.
+func (f *sessionCmdFixture) addSession(id, host string) {
+	now := time.Now()
+	sess := session.Session{
+		ID:        id,
+		Name:      "test-" + id,
+		Path:      localProjPath,
+		Host:      host,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if host != "" {
+		sess.Path = remoteProjPath
+	}
+	f.mgr.Store().Add(sess, "")
+}
+
+// --- d (Delete) --------------------------------------------------------------
+
+// TestRouting_d_Delete_LocalSession verifies that deleting a local session
+// forwards to the local CompositeProvider path (no remote API, no mirror
+// teardown) and removes the session from the store.
+func TestRouting_d_Delete_LocalSession(t *testing.T) {
+	t.Parallel()
+	f := newSessionCmdFixture(t)
+	const id = "local-session-id"
+	f.addSession(id, "")
+	require.NotNil(t, f.mgr.Store().FindByID(id), "precondition: session exists")
+
+	require.NoError(t, f.svc.Delete(id))
+
+	assert.Empty(t, f.remote.deleteCalls, "remote API must NOT be called for a local session")
+	assert.Empty(t, f.mirror.deleteCalls, "mirror teardown must NOT run for a local session")
+	assert.Nil(t, f.mgr.Store().FindByID(id), "session must be removed from the local store")
+}
+
+// TestRouting_d_Delete_RemoteSession verifies that deleting a remote session
+// calls the remote Delete API, tears down the local mirror window, and
+// removes the placeholder from the local store.
+func TestRouting_d_Delete_RemoteSession(t *testing.T) {
+	t.Parallel()
+	f := newSessionCmdFixture(t)
+	const id = "remote-session-id"
+	f.addSession(id, remoteHost)
+	require.NotNil(t, f.mgr.Store().FindByID(id), "precondition: session exists")
+
+	require.NoError(t, f.svc.Delete(id))
+
+	assert.Equal(t, []string{id}, f.remote.deleteCalls, "remote API Delete must be called with the session id")
+	assert.Equal(t, []string{id}, f.mirror.deleteCalls, "mirror teardown must run for a remote session")
+	assert.Nil(t, f.mgr.Store().FindByID(id), "session must be removed from the local store")
+}
+
+// --- R (Rename) --------------------------------------------------------------
+
+// TestRouting_R_Rename_LocalSession verifies that renaming a local session
+// flows through the local CompositeProvider (no remote API).
+func TestRouting_R_Rename_LocalSession(t *testing.T) {
+	t.Parallel()
+	f := newSessionCmdFixture(t)
+	const id = "local-rename-id"
+	f.addSession(id, "")
+
+	require.NoError(t, f.svc.Rename(id, "new-local-name"))
+
+	assert.Empty(t, f.remote.renameCalls, "remote API must NOT be called for a local session")
+
+	sess := f.mgr.Store().FindByID(id)
+	require.NotNil(t, sess)
+	assert.Equal(t, "new-local-name", sess.Name, "local store must reflect the new name")
+}
+
+// TestRouting_R_Rename_RemoteSession verifies that renaming a remote session
+// calls the remote Rename API and updates the local mirror's name.
+func TestRouting_R_Rename_RemoteSession(t *testing.T) {
+	t.Parallel()
+	f := newSessionCmdFixture(t)
+	const id = "remote-rename-id"
+	f.addSession(id, remoteHost)
+
+	require.NoError(t, f.svc.Rename(id, "new-remote-name"))
+
+	assert.Equal(t, []renameCall{{ID: id, NewName: "new-remote-name"}}, f.remote.renameCalls,
+		"remote API Rename must be called with the id and new name")
+
+	sess := f.mgr.Store().FindByID(id)
+	require.NotNil(t, sess)
+	assert.Equal(t, "new-remote-name", sess.Name, "local store must reflect the new name")
 }
