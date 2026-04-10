@@ -174,9 +174,13 @@ func newRootCmd() *cobra.Command {
 
 				// Create mirror windows for existing remote sessions so they
 				// appear in the sidebar immediately with working preview.
+				// Only mirror Running sessions — dead/orphan sessions from
+				// stale state.json are skipped (GC will clean them).
 				if sessions, err := remoteProvider.Sessions(); err == nil {
 					for _, s := range sessions {
-						compositeAdapter.createMirrorForExisting(host, s)
+						if s.Status == "Running" {
+							compositeAdapter.createMirrorForExisting(host, s)
+						}
 					}
 				}
 
