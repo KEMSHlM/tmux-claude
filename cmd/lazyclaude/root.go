@@ -133,10 +133,9 @@ func newRootCmd() *cobra.Command {
 
 			// Declare compositeAdapter early so connectRemoteHost can reference it.
 			compositeAdapter := &guiCompositeAdapter{
-				cp:         composite,
-				localMgr:   mgr,
-				tmuxClient: tmuxClient,
-				paths:      paths,
+				cp:       composite,
+				localMgr: mgr,
+				paths:    paths,
 			}
 
 			// MirrorManager: creates/deletes local tmux mirror windows for
@@ -245,11 +244,9 @@ func newRootCmd() *cobra.Command {
 			// Wire remaining fields now that dependencies are available.
 			compositeAdapter.pendingHost = pendingSSHHost
 			compositeAdapter.localProjectRoot = localProjectRoot
-			compositeAdapter.remoteHosts = remoteHostMgr
 			compositeAdapter.windowActivityFn = app.WindowActivityMap
 			compositeAdapter.currentHostFn = app.CurrentSessionHost
 			compositeAdapter.onError = app.ScheduleError
-			compositeAdapter.guiUpdateFn = guiUpdateFn
 			compositeAdapter.commands = cmdSvc
 			app.SetSessions(compositeAdapter)
 

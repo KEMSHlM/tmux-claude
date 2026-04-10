@@ -167,6 +167,9 @@ func (s *SessionCommandService) completeRemoteCreate(placeholderID string, targe
 
 	// Remove the placeholder now that the real session is in the store.
 	s.localMgr.Store().Remove(placeholderID)
+	if err := s.localMgr.Store().Save(); err != nil {
+		debugLog("completeRemoteCreate: save after remove placeholder: %v", err)
+	}
 	debugLog("completeRemoteCreate: session %q created with path=%q", resp.ID, remotePath)
 	s.triggerGUIUpdate()
 }

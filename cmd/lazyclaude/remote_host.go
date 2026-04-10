@@ -56,11 +56,21 @@ func (m *RemoteHostManager) EnsureConnected(host string) error {
 }
 
 // MarkConnected records that a host has been successfully connected via an
-// external path (e.g. the connect dialog). This populates the lazyConn cache
-// so that EnsureConnected skips the redundant connectFn call.
+// external path (e.g. the connect dialog). If an EnsureConnected call is
+// already in progress on a different goroutine, the existing lazyConn
+// entry is preserved (its once.Do will no-op since connectFn already ran).
+// Only creates a new pre-completed entry when no entry exists yet.
 func (m *RemoteHostManager) MarkConnected(host string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if _, ok := m.conns[host]; ok {
+		// Entry already exists — either once.Do completed (normal case after
+		// connectRemoteHost returned) or is in progress on another goroutine.
+		// Do not replace it to avoid the TOCTOU where EnsureConnected holds
+		// a reference to the old entry and once.Do fires after replacement.
+		debugLog("RemoteHostManager.MarkConnected: host=%q already has entry, skipping", host)
+		return
+	}
 	lc := &lazyConn{}
 	lc.once.Do(func() {}) // mark as completed with nil error
 	m.conns[host] = lc

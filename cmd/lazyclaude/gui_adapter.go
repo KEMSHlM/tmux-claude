@@ -7,7 +7,6 @@ import (
 
 	"github.com/any-context/lazyclaude/internal/core/config"
 	"github.com/any-context/lazyclaude/internal/core/model"
-	"github.com/any-context/lazyclaude/internal/core/tmux"
 	"github.com/any-context/lazyclaude/internal/daemon"
 	"github.com/any-context/lazyclaude/internal/gui"
 	"github.com/any-context/lazyclaude/internal/notify"
@@ -18,12 +17,10 @@ import (
 // This bridges the daemon's type system (daemon.SessionInfo etc.) to the GUI's
 // type system (gui.SessionItem etc.).
 type guiCompositeAdapter struct {
-	cp          *daemon.CompositeProvider
-	localMgr    *session.Manager
-	tmuxClient  tmux.Client
-	paths       config.Paths
-	commands    *SessionCommandService
-	remoteHosts *RemoteHostManager
+	cp       *daemon.CompositeProvider
+	localMgr *session.Manager
+	paths    config.Paths
+	commands *SessionCommandService
 
 	// windowActivityFn provides window->activity mapping from the App layer.
 	windowActivityFn func() map[string]gui.WindowActivityEntry
@@ -54,9 +51,6 @@ type guiCompositeAdapter struct {
 	// Read by resolveHost() from any goroutine.
 	hostCacheMu sync.RWMutex
 	cachedHost  string
-
-	// guiUpdateFn triggers a GUI refresh from background goroutines.
-	guiUpdateFn func() // triggers gui.Update (wired in root.go)
 }
 
 // Compile-time check.
@@ -134,14 +128,6 @@ func (a *guiCompositeAdapter) ToggleProjectExpanded(projectID string) {
 
 func (a *guiCompositeAdapter) Create(path string) error {
 	return a.commands.Create(a.resolveTarget(path))
-}
-
-
-// triggerGUIUpdate schedules a GUI refresh if the callback is wired.
-func (a *guiCompositeAdapter) triggerGUIUpdate() {
-	if a.guiUpdateFn != nil {
-		a.guiUpdateFn()
-	}
 }
 
 // resolveRemotePath maps a local path to the remote daemon's CWD when
