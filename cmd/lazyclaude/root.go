@@ -139,6 +139,14 @@ func newRootCmd() *cobra.Command {
 				paths:      paths,
 			}
 
+			// MirrorManager: creates/deletes local tmux mirror windows for
+			// remote sessions. Shared by connectRemoteHost and SessionCommandService.
+			mirrorMgr := &MirrorManager{
+				tmux:    tmuxClient,
+				store:   store,
+				onError: app.ScheduleError,
+			}
+
 			// connectRemoteHost establishes a remote connection pipeline:
 			// daemon connection + provider registration + mirror windows for
 			// existing sessions + SSE subscription.
@@ -152,7 +160,7 @@ func newRootCmd() *cobra.Command {
 				debugLog("connectRemoteHost: Connect succeeded")
 
 				hook := func(host, path string, resp *daemon.SessionCreateResponse) error {
-					return compositeAdapter.ensureMirrorForRemoteSession(host, path, resp)
+					return mirrorMgr.CreateMirror(host, path, resp)
 				}
 				activityFwd := func(ev model.Event) {
 					notifyBroker.Publish(ev)
@@ -177,10 +185,14 @@ func newRootCmd() *cobra.Command {
 				// Only mirror Running sessions — dead/orphan sessions from
 				// stale state.json are skipped (GC will clean them).
 				if sessions, err := remoteProvider.Sessions(); err == nil {
+					var running []daemon.SessionInfo
 					for _, s := range sessions {
 						if s.Status == "Running" {
-							compositeAdapter.createMirrorForExisting(host, s)
+							running = append(running, s)
 						}
+					}
+					if len(running) > 0 {
+						mirrorMgr.RestoreExisting(host, running)
 					}
 				}
 
@@ -209,16 +221,36 @@ func newRootCmd() *cobra.Command {
 			debugLog("startup: localProjectRoot=%q", localProjectRoot)
 			debugLog("startup: connectFn set=%v", connectRemoteHost != nil)
 
+			guiUpdateFn := func() {
+				app.Gui().Update(func(_ *gocui.Gui) error { return nil })
+			}
+			mirrorMgr.guiUpdateFn = guiUpdateFn
+
+			// RemoteHostManager: manages lazy connections to SSH hosts.
+			remoteHostMgr := NewRemoteHostManager(connectRemoteHost)
+
+			// SessionCommandService: centralises session commands
+			// so guiCompositeAdapter is a thin pass-through.
+			cmdSvc := &SessionCommandService{
+				localMgr:            mgr,
+				cp:                  composite,
+				mirrors:             mirrorMgr,
+				tmux:                tmuxClient,
+				onError:             app.ScheduleError,
+				guiUpdateFn:         guiUpdateFn,
+				ensureConnectedFn:   remoteHostMgr.EnsureConnected,
+				resolveRemotePathFn: compositeAdapter.resolveRemotePath,
+			}
+
 			// Wire remaining fields now that dependencies are available.
 			compositeAdapter.pendingHost = pendingSSHHost
 			compositeAdapter.localProjectRoot = localProjectRoot
-			compositeAdapter.connectFn = connectRemoteHost
+			compositeAdapter.remoteHosts = remoteHostMgr
 			compositeAdapter.windowActivityFn = app.WindowActivityMap
 			compositeAdapter.currentHostFn = app.CurrentSessionHost
 			compositeAdapter.onError = app.ScheduleError
-			compositeAdapter.guiUpdateFn = func() {
-				app.Gui().Update(func(_ *gocui.Gui) error { return nil })
-			}
+			compositeAdapter.guiUpdateFn = guiUpdateFn
+			compositeAdapter.commands = cmdSvc
 			app.SetSessions(compositeAdapter)
 
 			// Wire connection status for the options bar.
@@ -248,9 +280,9 @@ func newRootCmd() *cobra.Command {
 					return err
 				}
 				compositeAdapter.SetPendingHost(host)
-				// Sync the lazyConn cache so ensureRemoteConnected
+				// Sync the lazyConn cache so EnsureConnected
 				// skips the redundant connectFn call for this host.
-				compositeAdapter.markConnected(host)
+				remoteHostMgr.MarkConnected(host)
 				return nil
 			})
 
