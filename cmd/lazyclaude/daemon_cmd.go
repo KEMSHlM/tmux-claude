@@ -16,6 +16,7 @@ import (
 	"github.com/any-context/lazyclaude/internal/core/model"
 	"github.com/any-context/lazyclaude/internal/core/tmux"
 	"github.com/any-context/lazyclaude/internal/daemon"
+	"github.com/any-context/lazyclaude/internal/server"
 	"github.com/any-context/lazyclaude/internal/session"
 	"github.com/spf13/cobra"
 )
@@ -52,6 +53,27 @@ func newDaemonCmd() *cobra.Command {
 
 			broker := event.NewBroker[model.Event]()
 			defer broker.Close()
+
+			// MCP server を in-process 起動 (hooks の受信用)
+			mcpLogger := log.New(os.Stderr, "lazyclaude-mcp: ", log.LstdFlags)
+			mcpCfg := server.Config{
+				Port:       0,
+				Token:      token,
+				IDEDir:     paths.IDEDir,
+				PortFile:   paths.PortFile(),
+				RuntimeDir: paths.RuntimeDir,
+			}
+			mcpSrv := server.New(mcpCfg, tmuxClient, mcpLogger, server.WithBroker(broker))
+			if _, err := mcpSrv.Start(context.Background()); err != nil {
+				return fmt.Errorf("start MCP server: %w", err)
+			}
+			defer func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				mcpSrv.Stop(ctx) //nolint:errcheck
+			}()
+			mcpSrv.SetSessionLister(&sessionListerAdapter{mgr: mgr})
+			mcpSrv.SetSessionCreator(&sessionCreatorAdapter{mgr: mgr})
 
 			runtimeDir := daemon.DaemonInfoDir()
 

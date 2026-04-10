@@ -22,7 +22,6 @@ import (
 	"github.com/any-context/lazyclaude/internal/core/event"
 	"github.com/any-context/lazyclaude/internal/core/model"
 	"github.com/any-context/lazyclaude/internal/core/tmux"
-	"github.com/any-context/lazyclaude/internal/server"
 	"github.com/any-context/lazyclaude/internal/session"
 )
 
@@ -50,13 +49,8 @@ type DaemonServer struct {
 
 	listener net.Listener
 	httpSrv  *http.Server
-	lockMgr  *server.LockManager
 
 	sseEventID atomic.Uint64
-
-	// pendingTools stores PreToolUse tool info keyed by tmux window ID.
-	// Consumed by the subsequent Notification hook to build ToolNotification events.
-	pendingTools sync.Map
 
 	mu         sync.RWMutex
 	shutdown   bool
@@ -122,16 +116,6 @@ func NewDaemonServer(
 	// SSE Notifications
 	mux.HandleFunc("GET /notifications", s.withAuth(s.handleSSE))
 
-	// Hook endpoints — Claude Code hooks POST here via lock file discovery.
-	// These mirror internal/server's endpoints but publish to the daemon
-	// broker for SSE delivery to the remote TUI.
-	// Hooks use "X-Claude-Code-Ide-Authorization" header (not X-Daemon-Authorization),
-	// so they use withHookAuth instead of withAuth.
-	mux.HandleFunc("POST /notify", s.withAuth(s.handleHookNotify))
-	mux.HandleFunc("POST /stop", s.withAuth(s.handleHookStop))
-	mux.HandleFunc("POST /session-start", s.withAuth(s.handleHookSessionStart))
-	mux.HandleFunc("POST /prompt-submit", s.withAuth(s.handleHookPromptSubmit))
-
 	s.httpSrv = &http.Server{Handler: mux}
 	return s
 }
@@ -151,13 +135,6 @@ func (s *DaemonServer) Start(ctx context.Context) (int, error) {
 	if err := s.writeDaemonInfo(port); err != nil {
 		ln.Close()
 		return 0, fmt.Errorf("write daemon info: %w", err)
-	}
-
-	// Write lock file so Claude Code hooks can discover this server.
-	// Uses the same ~/.claude/ide/<port>.lock format as the MCP server.
-	s.lockMgr = server.NewLockManager(s.ideLockDir())
-	if err := s.lockMgr.Write(port, s.config.Token); err != nil {
-		s.log.Printf("warning: write lock file: %v", err)
 	}
 
 	go func() {
@@ -182,11 +159,6 @@ func (s *DaemonServer) Stop(ctx context.Context) error {
 	s.mu.Unlock()
 
 	s.removeDaemonInfo()
-	if s.lockMgr != nil {
-		if err := s.lockMgr.Remove(s.config.Port); err != nil {
-			s.log.Printf("warning: remove lock: %v", err)
-		}
-	}
 	return s.httpSrv.Shutdown(ctx)
 }
 
@@ -202,18 +174,10 @@ func (s *DaemonServer) Port() int {
 
 // --- Auth middleware ---
 
-// withAuth authenticates requests using any of the supported auth headers:
-// X-Daemon-Authorization (daemon API clients), X-Claude-Code-Ide-Authorization
-// (hooks via lock file), or X-Auth-Token (CLI tools like lazyclaude sessions).
+// withAuth authenticates requests using the X-Daemon-Authorization header.
 func (s *DaemonServer) withAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token := r.Header.Get(AuthHeader)
-		if token == "" {
-			token = r.Header.Get("X-Claude-Code-Ide-Authorization")
-		}
-		if token == "" {
-			token = r.Header.Get("X-Auth-Token")
-		}
 		if subtle.ConstantTimeCompare([]byte(token), []byte(s.config.Token)) != 1 {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
@@ -623,161 +587,3 @@ func ReadDaemonInfo(runtimeDir string) (*DaemonInfo, error) {
 	return &info, nil
 }
 
-// ideLockDir returns the Claude Code IDE lock directory (~/.claude/ide/).
-func (s *DaemonServer) ideLockDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return filepath.Join("/tmp", ".claude", "ide")
-	}
-	return filepath.Join(home, ".claude", "ide")
-}
-
-// --- Hook handlers ---
-// These endpoints receive Claude Code hook notifications and publish them
-// to the broker for SSE delivery to the remote TUI.
-
-type hookNotifyRequest struct {
-	Type      string          `json:"type"`
-	PID       int             `json:"pid"`
-	ToolName  string          `json:"tool_name"`
-	ToolInput json.RawMessage `json:"tool_input"`
-	Message   string          `json:"message"`
-}
-
-// handleHookNotify handles PreToolUse (type=tool_info) and Notification
-// (permission_prompt) hooks from Claude Code.
-func (s *DaemonServer) handleHookNotify(w http.ResponseWriter, r *http.Request) {
-	var req hookNotifyRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
-		return
-	}
-
-	window := s.resolveWindowForPID(r.Context(), req.PID)
-	if window == "" {
-		s.log.Printf("hook/notify: window not found for pid=%d type=%s", req.PID, req.Type)
-		http.Error(w, "window not found", http.StatusNotFound)
-		return
-	}
-
-	s.log.Printf("hook/notify: type=%s pid=%d window=%s tool=%s", req.Type, req.PID, window, req.ToolName)
-
-	switch req.Type {
-	case "tool_info":
-		// Phase 1: PreToolUse — store pending info and signal Running.
-		s.setPendingTool(window, req.ToolName, string(req.ToolInput))
-		s.broker.Publish(model.Event{ActivityNotification: &model.ActivityNotification{
-			Window:    window,
-			State:     model.ActivityRunning,
-			ToolName:  req.ToolName,
-			Timestamp: time.Now(),
-		}})
-	default:
-		// Phase 2: Notification (permission_prompt) — publish tool notification.
-		toolName, input := s.consumePendingTool(window)
-		if toolName == "" {
-			toolName = req.ToolName
-			input = string(req.ToolInput)
-		}
-		if toolName != "" {
-			s.broker.Publish(model.Event{Notification: &model.ToolNotification{
-				Window:    window,
-				ToolName:  toolName,
-				Input:     input,
-				Timestamp: time.Now(),
-			}})
-		}
-	}
-
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"window": window})
-}
-
-type hookStopRequest struct {
-	PID        int    `json:"pid"`
-	StopReason string `json:"stop_reason"`
-}
-
-func (s *DaemonServer) handleHookStop(w http.ResponseWriter, r *http.Request) {
-	var req hookStopRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
-		return
-	}
-	window := s.resolveWindowForPID(r.Context(), req.PID)
-	if window == "" {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-
-	s.broker.Publish(model.Event{StopNotification: &model.StopNotification{
-		Window:     window,
-		StopReason: req.StopReason,
-		Timestamp:  time.Now(),
-	}})
-	w.WriteHeader(http.StatusOK)
-}
-
-type hookSessionStartRequest struct {
-	PID int `json:"pid"`
-}
-
-func (s *DaemonServer) handleHookSessionStart(w http.ResponseWriter, r *http.Request) {
-	var req hookSessionStartRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
-		return
-	}
-	window := s.resolveWindowForPID(r.Context(), req.PID)
-	if window != "" {
-		s.broker.Publish(model.Event{SessionStartNotification: &model.SessionStartNotification{
-			Window:    window,
-			Timestamp: time.Now(),
-		}})
-	}
-	w.WriteHeader(http.StatusOK)
-}
-
-func (s *DaemonServer) handleHookPromptSubmit(w http.ResponseWriter, r *http.Request) {
-	var req hookSessionStartRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
-		return
-	}
-	window := s.resolveWindowForPID(r.Context(), req.PID)
-	if window != "" {
-		s.broker.Publish(model.Event{PromptSubmitNotification: &model.PromptSubmitNotification{
-			Window:    window,
-			Timestamp: time.Now(),
-		}})
-	}
-	w.WriteHeader(http.StatusOK)
-}
-
-// resolveWindowForPID finds the tmux window containing the given PID.
-func (s *DaemonServer) resolveWindowForPID(ctx context.Context, pid int) string {
-	w, err := tmux.FindWindowForPid(ctx, s.tmux, pid)
-	if err != nil || w == nil {
-		return ""
-	}
-	return w.ID
-}
-
-// pendingTool stores tool info from PreToolUse for later use by Notification.
-type pendingToolEntry struct {
-	toolName string
-	input    string
-}
-
-func (s *DaemonServer) setPendingTool(window, toolName, input string) {
-	s.pendingTools.Store(window, pendingToolEntry{toolName: toolName, input: input})
-}
-
-func (s *DaemonServer) consumePendingTool(window string) (string, string) {
-	v, ok := s.pendingTools.LoadAndDelete(window)
-	if !ok {
-		return "", ""
-	}
-	e := v.(pendingToolEntry)
-	return e.toolName, e.input
-}
