@@ -278,9 +278,5 @@ func (a *guiCompositeAdapter) CreateWorkerSession(name, prompt, projectRoot stri
 // Determines the host from the cached/pending host and resolves the
 // path to the remote CWD if operating on a remote host.
 func (a *guiCompositeAdapter) resolveTarget(projectRoot string) OperationTarget {
-	host := a.resolveHost()
-	if host != "" {
-		projectRoot = a.resolveRemotePath(projectRoot, host)
-	}
-	return OperationTarget{Host: host, ProjectRoot: projectRoot}
+	return OperationTarget{Host: a.resolveHost(), ProjectRoot: projectRoot}
 }

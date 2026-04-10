@@ -52,6 +52,22 @@ type MirrorCreator interface {
 	DeleteMirror(sessionID string) error
 }
 
+// prepareRemote ensures the remote host is connected and resolves the
+// project root to the remote CWD. Must be called before any remote API
+// call that takes a project root.
+func (s *SessionCommandService) prepareRemote(target *OperationTarget) error {
+	if target.Host == "" {
+		return nil
+	}
+	if err := s.ensureConnected(target.Host); err != nil {
+		return err
+	}
+	if s.resolveRemotePathFn != nil {
+		target.ProjectRoot = s.resolveRemotePathFn(target.ProjectRoot, target.Host)
+	}
+	return nil
+}
+
 // Delete removes a session. For remote sessions, it sends a best-effort
 // delete to the remote daemon then removes the local mirror.
 func (s *SessionCommandService) Delete(id string) error {
@@ -176,7 +192,7 @@ func (s *SessionCommandService) completeRemoteCreate(placeholderID string, targe
 
 // CreateWorktree creates a worktree session on the appropriate host.
 func (s *SessionCommandService) CreateWorktree(target OperationTarget, name, prompt string) error {
-	if err := s.ensureConnected(target.Host); err != nil {
+	if err := s.prepareRemote(&target); err != nil {
 		return err
 	}
 	return s.cp.CreateWorktree(name, prompt, target.ProjectRoot, target.Host)
@@ -184,7 +200,7 @@ func (s *SessionCommandService) CreateWorktree(target OperationTarget, name, pro
 
 // ResumeWorktree resumes an existing worktree session.
 func (s *SessionCommandService) ResumeWorktree(target OperationTarget, wtPath, prompt string) error {
-	if err := s.ensureConnected(target.Host); err != nil {
+	if err := s.prepareRemote(&target); err != nil {
 		return err
 	}
 	return s.cp.ResumeWorktree(wtPath, prompt, target.ProjectRoot, target.Host)
@@ -192,7 +208,7 @@ func (s *SessionCommandService) ResumeWorktree(target OperationTarget, wtPath, p
 
 // ListWorktrees lists worktrees on the appropriate host.
 func (s *SessionCommandService) ListWorktrees(target OperationTarget) ([]gui.WorktreeInfo, error) {
-	if err := s.ensureConnected(target.Host); err != nil {
+	if err := s.prepareRemote(&target); err != nil {
 		return nil, err
 	}
 	items, err := s.cp.ListWorktrees(target.ProjectRoot, target.Host)
@@ -209,7 +225,7 @@ func (s *SessionCommandService) ListWorktrees(target OperationTarget) ([]gui.Wor
 // CreatePMSession creates a PM session on the appropriate host.
 func (s *SessionCommandService) CreatePMSession(target OperationTarget) error {
 	debugLog("SessionCommandService.CreatePMSession: host=%q projectRoot=%q", target.Host, target.ProjectRoot)
-	if err := s.ensureConnected(target.Host); err != nil {
+	if err := s.prepareRemote(&target); err != nil {
 		debugLog("SessionCommandService.CreatePMSession: ensureConnected failed: %v", err)
 		return err
 	}
@@ -221,7 +237,7 @@ func (s *SessionCommandService) CreatePMSession(target OperationTarget) error {
 
 // CreateWorkerSession creates a worker session on the appropriate host.
 func (s *SessionCommandService) CreateWorkerSession(target OperationTarget, name, prompt string) error {
-	if err := s.ensureConnected(target.Host); err != nil {
+	if err := s.prepareRemote(&target); err != nil {
 		return err
 	}
 	return s.cp.CreateWorkerSession(name, prompt, target.ProjectRoot, target.Host)
@@ -229,7 +245,7 @@ func (s *SessionCommandService) CreateWorkerSession(target OperationTarget, name
 
 // LaunchLazygit launches lazygit on the appropriate host.
 func (s *SessionCommandService) LaunchLazygit(target OperationTarget) error {
-	if err := s.ensureConnected(target.Host); err != nil {
+	if err := s.prepareRemote(&target); err != nil {
 		return err
 	}
 	return s.cp.LaunchLazygit(target.ProjectRoot, target.Host)
