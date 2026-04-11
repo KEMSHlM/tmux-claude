@@ -92,13 +92,22 @@ Refresh の SSH 分岐で `~/.claude.json`, `<projectDir>/.mcp.json`, `<projectD
 
 実装:
 ```go
-// sshReadFile runs `sh -c 'if [ -f PATH ]; then cat PATH; fi'` on the remote.
+// sshReadFile runs `if [ -f PATH ]; then cat PATH; fi` on the remote.
 // Returns ("", nil) when the file does not exist.
 // Returns ("", error) for SSH connection failures or other read errors.
+//
+// IMPORTANT: the command is passed directly to ssh without an outer
+// `sh -c '...'` wrapper so that nested quoting does not collide with
+// shell.Quote'd paths. SSH delegates execution to the remote user's
+// default shell which parses the string once.
+//
+// The remotePath argument must be ALREADY quoted for shell consumption:
+//   - `shell.Quote(projectPath + "/.mcp.json")` for static paths (produces
+//     `'/path/to/proj/.mcp.json'`, safe against shell meta).
+//   - The literal string `"$HOME/.claude.json"` for the user-level path
+//     (double-quoted so remote shell performs $HOME expansion).
 func (m *Manager) sshReadFile(ctx context.Context, remotePath string) (string, error) {
-    // Note: remotePath is pre-quoted by the caller; do NOT shellQuote here
-    // because that would prevent $HOME expansion.
-    cmd := fmt.Sprintf(`sh -c 'if [ -f %s ]; then cat %s; fi'`, remotePath, remotePath)
+    cmd := fmt.Sprintf("if [ -f %s ]; then cat %s; fi", remotePath, remotePath)
     out, err := m.ssh.Run(ctx, m.host, cmd)
     if err != nil {
         return "", fmt.Errorf("ssh read %s: %w", remotePath, err)
@@ -107,7 +116,39 @@ func (m *Manager) sshReadFile(ctx context.Context, remotePath string) (string, e
 }
 ```
 
-`-f` test で file-not-found を正常扱い、cat 失敗 (permission など) は exec error として伝搬する。
+**重要 (codex v4 指摘)**: 過去の plan は `sh -c 'if [ -f %s ]; …'` と外側を single-quote で wrap していたが、`%s` に `shell.Quote(path)` (= `'…'`) を substitute すると `sh -c 'if [ -f '/tmp/proj/.mcp.json' ]; …'` となり outer single-quote が path の open quote で terminated → syntax error。
+
+**解決策**: 外側の `sh -c '...'` wrapper を廃止する。SSH は command 文字列をそのまま remote shell に渡して実行するので、wrapper は不要。コマンド自体は `if [ -f '/tmp/proj/.mcp.json' ]; then cat '/tmp/proj/.mcp.json'; fi` の形で remote shell が 1 回だけ parse する。
+
+### 同じく sshWriteFile も wrapper なしで実装
+
+```go
+// sshWriteFile writes content to remotePath via SSH. Uses base64 encoding
+// so that the content bytes do not need any shell escaping. Parent
+// directory is created with mkdir -p. remotePath must be pre-quoted as
+// described above.
+func (m *Manager) sshWriteFile(ctx context.Context, remotePath, content string) error {
+    encoded := base64.StdEncoding.EncodeToString([]byte(content))
+    // Derive parent dir via dirname command on remote side, avoiding a
+    // second caller-side path mangle.
+    cmd := fmt.Sprintf(
+        "mkdir -p \"$(dirname %s)\" && printf %%s %s | base64 -d > %s",
+        remotePath,
+        shell.Quote(encoded),
+        remotePath,
+    )
+    _, err := m.ssh.Run(ctx, m.host, cmd)
+    if err != nil {
+        return fmt.Errorf("ssh write %s: %w", remotePath, err)
+    }
+    return nil
+}
+```
+
+Note:
+- `$(dirname …)` は remote shell 側で展開される (double-quoted)
+- `base64` の encoded 文字列は ASCII only (`A-Za-z0-9+/=`) なので `shell.Quote` で single-quote wrap して安全に埋め込める
+- `mkdir -p $(dirname ...)` が既存 dir 時 no-op、存在しない dir で親ごと作成する
 
 ### 7. Shell injection 対策
 `remotePath` 自体は caller 側で strict に組み立てる:
@@ -216,7 +257,7 @@ merged := MergeServers(userServers, projectServers, denied)
 - `host == ""`: 従来通り
 - `host != ""`: SSH で read-modify-write
   1. `<remoteProjectPath>/.claude/settings.local.json` を `sshReadFile`
-  2. **既存の JSON 全体を保持したまま** `permissions.deniedMcpjsonServers` フィールドだけ書き換え
+  2. **既存の JSON 全体を保持したまま** top-level の `deniedMcpServers` 配列のみ書き換え
   3. `sshWriteFile` で書き戻し
   4. `Refresh` で最新状態再読込
 
