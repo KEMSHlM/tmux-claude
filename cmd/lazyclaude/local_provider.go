@@ -76,10 +76,7 @@ func (p *localDaemonProvider) CapturePreview(id string, width, height int) (*dae
 	if sess == nil {
 		return &daemon.PreviewResponse{}, nil
 	}
-	target := sess.TmuxWindow
-	if target == "" {
-		target = "lazyclaude:" + sess.WindowName()
-	}
+	target := sess.TmuxTarget()
 	ctx := context.Background()
 
 	if width > 0 && height > 0 && (id != p.lastResizeID || width != p.lastResizeW || height != p.lastResizeH) {
@@ -119,10 +116,7 @@ func (p *localDaemonProvider) CaptureScrollback(id string, _, startLine, endLine
 	if sess == nil {
 		return &daemon.ScrollbackResponse{}, nil
 	}
-	target := sess.TmuxWindow
-	if target == "" {
-		target = "lazyclaude:" + sess.WindowName()
-	}
+	target := sess.TmuxTarget()
 	content, err := p.tmux.CapturePaneANSIRange(context.Background(), target, startLine, endLine)
 	return &daemon.ScrollbackResponse{Content: content}, err
 }
@@ -132,10 +126,7 @@ func (p *localDaemonProvider) HistorySize(id string) (int, error) {
 	if sess == nil {
 		return 0, nil
 	}
-	target := sess.TmuxWindow
-	if target == "" {
-		target = "lazyclaude:" + sess.WindowName()
-	}
+	target := sess.TmuxTarget()
 	out, err := p.tmux.ShowMessage(context.Background(), target, "#{history_size}")
 	if err != nil {
 		return 0, err
@@ -153,7 +144,7 @@ func (p *localDaemonProvider) AttachSession(id string) error {
 	if sess == nil {
 		return fmt.Errorf("session not found: %s", id)
 	}
-	target := "lazyclaude:" + sess.WindowName()
+	target := sess.TmuxTarget()
 
 	_ = exec.Command("tmux", "-L", "lazyclaude", "set-option", "-t", "lazyclaude", "window-size", "largest").Run()
 
