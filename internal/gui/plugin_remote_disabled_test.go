@@ -427,29 +427,36 @@ func TestGuardRemoteOp_StaleFlagOnLocalNode_LiveNodeWins(t *testing.T) {
 		"live local node must override a stale remoteDisabled flag")
 }
 
-func TestGuardRemoteOp_ReSyncsBeforeDecision(t *testing.T) {
-	// Regression for codex P1 follow-up: the guard must re-sync the
-	// panel state to the current cursor before making its decision,
-	// otherwise a cursor-moving path that bypassed syncPluginProject
-	// (layout clamps, moveCursorToLastSession, closeSearch Esc) could
-	// leave pluginState.projectDir stale and the local-node bypass
-	// would allow writes against the wrong provider context.
-	app, mp, _ := newRemoteDisabledApp(t)
+func TestMoveCursorToLastSession_SyncsPluginPanel(t *testing.T) {
+	// Regression: moveCursorToLastSession moves a.cursor after a
+	// session create/delete but historically did not re-sync the
+	// plugin/MCP panels. The write guards rely on panel state
+	// matching the cursor — otherwise a local→remote cursor jump
+	// would let the write path run with stale local projectDir.
+	//
+	// remoteAndLocalProjects() places the remote project second,
+	// so the "last session" resolves to the remote-s1 SessionNode.
+	// We start on the local project and expect moveCursorToLastSession
+	// to flip the flag to remote.
+	app, _, _ := newRemoteDisabledApp(t)
 	attachProjectsAndRefresh(app, remoteAndLocalProjects())
 
-	// Cursor lands directly on local without going through
-	// syncPluginProject.
-	app.cursor = 0
-	require.Empty(t, app.pluginState.projectDir,
-		"precondition: syncPluginProject has not run yet")
+	app.cursor = 0 // local project
+	app.syncPluginProject()
+	require.False(t, app.pluginState.remoteDisabled)
 
-	allowed := !app.guardRemoteOp("Plugin editing")
-	require.True(t, allowed, "local cursor must be allowed")
+	app.moveCursorToLastSession()
 
-	assert.Equal(t, "/tmp/local", app.pluginState.projectDir,
-		"guardRemoteOp must re-sync pluginState.projectDir before bypassing")
-	assert.Equal(t, []string{"/tmp/local"}, mp.setProjectCallsSnapshot(),
-		"plugin provider must receive SetProjectDir during the re-sync")
+	n := app.currentNode()
+	require.NotNil(t, n)
+	require.Equal(t, SessionNode, n.Kind)
+	require.Equal(t, "ssh-host", n.Session.Host,
+		"precondition: last session must be the remote one")
+
+	assert.True(t, app.pluginState.remoteDisabled,
+		"moveCursorToLastSession must re-sync plugin panel to remote")
+	assert.True(t, app.mcpState.remoteDisabled,
+		"moveCursorToLastSession must re-sync mcp panel to remote")
 }
 
 func TestCloseSearch_EscRestore_ReSyncsPluginPanel(t *testing.T) {

@@ -162,11 +162,22 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 		nodes = a.filteredTreeNodes()
 	}
 	if len(nodes) > 0 {
+		clamped := false
 		if a.cursor >= len(nodes) {
 			a.cursor = len(nodes) - 1
+			clamped = true
 		}
 		if a.cursor < 0 {
 			a.cursor = 0
+			clamped = true
+		}
+		if clamped {
+			// The cursor jumped to a different tree node due to a
+			// shrinking tree (session deleted out of band, project
+			// collapsed, etc.). Re-sync the plugin/MCP panels so
+			// their cached projectDir and remoteDisabled flag track
+			// the clamped selection — the write guards rely on it.
+			a.syncPluginProject()
 		}
 	}
 	renderTree(v, nodes, a.cursor)

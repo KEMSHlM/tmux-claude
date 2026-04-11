@@ -257,26 +257,22 @@ func (a *App) isRemoteNodeSelected() (string, bool) {
 // remote node, showing a status message. Returns true if the caller should
 // return early.
 //
-// Call shape: each write entry point (PluginInstall, PluginRefresh,
-// MCPToggleDenied, ...) invokes guardRemoteOp as the first statement.
-// The guard takes two steps:
+// Decision order:
 //
-//  1. Re-sync the plugin/MCP panels to the current cursor. Several
-//     cursor-moving paths (moveCursorToLastSession, layout cursor
-//     clamps, closeSearch Esc restore, ...) mutate a.cursor without
-//     calling syncPluginProject themselves. Without a re-sync here,
-//     a live local node below could bypass the guard while the
-//     provider state still points at the previous (possibly remote or
-//     CWD-fallback) context. syncPluginProject is idempotent on the
-//     same cursor thanks to its projectPath-equals-cache short-circuit,
-//     so re-calling it on every write is cheap.
+//  1. Live local node → false (allow).
+//  2. Live remote node → true (block, status message).
+//  3. Nil node (filter hid every row, cursor briefly out of range) →
+//     fall back to pluginState.remoteDisabled / mcpState.remoteDisabled.
+//     When set, block; when clear, allow.
 //
-//  2. Decide based on the now-fresh state:
-//     - live local node → return false (allow the write)
-//     - live remote node → block and status-message
-//     - nil node (filter hides every row, cursor out of range, empty
-//       tree) → fall back to pluginState.remoteDisabled /
-//       mcpState.remoteDisabled; when set, block; when clear, allow.
+// Callers MUST have synced the panel state to the current cursor
+// before invoking writes — this is done automatically by the standard
+// cursor-moving paths (MoveCursorDown/Up, applySearchFilter,
+// closeSearch Esc restore, moveCursorToLastSession). Do NOT call
+// syncPluginProject from inside guardRemoteOp: the refresh it spawns
+// is asynchronous, so a write handler running immediately afterwards
+// would read stale cached Installed()/Servers() data from the previous
+// project and mutate items that no longer exist in the new context.
 //
 // The caller sites are AppActions methods invoked by the keydispatch
 // layer and do not receive a *gocui.Gui. setStatus requires a gui to
@@ -285,18 +281,6 @@ func (a *App) isRemoteNodeSelected() (string, bool) {
 // use for their own status writes and is consistent with the
 // plan-mandated wrapper shape.
 func (a *App) guardRemoteOp(feature string) bool {
-	// Snap the panel state to the current cursor before making any
-	// decision. Several cursor-moving paths (moveCursorToLastSession,
-	// layout cursor clamps, closeSearch on Esc) bypass
-	// syncPluginProject, which can leave pluginState.projectDir and
-	// remoteDisabled out of sync with the live node. Without this
-	// re-sync the local-node bypass below would let a plugin/MCP
-	// write run against the stale provider context (wrong project
-	// dir, or CWD fallback). syncPluginProject is idempotent on the
-	// same cursor because it short-circuits when projectPath matches
-	// pluginState.projectDir, so calling it on every write is cheap.
-	a.syncPluginProject()
-
 	host, onNode := a.currentSessionHost()
 
 	switch {
@@ -473,12 +457,16 @@ func (a *App) createSession(localPath string) {
 
 // moveCursorToLastSession moves the cursor to the last session node in the
 // tree. Used after session creation to select the newly created session.
+// Re-syncs the plugin/MCP panels so their remoteDisabled flags and
+// cached project path follow the newly selected session — the write
+// guards rely on the panel state matching the cursor.
 func (a *App) moveCursorToLastSession() {
 	a.refreshTreeNodes()
 	nodes := a.treeNodes()
 	for i := len(nodes) - 1; i >= 0; i-- {
 		if nodes[i].Kind == SessionNode {
 			a.cursor = i
+			a.syncPluginProject()
 			return
 		}
 	}
@@ -503,6 +491,12 @@ func (a *App) DeleteSession() {
 				if a.cursor > 0 && a.cursor >= len(nodes) {
 					a.cursor--
 				}
+				// Re-sync the plugin/MCP panels: deleting the last
+				// session in a project pulls the cursor onto a
+				// neighbouring node which may belong to a different
+				// project (or host). The write guards need the panel
+				// state to track that jump.
+				a.syncPluginProject()
 				a.setStatus(g, "Session deleted")
 			}
 			return nil
