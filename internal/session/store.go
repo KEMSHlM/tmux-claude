@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -73,6 +74,37 @@ func MirrorWindowName(sessionID string) string {
 		sessionID = sessionID[:8]
 	}
 	return "rm-" + sessionID
+}
+
+// TmuxTarget returns the tmux target string for runtime operations
+// (attach-session, capture-pane, send-keys, kill-window).
+//
+// Encapsulates the local/remote distinction in ONE place so that callers
+// do not need to branch on sess.Host. Returns a fully-qualified target of
+// the form "lazyclaude:<window>" suitable for tmux -L lazyclaude commands
+// that require a session:window target (e.g. attach-session).
+//
+// Resolution order:
+//  1. If TmuxWindow is non-empty, use it (may be a tmux window ID "@42"
+//     for local, or a mirror window name "rm-xxxx" for remote).
+//  2. Otherwise fall back to the canonical window name:
+//     - Remote (Host != ""): MirrorWindowName(ID) -> "rm-xxxx"
+//     - Local  (Host == ""): WindowName()         -> "lc-xxxx"
+//  3. If the resulting target does not contain ':', prefix with
+//     "lazyclaude:" so tmux parses it as a session:window target.
+func (s *Session) TmuxTarget() string {
+	target := s.TmuxWindow
+	if target == "" {
+		if s.Host != "" {
+			target = MirrorWindowName(s.ID)
+		} else {
+			target = s.WindowName()
+		}
+	}
+	if !strings.Contains(target, ":") {
+		target = tmuxSessionName + ":" + target
+	}
+	return target
 }
 
 // stateFile is the versioned on-disk format for state.json.
