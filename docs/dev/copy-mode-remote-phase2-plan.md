@@ -420,6 +420,7 @@ func (c *CompositeProvider) providerForCapture(sessionID string) SessionProvider
 - `ToolNotification` (permission popup) の remote 対応 (Bug 5 相当、別 plan)
 - Bug 4 (activity state) — 並行中
 - Diagnostic logging (Phase 1) の revert — 本 plan merge 時に必ず revert する (diag-copy-mode-remote branch を破棄)
+- **Remote daemon の rolling update 戦略**: 本 plan で `APIVersion` を 1 → 2 に bump するため、merge 後は **全 remote host で lazyclaude binary を再 install する必要** がある。古い daemon に接続すると handshake で弾かれて接続不可。段階的 rollout / 自動 binary push 機構は本 plan では扱わず、運用手順として documentation + release notes に追記する
 
 ## Files Changed
 
@@ -429,31 +430,30 @@ func (c *CompositeProvider) providerForCapture(sessionID string) SessionProvider
 | `internal/daemon/connection_impl_test.go` | `mockClientAPI` に CaptureScrollback / HistorySize stub 追加 (Step 2-a) |
 | `internal/daemon/server.go` | `/session/{id}/scrollback`, `/session/{id}/history-size` のルート追加、handleScrollback / handleHistorySize 実装 |
 | `internal/daemon/client.go` | ClientAPI に CaptureScrollback / HistorySize 追加 |
-| `internal/daemon/http_client.go` | HTTPClient.CaptureScrollback / HistorySize 実装 |
-| `internal/daemon/remote_provider.go` | CaptureScrollback / HistorySize を error stub から実装に差し替え (CapturePreview は stub のまま) |
-| `internal/daemon/composite_provider.go` | `providerForCapture` helper 追加、`CaptureScrollback` / `HistorySize` の routing をそれ経由に変更。`SessionProvider` interface に `Session(id)` 追加 |
+| `internal/daemon/http_client.go` | HTTPClient.CaptureScrollback / HistorySize 実装 (`postJSON` / `getJSON` + `sessionPath`) |
+| `internal/daemon/remote_provider.go` | CaptureScrollback / HistorySize を error stub から HTTP client 経由実装に差し替え (CapturePreview は stub のまま)。`RemoteProvider.LocalSessionHost(id)` stub 追加 |
+| `internal/daemon/composite_provider.go` | `SessionLister` interface に `LocalSessionHost(id) (string, bool)` 追加、`providerForCapture` helper 追加、`CaptureScrollback` / `HistorySize` の routing をそれ経由に変更 |
 | `cmd/lazyclaude/local_provider.go` | `localDaemonProvider.LocalSessionHost(id)` 実装 |
-| `internal/daemon/remote_provider.go` (上記に加え) | `RemoteProvider.LocalSessionHost(id)` stub 実装 |
 | `cmd/lazyclaude/routing_integration_test.go` | `fakeSessionProvider.LocalSessionHost(id)` stub 追加 |
-| `internal/daemon/composite_provider_test.go` | 既存 `stubProvider` 等に `LocalSessionHost` stub 追加 |
+| `internal/daemon/composite_provider_test.go` | 既存 `stubProvider` 等に `LocalSessionHost` stub 追加、providerForCapture routing test 追加 |
 | `internal/daemon/server_capture_test.go` (新規) | handler unit test |
 | `internal/daemon/http_client_capture_test.go` (新規) | client unit test |
 | `internal/daemon/remote_provider_test.go` | CaptureScrollback / HistorySize test 追加 |
-| `internal/daemon/composite_provider_test.go` | providerForCapture routing test 追加 |
 
 ## Risk Assessment
 
 - **Low**: capture ops は既に interface 化されていて、routing 変更と実装追加のみ
 - **Low**: `CapturePreview` を触らないので現在動いている mirror 経由の preview は regression なし
-- **Medium**: `SessionProvider` interface に `Session(id)` を追加すると既存の stub / mock 実装も更新が必要。事前に grep で影響範囲確認
-- **Medium**: `internal/daemon` → `internal/session` の import cycle の可能性。既に `SessionInfo` はあるが `*session.Session` を interface に露出する場合は要検証。cycle になったら `LocalSessionHost(id) (host string, ok bool)` のような最小 API に変更
+- **Low**: `SessionLister` に `LocalSessionHost` を追加する interface 拡張は最小 (`(string, bool)` 返し)、既存の `HasSession` と同じ型面。session package を interface 境界に露出しないので import cycle の risk なし (事前確認済)
+- **Medium**: `ClientAPI` / `SessionLister` interface 拡張で既存の stub / mock 実装が全て更新必要。worker は Step 2-a / Step 6-a〜6-d の stub 追加を漏れなく実施すること
 - **Low**: Daemon API endpoint の security/auth は既存の `s.withAuth` を使うので追加リスクなし
+- **High (operational, not code)**: **APIVersion 1 → 2 bump** により、merge 後 **全 remote host の daemon を再 install しないと接続できなくなる**。ユーザーは全 SSH 接続先で `make install PREFIX=$HOME/.local` 相当のコマンドを実行する必要。release notes / Out of Scope 参照
 
 ## Open Questions
 
-1. `SessionProvider.Session(id)` が import cycle を招く場合の代替 API: `LocalSessionHost(id)` のような最小化で十分か、あるいは `*daemon.SessionInfo` 返しにするか
-2. Daemon server handler で `capture-pane` の `-ep` flag を付けるか: 既存の `CapturePaneANSIRange` は `-e` ANSI 付きを返すはずなので、Worker が実装時に確認
-3. `ScrollbackResponse` に `CursorX/CursorY` field があるが scrollback では使わないので空のまま。将来 preview も routing する時のために placeholder として残す
+1. Daemon server handler で `capture-pane` の `-ep` flag を付けるか: 既存の `CapturePaneANSIRange` (`internal/core/tmux/exec.go`) は `-e` ANSI 付きを返す実装のはずなので、worker が実装時に確認
+2. `ScrollbackResponse` に `CursorX/CursorY` field があるが scrollback では使わないので空のまま。将来 preview も routing する時のために placeholder として残す
+3. `LocalSessionHost` を `SessionLister` に置くか、新規 `SessionResolver` interface を切るか: plan は `SessionLister` に追加する方針だが、worker が実装時に分離の方がきれいと判断すれば option として許容 (interface 位置のみの変更、logic 影響なし)
 
 ## Dependencies
 
