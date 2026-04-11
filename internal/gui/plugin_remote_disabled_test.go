@@ -429,7 +429,14 @@ func TestSyncPluginProject_TreeEmpties_ClearsFlagEvenWhenProjectDirIsCWD(t *test
 	// `projectDir != cwd` guard skipped the recovery entirely and
 	// left remoteDisabled stuck true. The flag clear must happen
 	// independently of that refresh-gating check.
-	app, _, _ := newRemoteDisabledApp(t)
+	//
+	// Phase 2 Codex follow-up: even when projectDir==cwd already,
+	// the empty-tree recovery MUST still issue SetRemote("", cwd)
+	// unconditionally. The manager may be holding (remoteHost,
+	// remoteDir) from the preceding remote selection — skipping
+	// the atomic reset would let a subsequent MCP write target the
+	// old remote host through the nil-node guardRemoteOp fallback.
+	app, _, mm := newRemoteDisabledApp(t)
 	cwd, err := filepath.Abs(".")
 	require.NoError(t, err)
 
@@ -474,6 +481,15 @@ func TestSyncPluginProject_TreeEmpties_ClearsFlagEvenWhenProjectDirIsCWD(t *test
 	assert.False(t, app.pluginState.remoteDisabled,
 		"flag must clear on empty-tree recovery even when projectDir already equals CWD")
 	assert.False(t, app.mcpState.remoteDisabled)
+
+	// The atomic (host, projectDir) reset must run even though the
+	// refresh-gating `projectDir != cwd` check is false.
+	last := mm.lastSetRemote()
+	assert.Empty(t, last.host,
+		"empty-tree recovery must atomically clear the manager's host "+
+			"even when projectDir==cwd short-circuits the refresh")
+	assert.Equal(t, cwd, last.projectDir,
+		"empty-tree recovery must install the CWD fallback via SetRemote")
 }
 
 func TestSyncPluginProject_EmptyTreeReset_ResetsPanelCursors(t *testing.T) {

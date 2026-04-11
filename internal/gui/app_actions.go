@@ -210,6 +210,19 @@ func (a *App) syncPluginProject() {
 			clearRemoteDisabled()
 
 			cwd, _ := filepath.Abs(".")
+
+			// Atomic SetRemote is unconditional: even when
+			// pluginState.projectDir already equals cwd (user
+			// started lazyclaude in the fallback directory), the
+			// MCP manager may still hold a stale (remoteHost,
+			// remoteDir) pair from a prior remote selection.
+			// Without this reset the nil-node fallback in
+			// guardRemoteOp would permit an MCP toggle that
+			// ultimately targets the old remote file.
+			if a.mcpServers != nil {
+				a.mcpServers.SetRemote("", cwd)
+			}
+
 			if a.pluginState.projectDir != cwd {
 				// Panel cursors track the previous project's item
 				// count; swapping to the CWD fallback without
@@ -227,10 +240,6 @@ func (a *App) syncPluginProject() {
 				})
 				if a.mcpServers != nil {
 					a.mcpState.cursor = 0
-					// Atomic SetRemote: clear any leftover remote
-					// host and install the local CWD projectDir in
-					// one lock acquisition.
-					a.mcpServers.SetRemote("", cwd)
 					a.runMCPAsync(func(ctx context.Context) error {
 						return a.mcpServers.Refresh(ctx)
 					})
