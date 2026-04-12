@@ -527,7 +527,7 @@ func (s *Server) dispatchToolNotification(window, toolName, input, cwd string) {
 			NewString  string `json:"new_string"`
 			ReplaceAll bool   `json:"replace_all"`
 		}
-		if json.Unmarshal([]byte(input), &params) == nil && params.FilePath != "" {
+		if json.Unmarshal([]byte(input), &params) == nil && params.FilePath != "" && params.OldString != "" {
 			oldContent, err := os.ReadFile(params.FilePath)
 			if err == nil {
 				var newContent string

@@ -438,7 +438,7 @@ func TestServer_NotifyBroker_EditPopulatesDiffFields(t *testing.T) {
 
 	// Create a temp file to simulate the existing file.
 	tmpFile := filepath.Join(t.TempDir(), "edit_target.go")
-	os.WriteFile(tmpFile, []byte("package main\n\nfunc hello() {}\n"), 0o644)
+	require.NoError(t, os.WriteFile(tmpFile, []byte("package main\n\nfunc hello() {}\n"), 0o644))
 
 	broker := srv.NotifyBroker()
 	sub := broker.Subscribe(4)
@@ -480,7 +480,7 @@ func TestServer_NotifyBroker_EditReplaceAll(t *testing.T) {
 	srv.State().SetConn("c1", &server.ConnState{PID: 2002, Window: "@2"})
 
 	tmpFile := filepath.Join(t.TempDir(), "replace_all.txt")
-	os.WriteFile(tmpFile, []byte("foo bar foo baz foo"), 0o644)
+	require.NoError(t, os.WriteFile(tmpFile, []byte("foo bar foo baz foo"), 0o644))
 
 	broker := srv.NotifyBroker()
 	sub := broker.Subscribe(4)
