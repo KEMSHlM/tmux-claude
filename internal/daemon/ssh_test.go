@@ -56,6 +56,36 @@ func TestShellQuote(t *testing.T) {
 	}
 }
 
+func TestSSHEnv_WithAskpass(t *testing.T) {
+	e := &ExecSSHExecutor{
+		AskpassBin:  "/usr/local/bin/lazyclaude",
+		AskpassSock: "/tmp/lazyclaude/askpass.sock",
+	}
+	env := e.SSHEnv()
+	if len(env) != 4 {
+		t.Fatalf("SSHEnv() len = %d, want 4", len(env))
+	}
+	want := []string{
+		"SSH_ASKPASS=/usr/local/bin/lazyclaude",
+		"SSH_ASKPASS_REQUIRE=prefer",
+		"DISPLAY=:0",
+		"LAZYCLAUDE_ASKPASS_SOCK=/tmp/lazyclaude/askpass.sock",
+	}
+	for i, w := range want {
+		if env[i] != w {
+			t.Errorf("SSHEnv()[%d] = %q, want %q", i, env[i], w)
+		}
+	}
+}
+
+func TestSSHEnv_WithoutAskpass(t *testing.T) {
+	e := &ExecSSHExecutor{}
+	env := e.SSHEnv()
+	if env != nil {
+		t.Errorf("SSHEnv() = %v, want nil", env)
+	}
+}
+
 func TestIsNumeric(t *testing.T) {
 	tests := []struct {
 		input string

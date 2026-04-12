@@ -117,11 +117,32 @@ func newRootCmd() *cobra.Command {
 				return fmt.Errorf("init TUI: %w", err)
 			}
 
+			// Start the askpass server for SSH password authentication.
+			// The handler shows a gocui popup and blocks until the user
+			// enters a password or cancels.
+			askpassSrv := daemon.NewAskpassServer(paths.RuntimeDir, func(prompt string) (string, error) {
+				ch := make(chan string, 1)
+				app.SetAskpassChannel(ch)
+				app.ShowAskpassPrompt(prompt)
+				response := <-ch
+				return response, nil
+			})
+			if err := askpassSrv.Start(); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: start askpass server: %v\n", err)
+			}
+			lc.Register("askpass-server", askpassSrv.Stop)
+
+			// Resolve the lazyclaude binary path for SSH_ASKPASS.
+			askpassBin, _ := os.Executable()
+
 			// Always use CompositeProvider so manual 'c' connect can add remotes.
 			localProvider := &localDaemonProvider{mgr: mgr, tmux: tmuxClient}
 			composite := daemon.NewCompositeProvider(localProvider, nil)
 
-			ssh := &daemon.ExecSSHExecutor{}
+			ssh := &daemon.ExecSSHExecutor{
+				AskpassBin:  askpassBin,
+				AskpassSock: askpassSrv.SockPath(),
+			}
 			lifecycleMgr := daemon.NewLifecycleManager(ssh)
 			clientFactory := func(addr, token string) daemon.ClientAPI {
 				return daemon.NewHTTPClient(addr, token)
@@ -152,6 +173,7 @@ func newRootCmd() *cobra.Command {
 			connectRemoteHost := func(host string) error {
 				debugLog("connectRemoteHost: host=%q", host)
 				remoteConn := daemon.NewRemoteConnection(host, lifecycleMgr, clientFactory)
+				remoteConn.SetAskpassEnv(ssh.SSHEnv())
 				if connErr := remoteConn.Connect(context.Background()); connErr != nil {
 					debugLog("connectRemoteHost: Connect failed: %v", connErr)
 					return fmt.Errorf("lazyclaude is not installed on %s: %w", host, connErr)
@@ -335,6 +357,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newSessionsCmd())
 	cmd.AddCommand(newMsgCmd())
 	cmd.AddCommand(newDaemonCmd())
+	cmd.AddCommand(newAskpassCmd())
 
 	return cmd
 }

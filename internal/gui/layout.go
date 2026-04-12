@@ -629,6 +629,54 @@ func (a *App) closeConnectDialog(g *gocui.Gui) {
 	}
 }
 
+// showAskpassDialog creates a masked input view for SSH password entry.
+// The prompt string is displayed as the view title.
+func (a *App) showAskpassDialog(g *gocui.Gui, prompt string) bool {
+	maxX, maxY := g.Size()
+	w := 50
+	if w > maxX-4 {
+		w = maxX - 4
+	}
+	x0 := (maxX - w) / 2
+	y0 := maxY/2 - 1
+	x1 := x0 + w
+	y1 := y0 + 2
+
+	v, err := g.SetView("askpass-input", x0, y0, x1, y1, 0)
+	if err != nil && !isUnknownView(err) {
+		return false
+	}
+	setRoundedFrame(v)
+
+	// Trim and format prompt for title.
+	title := strings.TrimSpace(prompt)
+	if title == "" {
+		title = "Password"
+	}
+	v.Title = " " + title + " "
+	v.Editable = true
+	v.Editor = gocui.DefaultEditor
+	v.Mask = "*"
+	v.TextArea.Clear()
+	v.RenderTextArea()
+	if _, err := g.SetCurrentView("askpass-input"); err != nil && !isUnknownView(err) {
+		return false
+	}
+	g.Cursor = true
+	a.dialog.Kind = DialogAskpass
+	return true
+}
+
+// closeAskpassDialog removes the askpass input view and restores focus.
+func (a *App) closeAskpassDialog(g *gocui.Gui) {
+	a.dialog.Kind = DialogNone
+	g.DeleteView("askpass-input")
+	g.Cursor = false
+	if _, err := g.SetCurrentView("sessions"); err != nil && !isUnknownView(err) {
+		_ = err
+	}
+}
+
 // copyToClipboard copies text to the system clipboard using pbcopy (macOS).
 func copyToClipboard(text string) {
 	cmd := exec.Command("pbcopy")

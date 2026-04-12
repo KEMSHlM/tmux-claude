@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
 	"sync"
 	"time"
@@ -17,6 +18,8 @@ type Tunnel struct {
 	remotePort int
 	localPort  int
 
+	askpassEnv []string // SSH_ASKPASS environment variables
+
 	mu   sync.Mutex
 	cmd  *exec.Cmd
 	done chan error // closed when the SSH process exits
@@ -28,6 +31,12 @@ func NewTunnel(host string, remotePort int) *Tunnel {
 		host:       host,
 		remotePort: remotePort,
 	}
+}
+
+// SetAskpassEnv sets the SSH_ASKPASS environment variables for the tunnel.
+// Must be called before Start.
+func (t *Tunnel) SetAskpassEnv(env []string) {
+	t.askpassEnv = env
 }
 
 // Start launches the SSH tunnel process. It picks a free local port, starts
@@ -55,6 +64,9 @@ func (t *Tunnel) Start(ctx context.Context) error {
 	debugLog("Tunnel.Start: ssh args=%v", args)
 
 	t.cmd = exec.CommandContext(ctx, "ssh", args...)
+	if len(t.askpassEnv) > 0 {
+		t.cmd.Env = append(os.Environ(), t.askpassEnv...)
+	}
 	t.done = make(chan error, 1)
 
 	if err := t.cmd.Start(); err != nil {
@@ -214,7 +226,6 @@ func baseSSHArgs(host string) []string {
 		"-o", "ServerAliveInterval=15",
 		"-o", "ServerAliveCountMax=3",
 		"-o", "ExitOnForwardFailure=yes",
-		"-o", "BatchMode=yes",
 		"-o", "ControlMaster=no",
 		"-o", "ControlPath=none",
 	}

@@ -30,7 +30,6 @@ func TestTunnel_SSHArgs_Basic(t *testing.T) {
 		"-o", "ServerAliveInterval=15",
 		"-o", "ServerAliveCountMax=3",
 		"-o", "ExitOnForwardFailure=yes",
-		"-o", "BatchMode=yes",
 		"-o", "ControlMaster=no",
 		"-o", "ControlPath=none",
 		"user@host",
@@ -46,6 +45,16 @@ func TestTunnel_SSHArgs_Basic(t *testing.T) {
 	}
 }
 
+func TestTunnel_SSHArgs_NoBatchMode(t *testing.T) {
+	tun := NewTunnelWithPort("user@host", 8080, 9090)
+	args := tun.SSHArgs()
+	for _, a := range args {
+		if a == "BatchMode=yes" {
+			t.Error("SSHArgs() should not contain BatchMode=yes (removed for askpass)")
+		}
+	}
+}
+
 func TestTunnel_SSHArgs_WithPort(t *testing.T) {
 	tun := NewTunnelWithPort("user@host:2222", 8080, 9090)
 	args := tun.SSHArgs()
@@ -57,7 +66,6 @@ func TestTunnel_SSHArgs_WithPort(t *testing.T) {
 		"-o", "ServerAliveInterval=15",
 		"-o", "ServerAliveCountMax=3",
 		"-o", "ExitOnForwardFailure=yes",
-		"-o", "BatchMode=yes",
 		"-o", "ControlMaster=no",
 		"-o", "ControlPath=none",
 		"-p", "2222",
@@ -91,6 +99,18 @@ func TestTunnel_SSHArgs_IPv6(t *testing.T) {
 	}
 	if lastArg != "[::1]" {
 		t.Errorf("last arg = %q, want %q", lastArg, "[::1]")
+	}
+}
+
+func TestTunnel_SetAskpassEnv(t *testing.T) {
+	tun := NewTunnel("user@host", 8080)
+	env := []string{"SSH_ASKPASS=/bin/askpass", "DISPLAY=:0"}
+	tun.SetAskpassEnv(env)
+	if len(tun.askpassEnv) != 2 {
+		t.Errorf("askpassEnv len = %d, want 2", len(tun.askpassEnv))
+	}
+	if tun.askpassEnv[0] != "SSH_ASKPASS=/bin/askpass" {
+		t.Errorf("askpassEnv[0] = %q, want %q", tun.askpassEnv[0], "SSH_ASKPASS=/bin/askpass")
 	}
 }
 

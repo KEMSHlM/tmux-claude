@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -15,26 +16,60 @@ type SSHExecutor interface {
 }
 
 // ExecSSHExecutor implements SSHExecutor using real ssh/scp commands.
-type ExecSSHExecutor struct{}
+type ExecSSHExecutor struct {
+	// AskpassBin is the path to the lazyclaude binary used as SSH_ASKPASS helper.
+	// When set, BatchMode is disabled and ASKPASS environment variables are injected.
+	AskpassBin string
+	// AskpassSock is the Unix socket path for askpass communication.
+	AskpassSock string
+}
+
+// SSHEnv returns the environment variables for SSH_ASKPASS integration.
+// Returns nil when AskpassBin is not configured.
+func (e *ExecSSHExecutor) SSHEnv() []string {
+	if e.AskpassBin == "" {
+		return nil
+	}
+	return []string{
+		"SSH_ASKPASS=" + e.AskpassBin,
+		"SSH_ASKPASS_REQUIRE=prefer",
+		"DISPLAY=:0",
+		"LAZYCLAUDE_ASKPASS_SOCK=" + e.AskpassSock,
+	}
+}
 
 func (e *ExecSSHExecutor) Run(ctx context.Context, host, command string) ([]byte, error) {
 	sshHost, port := SplitHostPort(host)
-	args := []string{"-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ControlMaster=no", "-o", "ControlPath=none"}
+	args := []string{"-o", "ConnectTimeout=10", "-o", "ControlMaster=no", "-o", "ControlPath=none"}
+	if e.AskpassBin == "" {
+		// No askpass: fall back to BatchMode for non-interactive use.
+		args = append([]string{"-o", "BatchMode=yes"}, args...)
+	}
 	if port != "" {
 		args = append(args, "-p", port)
 	}
 	args = append(args, sshHost, command)
-	return exec.CommandContext(ctx, "ssh", args...).Output()
+	cmd := exec.CommandContext(ctx, "ssh", args...)
+	if env := e.SSHEnv(); env != nil {
+		cmd.Env = append(os.Environ(), env...)
+	}
+	return cmd.Output()
 }
 
 func (e *ExecSSHExecutor) Copy(ctx context.Context, host, localPath, remotePath string) error {
 	sshHost, port := SplitHostPort(host)
-	args := []string{"-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ControlMaster=no", "-o", "ControlPath=none"}
+	args := []string{"-o", "ConnectTimeout=10", "-o", "ControlMaster=no", "-o", "ControlPath=none"}
+	if e.AskpassBin == "" {
+		args = append([]string{"-o", "BatchMode=yes"}, args...)
+	}
 	if port != "" {
 		args = append(args, "-P", port)
 	}
 	args = append(args, localPath, sshHost+":"+remotePath)
 	cmd := exec.CommandContext(ctx, "scp", args...)
+	if env := e.SSHEnv(); env != nil {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	return cmd.Run()
 }
 

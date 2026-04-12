@@ -333,7 +333,30 @@ func (a *App) setupGlobalKeybindings() error {
 		return err
 	}
 
-	// 10. Connect dialog bindings (Enter to connect, Esc to cancel)
+	// 10. Askpass dialog bindings (Enter to submit, Esc to cancel)
+	if err := a.gui.SetKeybinding("askpass-input", gocui.KeyEnter, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		password := v.TextArea.GetContent()
+		ch := a.askpassCh
+		a.closeAskpassDialog(g)
+		if ch != nil {
+			ch <- password
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	if err := a.gui.SetKeybinding("askpass-input", gocui.KeyEsc, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		ch := a.askpassCh
+		a.closeAskpassDialog(g)
+		if ch != nil {
+			ch <- ""
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	// 11. Connect dialog bindings (Enter to connect, Esc to cancel)
 	if err := a.gui.SetKeybinding("connect-input", gocui.KeyEnter, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
 		host := strings.TrimSpace(v.TextArea.GetContent())
 		a.closeConnectDialog(g)
@@ -370,7 +393,7 @@ func (a *App) setupGlobalKeybindings() error {
 		return err
 	}
 
-	// 11. Keybind help overlay bindings
+	// 12. Keybind help overlay bindings
 	// Esc: close help
 	for _, viewName := range []string{helpInputView, helpListView} {
 		if err := a.gui.SetKeybinding(viewName, gocui.KeyEsc, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {

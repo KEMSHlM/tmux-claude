@@ -14,6 +14,7 @@ const (
 	DialogKeybindHelp                      // keybind-help overlay (Telescope style)
 	DialogSearch                           // inline "/" search on active panel
 	DialogConnect                          // connect-input for remote host
+	DialogAskpass                          // askpass-input (masked password)
 )
 
 // DialogState groups all input dialog state into a single struct,
@@ -75,6 +76,8 @@ func (a *App) dialogFocusView() string {
 		return "search-input"
 	case DialogConnect:
 		return "connect-input"
+	case DialogAskpass:
+		return "askpass-input"
 	default:
 		return ""
 	}
