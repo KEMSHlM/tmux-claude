@@ -44,6 +44,34 @@ func WithSSEActivity(cb SSEActivityCallback) RemoteProviderOption {
 	return func(rp *RemoteProvider) { rp.onSSEActivity = cb }
 }
 
+// SSEToolInfoCallback is invoked when an SSE EventToolInfo arrives.
+//
+// The callback may mutate the notification in place (e.g. rewrite
+// ToolNotification.Window from the remote tmux window ID to the local
+// mirror's tmux window ID) before it is buffered for the next
+// PendingNotifications call. The sessionID comes from
+// NotificationEvent.SessionID emitted by the daemon SSE handler and is
+// the authoritative key for looking up the local mirror session.
+//
+// Concurrency contract: the callback is invoked while the
+// RemoteProvider's internal mutex is held. Callback implementations
+// MUST NOT re-enter any RemoteProvider method (e.g. PendingNotifications,
+// HasSession, Sessions) or deadlock will result. Look-ups against
+// external stores (session.Store, etc.) are fine because they have
+// their own independent locks.
+//
+// Mirrors SSEActivityCallback for the ToolInfo code path; see Bug 5
+// for the background (remote permission popup action routing fix).
+type SSEToolInfoCallback func(n *model.ToolNotification, sessionID string)
+
+// WithSSEToolInfo sets the callback invoked on SSE EventToolInfo events.
+// Used by root.go to rewrite ToolNotification.Window to the local mirror
+// window ID so the permission popup's Accept/Reject keystrokes reach the
+// correct pane.
+func WithSSEToolInfo(cb SSEToolInfoCallback) RemoteProviderOption {
+	return func(rp *RemoteProvider) { rp.onSSEToolInfo = cb }
+}
+
 // RemoteProvider adapts a daemon ClientAPI to the SessionProvider interface.
 // It maintains a local cache of sessions and buffers tool notifications
 // received via SSE.
@@ -52,10 +80,11 @@ func WithSSEActivity(cb SSEActivityCallback) RemoteProviderOption {
 // through the daemon API. Socket tunnel forwarding was removed because
 // remote sshd environments often block Unix domain socket forwarding.
 type RemoteProvider struct {
-	host           string
-	conn           ConnectionManager
-	postCreate     PostCreateHook     // immutable after construction
-	onSSEActivity  SSEActivityCallback // immutable after construction
+	host          string
+	conn          ConnectionManager
+	postCreate    PostCreateHook      // immutable after construction
+	onSSEActivity SSEActivityCallback // immutable after construction
+	onSSEToolInfo SSEToolInfoCallback // immutable after construction
 
 	mu            sync.Mutex
 	sessions      []SessionInfo
@@ -188,6 +217,13 @@ func (rp *RemoteProvider) handleSSEEvent(ev NotificationEvent) {
 		}
 	case EventToolInfo:
 		if ev.ToolNotification != nil {
+			// Apply optional rewrite hook (e.g. rewrite Window to the
+			// local mirror's tmux window ID using ev.SessionID). The
+			// callback mutates the notification in place before it is
+			// buffered, mirroring the SSEActivity callback pattern.
+			if rp.onSSEToolInfo != nil {
+				rp.onSSEToolInfo(ev.ToolNotification, ev.SessionID)
+			}
 			rp.notifications = append(rp.notifications, ev.ToolNotification)
 		}
 	case EventFullSync:
