@@ -82,7 +82,8 @@ func TestClassifyLogLine(t *testing.T) {
 }
 
 func TestColorizeLogLine(t *testing.T) {
-	ts := "2024/04/13 10:00:00"
+	// ts includes the trailing space (timestampPrefixLen = 20).
+	ts := "2024/04/13 10:00:00 "
 
 	tests := []struct {
 		name string
@@ -91,43 +92,43 @@ func TestColorizeLogLine(t *testing.T) {
 	}{
 		{
 			name: "error: dim timestamp + red message",
-			line: ts + " server error: bind",
-			want: FgDimGray + ts + Reset + fgLogError + " server error: bind" + Reset,
+			line: ts + "server error: bind",
+			want: FgDimGray + ts + Reset + fgLogError + "server error: bind" + Reset,
 		},
 		{
 			name: "warning: dim timestamp + yellow message",
-			line: ts + " warning: port file",
-			want: FgDimGray + ts + Reset + fgLogWarn + " warning: port file" + Reset,
+			line: ts + "warning: port file",
+			want: FgDimGray + ts + Reset + fgLogWarn + "warning: port file" + Reset,
 		},
 		{
 			name: "notify: dim timestamp + cyan message",
-			line: ts + " notify: type=tool",
-			want: FgDimGray + ts + Reset + fgLogNotify + " notify: type=tool" + Reset,
+			line: ts + "notify: type=tool",
+			want: FgDimGray + ts + Reset + fgLogNotify + "notify: type=tool" + Reset,
 		},
 		{
 			name: "lifecycle: dim timestamp + green message",
-			line: ts + " session-start: pid=1",
-			want: FgDimGray + ts + Reset + fgLogLifecycle + " session-start: pid=1" + Reset,
+			line: ts + "session-start: pid=1",
+			want: FgDimGray + ts + Reset + fgLogLifecycle + "session-start: pid=1" + Reset,
 		},
 		{
 			name: "connection: dim timestamp + blue message",
-			line: ts + " ws connected: abc",
-			want: FgDimGray + ts + Reset + fgLogConnection + " ws connected: abc" + Reset,
+			line: ts + "ws connected: abc",
+			want: FgDimGray + ts + Reset + fgLogConnection + "ws connected: abc" + Reset,
 		},
 		{
 			name: "diffmsg: dim timestamp + magenta message",
-			line: ts + " msg/create: ok",
-			want: FgDimGray + ts + Reset + fgLogDiffMsg + " msg/create: ok" + Reset,
+			line: ts + "msg/create: ok",
+			want: FgDimGray + ts + Reset + fgLogDiffMsg + "msg/create: ok" + Reset,
 		},
 		{
 			name: "debug: dim timestamp + dim message",
-			line: ts + " ws read conn1: EOF",
-			want: FgDimGray + ts + Reset + fgLogDebug + " ws read conn1: EOF" + Reset,
+			line: ts + "ws read conn1: EOF",
+			want: FgDimGray + ts + Reset + fgLogDebug + "ws read conn1: EOF" + Reset,
 		},
 		{
 			name: "info: dim timestamp only, message uncolored",
-			line: ts + " something unknown",
-			want: FgDimGray + ts + Reset + " something unknown",
+			line: ts + "something unknown",
+			want: FgDimGray + ts + Reset + "something unknown",
 		},
 		{
 			name: "short line: no timestamp split",

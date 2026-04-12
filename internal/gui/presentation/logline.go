@@ -145,20 +145,18 @@ func categoryColor(cat LogCategory) string {
 }
 
 // ColorizeLogLine wraps a log line with ANSI color escapes based on its
-// classified category.  The timestamp portion (first 19 chars) is rendered
-// in dim gray, and the message portion (including the separator space)
+// classified category.  The timestamp portion (first 20 chars, including
+// the trailing space) is rendered in dim gray, and the message portion
 // uses the category color.
 // Lines shorter than the timestamp format are returned unmodified.
 func ColorizeLogLine(line string) string {
 	cat := ClassifyLogLine(line)
 	color := categoryColor(cat)
 
-	// Split at the timestamp boundary (19 chars = timestamp without space).
-	// The space separator stays with the message portion for coloring.
-	const tsDisplay = timestampPrefixLen - 1 // 19: "2006/01/02 15:04:05"
-	if len(line) > tsDisplay {
-		ts := line[:tsDisplay]
-		rest := line[tsDisplay:]
+	// Split at timestampPrefixLen (20): "2006/01/02 15:04:05 "
+	if len(line) > timestampPrefixLen {
+		ts := line[:timestampPrefixLen]
+		rest := line[timestampPrefixLen:]
 		if color != "" {
 			return FgDimGray + ts + Reset + color + rest + Reset
 		}
