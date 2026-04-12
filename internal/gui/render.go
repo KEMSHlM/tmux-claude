@@ -232,7 +232,7 @@ func (a *App) renderServerLog(v *gocui.View, logs *LogsState, focused bool) {
 		} else if isCursor {
 			fmt.Fprintf(v, "\x1b[48;5;240m%s\x1b[0m\n", padded)
 		} else {
-			fmt.Fprintln(v, line)
+			fmt.Fprintln(v, presentation.ColorizeLogLine(line))
 		}
 	}
 

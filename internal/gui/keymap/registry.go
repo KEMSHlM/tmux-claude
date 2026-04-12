@@ -614,6 +614,14 @@ func Default() *Registry {
 		Description: "Copy selected lines to clipboard",
 		DocSection:  "logs_copy",
 	})
+	r.Register(ActionDef{
+		Action:      ActionLogsClear,
+		Bindings:    []KeyBinding{{Rune: 'c'}},
+		Scope:       ScopeLog,
+		HintLabel:   "clear",
+		Description: "Clear log contents",
+		DocSection:  "logs_clear",
+	})
 
 	// --- Search (per-panel) ---
 	r.Register(ActionDef{

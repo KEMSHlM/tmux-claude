@@ -60,6 +60,7 @@ type LogsActions interface {
 	LogsCursorToTop()
 	LogsToggleSelect()
 	LogsCopySelection()
+	LogsClear()
 	StartSearch()
 }
 

@@ -916,6 +916,15 @@ func (a *App) LogsCopySelection() {
 	a.logs.ClearSelection()
 }
 
+func (a *App) LogsClear() {
+	_ = os.Truncate(serverLogPath, 0)
+	a.logCache = logFileCache{}
+	a.logRender = logRenderCache{}
+	a.logs.ClearSelection()
+	a.logs.SetLineCount(0)
+	a.logs.ToTop()
+}
+
 // --- Panel tab switching (generic) ---
 
 func (a *App) PanelNextTab() {

@@ -156,6 +156,11 @@ Selected lines can then be copied with `y`.
 Copy selected log lines to the system clipboard.
 If no selection is active, copies the current line.
 
+## logs_clear
+
+Clear all log contents from the log panel.
+`c` truncates the server log file and resets the display.
+
 ## popup_accept
 
 Accept the tool execution request shown in the notification popup.

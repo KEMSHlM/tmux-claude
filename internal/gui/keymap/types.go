@@ -98,6 +98,7 @@ const (
 	ActionLogsCursorToTop   KeyAction = "logs_cursor_to_top"
 	ActionLogsToggleSelect  KeyAction = "logs_toggle_select"
 	ActionLogsCopySelection KeyAction = "logs_copy_selection"
+	ActionLogsClear         KeyAction = "logs_clear"
 )
 
 // --- Popup actions ---
