@@ -15,6 +15,7 @@ const (
 	DialogSearch                           // inline "/" search on active panel
 	DialogConnect                          // connect-input for remote host
 	DialogConnectChooser                   // connect-chooser (SSH host selection)
+	DialogAskpass                          // askpass-input (masked password)
 )
 
 // DialogState groups all input dialog state into a single struct,
@@ -82,6 +83,8 @@ func (a *App) dialogFocusView() string {
 		return "connect-input"
 	case DialogConnectChooser:
 		return "connect-chooser"
+	case DialogAskpass:
+		return "askpass-input"
 	default:
 		return ""
 	}

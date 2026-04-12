@@ -72,6 +72,7 @@ type RemoteConnection struct {
 	host          string
 	lifecycle     *LifecycleManager
 	clientFactory ClientFactory
+	askpassEnv    []string // SSH_ASKPASS environment variables for tunnels
 
 	// connMu serialises Connect/Disconnect calls.
 	connMu sync.Mutex
@@ -98,6 +99,14 @@ func NewRemoteConnection(host string, lifecycle *LifecycleManager, factory Clien
 		state:         Disconnected,
 		backoff:       NewExponentialBackoff(1*time.Second, 30*time.Second, 2).WithMaxRetries(DefaultMaxRetries),
 	}
+}
+
+// SetAskpassEnv sets the SSH_ASKPASS environment variables that will be
+// passed to all tunnels created by this connection. Must be called before Connect.
+func (rc *RemoteConnection) SetAskpassEnv(env []string) {
+	rc.connMu.Lock()
+	defer rc.connMu.Unlock()
+	rc.askpassEnv = env
 }
 
 // Host returns the remote hostname.
@@ -155,6 +164,7 @@ func (rc *RemoteConnection) connectLocked(ctx context.Context) error {
 	}
 
 	tunnel := NewTunnel(rc.host, info.Port)
+	tunnel.SetAskpassEnv(rc.askpassEnv)
 	debugLog("connectLocked: starting tunnel remotePort=%d", info.Port)
 	if err := tunnel.Start(ctx); err != nil {
 		debugLog("connectLocked: tunnel start failed: %v", err)
@@ -180,6 +190,7 @@ func (rc *RemoteConnection) connectLocked(ctx context.Context) error {
 		}
 		debugLog("connectLocked: restarted daemon port=%d", info.Port)
 		tunnel = NewTunnel(rc.host, info.Port)
+		tunnel.SetAskpassEnv(rc.askpassEnv)
 		if err := tunnel.Start(ctx); err != nil {
 			rc.setState(ConnectionError)
 			return fmt.Errorf("start tunnel to %s: %w", rc.host, err)

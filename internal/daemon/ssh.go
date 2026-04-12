@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -15,26 +16,68 @@ type SSHExecutor interface {
 }
 
 // ExecSSHExecutor implements SSHExecutor using real ssh/scp commands.
-type ExecSSHExecutor struct{}
+type ExecSSHExecutor struct {
+	// AskpassScript is the path to the wrapper script set as SSH_ASKPASS.
+	// SSH executes this script with the prompt as argv[1]. The script
+	// invokes "lazyclaude askpass" which communicates via Unix socket.
+	// When empty, BatchMode=yes is used instead (no interactive auth).
+	AskpassScript string
+	// AskpassSock is the Unix socket path for askpass communication.
+	AskpassSock string
+}
+
+// SSHEnv returns the environment variables for SSH_ASKPASS integration.
+// Returns nil when AskpassScript is not configured.
+func (e *ExecSSHExecutor) SSHEnv() []string {
+	if e.AskpassScript == "" {
+		return nil
+	}
+	env := []string{
+		"SSH_ASKPASS=" + e.AskpassScript,
+		"SSH_ASKPASS_REQUIRE=prefer",
+		"LAZYCLAUDE_ASKPASS_SOCK=" + e.AskpassSock,
+	}
+	// Only inject DISPLAY if not already set, to avoid overriding
+	// legitimate X11 forwarding. Older SSH (<8.4) requires DISPLAY
+	// for SSH_ASKPASS to trigger when no TTY is present.
+	if os.Getenv("DISPLAY") == "" {
+		env = append(env, "DISPLAY=:0")
+	}
+	return env
+}
 
 func (e *ExecSSHExecutor) Run(ctx context.Context, host, command string) ([]byte, error) {
 	sshHost, port := SplitHostPort(host)
-	args := []string{"-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ControlMaster=no", "-o", "ControlPath=none"}
+	args := []string{"-o", "ConnectTimeout=10", "-o", "ControlMaster=no", "-o", "ControlPath=none"}
+	if e.AskpassScript == "" {
+		// No askpass: fall back to BatchMode for non-interactive use.
+		args = append([]string{"-o", "BatchMode=yes"}, args...)
+	}
 	if port != "" {
 		args = append(args, "-p", port)
 	}
 	args = append(args, sshHost, command)
-	return exec.CommandContext(ctx, "ssh", args...).Output()
+	cmd := exec.CommandContext(ctx, "ssh", args...)
+	if env := e.SSHEnv(); env != nil {
+		cmd.Env = append(os.Environ(), env...)
+	}
+	return cmd.Output()
 }
 
 func (e *ExecSSHExecutor) Copy(ctx context.Context, host, localPath, remotePath string) error {
 	sshHost, port := SplitHostPort(host)
-	args := []string{"-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ControlMaster=no", "-o", "ControlPath=none"}
+	args := []string{"-o", "ConnectTimeout=10", "-o", "ControlMaster=no", "-o", "ControlPath=none"}
+	if e.AskpassScript == "" {
+		args = append([]string{"-o", "BatchMode=yes"}, args...)
+	}
 	if port != "" {
 		args = append(args, "-P", port)
 	}
 	args = append(args, localPath, sshHost+":"+remotePath)
 	cmd := exec.CommandContext(ctx, "scp", args...)
+	if env := e.SSHEnv(); env != nil {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	return cmd.Run()
 }
 

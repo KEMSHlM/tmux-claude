@@ -136,6 +136,7 @@ type App struct {
 	windowActivity   map[string]WindowActivityEntry
 	connectionStatus   ConnectionStatusProvider // remote connection status for options bar
 	connectFn          func(host string) error  // connects to a remote host (injected from root.go)
+	askpassCh          chan string              // askpass response channel (set per-request)
 	cachedSessionItems []SessionItem            // cached session list; refreshed asynchronously
 	sessionRefreshing  bool                     // true while a background refresh is in flight
 	errorMsg           string                   // currently displayed error message
@@ -423,6 +424,24 @@ func (a *App) SetConnectionStatus(fn ConnectionStatusProvider) {
 // connection and return an error if it fails. Must be called before Run().
 func (a *App) SetConnectFn(fn func(host string) error) {
 	a.connectFn = fn
+}
+
+// ShowAskpassPrompt schedules the askpass password dialog to appear
+// on the next event loop cycle. The channel receives the user's input
+// (or empty string on cancel). Both the channel assignment and dialog
+// creation happen atomically on the gocui event loop goroutine to
+// prevent data races with keybinding handlers.
+// Safe to call from any goroutine.
+func (a *App) ShowAskpassPrompt(prompt string, ch chan string) {
+	a.gui.Update(func(g *gocui.Gui) error {
+		a.askpassCh = ch
+		if !a.showAskpassDialog(g, prompt) {
+			// Dialog creation failed — cancel immediately rather than
+			// waiting for the 120s handler timeout.
+			ch <- ""
+		}
+		return nil
+	})
 }
 
 // WindowActivityEntry stores activity state and context for a tmux window.

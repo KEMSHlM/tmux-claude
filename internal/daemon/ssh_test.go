@@ -56,6 +56,37 @@ func TestShellQuote(t *testing.T) {
 	}
 }
 
+func TestSSHEnv_WithAskpass(t *testing.T) {
+	e := &ExecSSHExecutor{
+		AskpassScript: "/tmp/lazyclaude/askpass-123.sh",
+		AskpassSock:   "/tmp/lazyclaude/askpass-123.sock",
+	}
+	env := e.SSHEnv()
+
+	// Check required env vars (DISPLAY is conditional on os.Getenv).
+	wantPrefix := []string{
+		"SSH_ASKPASS=/tmp/lazyclaude/askpass-123.sh",
+		"SSH_ASKPASS_REQUIRE=prefer",
+		"LAZYCLAUDE_ASKPASS_SOCK=/tmp/lazyclaude/askpass-123.sock",
+	}
+	if len(env) < len(wantPrefix) {
+		t.Fatalf("SSHEnv() len = %d, want >= %d", len(env), len(wantPrefix))
+	}
+	for i, w := range wantPrefix {
+		if env[i] != w {
+			t.Errorf("SSHEnv()[%d] = %q, want %q", i, env[i], w)
+		}
+	}
+}
+
+func TestSSHEnv_WithoutAskpass(t *testing.T) {
+	e := &ExecSSHExecutor{}
+	env := e.SSHEnv()
+	if env != nil {
+		t.Errorf("SSHEnv() = %v, want nil", env)
+	}
+}
+
 func TestIsNumeric(t *testing.T) {
 	tests := []struct {
 		input string
