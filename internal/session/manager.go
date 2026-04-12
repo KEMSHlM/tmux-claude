@@ -503,6 +503,8 @@ func hasSessionFlag(flags []string) bool {
 func (m *Manager) buildClaudeCommand(sess Session) string {
 	claudeArgs := "claude"
 
+	// sess.ID is always uuid.New().String() (hex + hyphens only), safe to embed
+	// inside the outer 'exec ...' single-quoted context without shell.Quote.
 	if !hasSessionFlag(sess.Flags) {
 		claudeArgs += " --session-id " + sess.ID
 	}

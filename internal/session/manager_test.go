@@ -802,6 +802,21 @@ func TestBuildClaudeCommand_SkipsSessionID_WhenSessionIDFlag(t *testing.T) {
 	assert.Contains(t, cmd, "explicit-value")
 }
 
+func TestBuildClaudeCommand_SkipsSessionID_WhenSessionIDEqualForm(t *testing.T) {
+	t.Parallel()
+	mgr, _ := newTestManager(t)
+
+	sess := session.Session{
+		ID:    "aaaabbbb-cccc-dddd-eeee-ffffffffffff",
+		Name:  "test",
+		Path:  "/tmp/test",
+		Flags: []string{"--session-id=other-uuid"},
+	}
+	cmd := mgr.BuildClaudeCommand(sess)
+	assert.NotContains(t, cmd, "aaaabbbb-cccc-dddd-eeee-ffffffffffff")
+	assert.Contains(t, cmd, "--session-id=other-uuid")
+}
+
 func TestClaudeEnv_InjectsSessionID(t *testing.T) {
 	t.Parallel()
 	env := session.ClaudeEnv("sess-abc")
