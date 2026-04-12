@@ -219,19 +219,23 @@ func (p *DiffPopup) ensureCache() {
 	lines = append(lines, presentation.FormatInlineDiffLine(fpLine))
 	kinds = append(kinds, presentation.DiffFilePath)
 
-	// Blank line after file path.
+	// Blank line after file path (also serves as separator before first hunk).
 	lines = append(lines, "")
 	kinds = append(kinds, presentation.DiffContext)
 
 	// Skip DiffHeader lines (diff --git, ---, +++); use inline format.
-	// Insert blank line before each hunk header for visual separation.
+	// Insert blank line before each subsequent hunk for visual separation.
+	firstHunk := true
 	for _, dl := range parsed {
 		if dl.Kind == presentation.DiffHeader {
 			continue
 		}
-		if dl.Kind == presentation.DiffHunk {
+		if dl.Kind == presentation.DiffHunk && !firstHunk {
 			lines = append(lines, "")
 			kinds = append(kinds, presentation.DiffContext)
+		}
+		if dl.Kind == presentation.DiffHunk {
+			firstHunk = false
 		}
 		lines = append(lines, presentation.FormatInlineDiffLine(dl))
 		kinds = append(kinds, dl.Kind)
