@@ -85,7 +85,7 @@ func (s *AskpassServer) Start() error {
 // is returned by ScriptPath(). binPath must be the absolute path
 // to the lazyclaude binary.
 func (s *AskpassServer) WriteScript(binPath string) error {
-	content := fmt.Sprintf("#!/bin/sh\nexec %s askpass \"$@\"\n", binPath)
+	content := fmt.Sprintf("#!/bin/sh\nexec '%s' askpass \"$@\"\n", binPath)
 	if err := os.WriteFile(s.scriptPath, []byte(content), 0o700); err != nil {
 		return fmt.Errorf("write askpass script: %w", err)
 	}

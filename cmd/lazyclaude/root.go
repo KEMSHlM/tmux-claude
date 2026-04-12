@@ -138,19 +138,18 @@ func newRootCmd() *cobra.Command {
 			var askpassScript, askpassSock string
 			if err := askpassSrv.Start(); err != nil {
 				fmt.Fprintf(os.Stderr, "warning: start askpass server: %v\n", err)
+			} else if bin, err := os.Executable(); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: resolve binary path for askpass: %v\n", err)
+				askpassSrv.Stop()
+			} else if err := askpassSrv.WriteScript(bin); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: write askpass script: %v\n", err)
+				askpassSrv.Stop()
 			} else {
+				// All setup succeeded — register cleanup only on the happy path
+				// to avoid double-Stop via lifecycle + early error cleanup.
 				lc.Register("askpass-server", askpassSrv.Stop)
-				bin, err := os.Executable()
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "warning: resolve binary path for askpass: %v\n", err)
-					askpassSrv.Stop()
-				} else if err := askpassSrv.WriteScript(bin); err != nil {
-					fmt.Fprintf(os.Stderr, "warning: write askpass script: %v\n", err)
-					askpassSrv.Stop()
-				} else {
-					askpassScript = askpassSrv.ScriptPath()
-					askpassSock = askpassSrv.SockPath()
-				}
+				askpassScript = askpassSrv.ScriptPath()
+				askpassSock = askpassSrv.SockPath()
 			}
 
 			// Always use CompositeProvider so manual 'c' connect can add remotes.

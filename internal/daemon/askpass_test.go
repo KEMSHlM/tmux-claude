@@ -173,7 +173,7 @@ func TestAskpassServer_WriteScript(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read script: %v", err)
 	}
-	wantContent := "#!/bin/sh\nexec /usr/local/bin/lazyclaude askpass \"$@\"\n"
+	wantContent := "#!/bin/sh\nexec '/usr/local/bin/lazyclaude' askpass \"$@\"\n"
 	if string(content) != wantContent {
 		t.Errorf("script content = %q, want %q", string(content), wantContent)
 	}
