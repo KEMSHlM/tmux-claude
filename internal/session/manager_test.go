@@ -769,7 +769,7 @@ func TestBuildClaudeCommand_IncludesSessionID(t *testing.T) {
 		Path: "/tmp/test",
 	}
 	cmd := mgr.BuildClaudeCommand(sess)
-	assert.Contains(t, cmd, "--session-id 'aaaabbbb-cccc-dddd-eeee-ffffffffffff'")
+	assert.Contains(t, cmd, "--session-id aaaabbbb-cccc-dddd-eeee-ffffffffffff")
 }
 
 func TestBuildClaudeCommand_SkipsSessionID_WhenResumeFlag(t *testing.T) {

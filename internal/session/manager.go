@@ -491,9 +491,9 @@ func (m *Manager) ToggleProjectExpanded(projectID string) {
 // indicating that the caller manages session identity explicitly.
 func hasSessionFlag(flags []string) bool {
 	for _, f := range flags {
-		// HasPrefix for --session-id: matches both "--session-id" (two-token form)
-		// and "--session-id=value" (single-token form).
-		if f == "--resume" || strings.HasPrefix(f, "--session-id") {
+		// Exact match for "--session-id" (two-token form) and prefix match for
+		// "--session-id=" (single-token --session-id=value form).
+		if f == "--resume" || f == "--session-id" || strings.HasPrefix(f, "--session-id=") {
 			return true
 		}
 	}
@@ -504,7 +504,7 @@ func (m *Manager) buildClaudeCommand(sess Session) string {
 	claudeArgs := "claude"
 
 	if !hasSessionFlag(sess.Flags) {
-		claudeArgs += " --session-id " + shell.Quote(sess.ID)
+		claudeArgs += " --session-id " + sess.ID
 	}
 
 	// Inject hooks via --settings file so ~/.claude/settings.json stays untouched.
