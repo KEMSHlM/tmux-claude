@@ -258,58 +258,26 @@ func scrollToCursor(v *gocui.View, cursorY int) {
 	v.SetCursor(0, cursorY-oy)
 }
 
-// popupVisibleLines returns the number of visible lines for a popup.
-// Uses the stored viewport height (set during layout) to stay consistent
-// with scroll bounds in PopupScrollDown/PopupScrollUp.
-func popupVisibleLines(v *gocui.View, p Popup) int {
-	if vh := p.ViewportHeight(); vh > 0 {
-		return vh
-	}
-	// Fallback: compute from view size (first layout before SetViewportHeight).
-	_, viewH := v.Size()
-	return viewH - 1
-}
-
-// renderToolPopup writes a tool popup to a view with viewport slicing.
+// renderToolPopup writes all tool popup lines to the view and uses
+// SetOrigin to control the scroll position. Writing all lines allows
+// gocui to compute scrollbar position from ViewLinesHeight/OriginY.
 func renderToolPopup(v *gocui.View, p Popup) {
 	v.Title = p.Title()
-
-	lines := p.ContentLines()
-	visibleLines := popupVisibleLines(v, p)
-
-	start := p.ScrollY()
-	if start > len(lines) {
-		start = len(lines)
+	for _, line := range p.ContentLines() {
+		fmt.Fprintln(v, line)
 	}
-	end := start + visibleLines
-	if end > len(lines) {
-		end = len(lines)
-	}
-
-	for i := start; i < end; i++ {
-		fmt.Fprintln(v, lines[i])
-	}
+	v.SetOrigin(0, p.ScrollY())
 }
 
-// renderDiffPopup writes a diff popup to a view.
+// renderDiffPopup writes all diff lines to the view with ANSI coloring
+// and uses SetOrigin to control the scroll position.
 func renderDiffPopup(v *gocui.View, p Popup) {
 	v.Title = p.Title()
 
 	diffLines := p.ContentLines()
 	diffKinds := p.ContentKinds()
-	visibleLines := popupVisibleLines(v, p)
 
-	start := p.ScrollY()
-	if start > len(diffLines) {
-		start = len(diffLines)
-	}
-	end := start + visibleLines
-	if end > len(diffLines) {
-		end = len(diffLines)
-	}
-
-	for i := start; i < end; i++ {
-		line := diffLines[i]
+	for i, line := range diffLines {
 		kind := diffKinds[i]
 		switch kind {
 		case presentation.DiffAdd:
@@ -324,6 +292,7 @@ func renderDiffPopup(v *gocui.View, p Popup) {
 			fmt.Fprintln(v, line)
 		}
 	}
+	v.SetOrigin(0, p.ScrollY())
 }
 
 // truncateToWidth truncates s so that its display width does not exceed maxW.
