@@ -46,7 +46,7 @@ func ParseSSHHosts(path string) ([]string, error) {
 			if strings.ContainsAny(pattern, "*?") {
 				continue
 			}
-			if pattern == "" {
+			if pattern == "" || strings.HasPrefix(pattern, "!") {
 				continue
 			}
 			seen[pattern] = struct{}{}

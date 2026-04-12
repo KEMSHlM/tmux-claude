@@ -793,6 +793,7 @@ func (a *App) ConnectRemote() {
 			parsed, parseErr := ParseSSHHosts(filepath.Join(home, ".ssh", "config"))
 			if parseErr != nil {
 				debugLog("ConnectRemote: ParseSSHHosts error: %v", parseErr)
+				a.setStatus(g, fmt.Sprintf("SSH config read error: %v", parseErr))
 			}
 			hosts = parsed
 		}

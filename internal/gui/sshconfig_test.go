@@ -100,6 +100,20 @@ Match host something
 `,
 			want: []string{"indented"},
 		},
+		{
+			name: "negated pattern skipped",
+			content: `Host foo !bar
+Host baz
+`,
+			want: []string{"baz", "foo"},
+		},
+		{
+			name: "wildcard with negation",
+			content: `Host * !prod
+Host staging
+`,
+			want: []string{"staging"},
+		},
 	}
 
 	for _, tt := range tests {
