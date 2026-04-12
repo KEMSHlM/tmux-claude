@@ -101,6 +101,7 @@ func (m *mockLogsActions) LogsCursorToEnd()   { m.record("LogsCursorToEnd") }
 func (m *mockLogsActions) LogsCursorToTop()   { m.record("LogsCursorToTop") }
 func (m *mockLogsActions) LogsToggleSelect()  { m.record("LogsToggleSelect") }
 func (m *mockLogsActions) LogsCopySelection() { m.record("LogsCopySelection") }
+func (m *mockLogsActions) LogsClear()         { m.record("LogsClear") }
 func (m *mockLogsActions) StartSearch()       { m.record("StartSearch") }
 
 // --- PluginsPanelActions mock ---

@@ -916,6 +916,21 @@ func (a *App) LogsCopySelection() {
 	a.logs.ClearSelection()
 }
 
+func (a *App) LogsClear() {
+	// Best-effort truncate: the server logger may be writing concurrently
+	// via its own *os.File handle, so the file position may be stale after
+	// truncation.  This is acceptable for a single-user TUI tool — the next
+	// log write will simply start at whatever offset the logger's fd is at.
+	if err := os.Truncate(serverLogPath, 0); err != nil && !os.IsNotExist(err) {
+		return
+	}
+	a.logCache = logFileCache{modTime: -1}
+	a.logRender = logRenderCache{}
+	a.logs.ClearSelection()
+	a.logs.SetLineCount(0)
+	a.logs.ToTop()
+}
+
 // --- Panel tab switching (generic) ---
 
 func (a *App) PanelNextTab() {

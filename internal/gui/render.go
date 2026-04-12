@@ -163,7 +163,13 @@ func (a *App) readLogLines() []string {
 	if err != nil {
 		return nil
 	}
-	raw := bytes.Split(bytes.TrimRight(data, "\n"), []byte("\n"))
+	trimmed := bytes.TrimRight(data, "\n")
+	if len(trimmed) == 0 {
+		a.logCache.modTime = mt
+		a.logCache.lines = nil
+		return nil
+	}
+	raw := bytes.Split(trimmed, []byte("\n"))
 	lines := make([]string, len(raw))
 	for i, b := range raw {
 		lines[len(raw)-1-i] = string(b)
@@ -232,7 +238,7 @@ func (a *App) renderServerLog(v *gocui.View, logs *LogsState, focused bool) {
 		} else if isCursor {
 			fmt.Fprintf(v, "\x1b[48;5;240m%s\x1b[0m\n", padded)
 		} else {
-			fmt.Fprintln(v, line)
+			fmt.Fprintln(v, presentation.ColorizeLogLine(line))
 		}
 	}
 

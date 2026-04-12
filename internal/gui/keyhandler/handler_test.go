@@ -96,6 +96,7 @@ func TestLogsPanel_Keys(t *testing.T) {
 		{keyhandler.KeyEvent{Rune: 'g'}, "LogsCursorToTop"},
 		{keyhandler.KeyEvent{Rune: 'v'}, "LogsToggleSelect"},
 		{keyhandler.KeyEvent{Rune: 'y'}, "LogsCopySelection"},
+		{keyhandler.KeyEvent{Rune: 'c'}, "LogsClear"},
 		{keyhandler.KeyEvent{Rune: '/'}, "StartSearch"},
 	}
 	for _, tt := range tests {

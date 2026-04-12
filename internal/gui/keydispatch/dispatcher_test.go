@@ -85,6 +85,7 @@ func (m *mockActions) LogsCursorToEnd()   { m.record("LogsCursorToEnd") }
 func (m *mockActions) LogsCursorToTop()   { m.record("LogsCursorToTop") }
 func (m *mockActions) LogsToggleSelect()  { m.record("LogsToggleSelect") }
 func (m *mockActions) LogsCopySelection() { m.record("LogsCopySelection") }
+func (m *mockActions) LogsClear()         { m.record("LogsClear") }
 
 // PluginsPanelActions
 func (m *mockActions) ActivePanelTabIndex() int { return 0 }

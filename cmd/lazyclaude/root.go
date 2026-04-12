@@ -402,9 +402,9 @@ func tryStartInProcessServer(paths config.Paths, tmuxClient tmux.Client, tmuxSoc
 	// Log file lives for the process lifetime (closed on exit).
 	var srvLogger *log.Logger
 	if f, err := os.OpenFile("/tmp/lazyclaude/server.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
-		srvLogger = log.New(f, "lazyclaude-srv: ", log.LstdFlags)
+		srvLogger = log.New(f, "", log.LstdFlags)
 	} else {
-		srvLogger = log.New(os.Stderr, "lazyclaude-srv: ", log.LstdFlags)
+		srvLogger = log.New(os.Stderr, "", log.LstdFlags)
 	}
 
 	cfg := server.Config{
