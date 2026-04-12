@@ -8,89 +8,56 @@ func TestClassifyLogLine(t *testing.T) {
 	tests := []struct {
 		name string
 		line string
-		want LogLevel
+		want LogCategory
 	}{
-		{
-			name: "server error",
-			line: "2024/04/13 10:00:00 server error: bind failed",
-			want: LogLevelError,
-		},
-		{
-			name: "ws accept error",
-			line: "2024/04/13 10:00:00 ws accept: connection refused",
-			want: LogLevelError,
-		},
-		{
-			name: "warning prefix",
-			line: "2024/04/13 10:00:00 warning: write port file: permission denied",
-			want: LogLevelWarn,
-		},
-		{
-			name: "ws read debug",
-			line: "2024/04/13 10:00:00 ws read conn123: EOF",
-			want: LogLevelDebug,
-		},
-		{
-			name: "ws parse debug",
-			line: "2024/04/13 10:00:00 ws parse conn123: invalid json",
-			want: LogLevelDebug,
-		},
-		{
-			name: "ws marshal debug",
-			line: "2024/04/13 10:00:00 ws marshal conn123: unsupported type",
-			want: LogLevelDebug,
-		},
-		{
-			name: "ws write debug",
-			line: "2024/04/13 10:00:00 ws write conn123: broken pipe",
-			want: LogLevelDebug,
-		},
-		{
-			name: "info notify",
-			line: "2024/04/13 10:00:00 notify: type=tool pid=1234 window=session1",
-			want: LogLevelInfo,
-		},
-		{
-			name: "info ws connected",
-			line: "2024/04/13 10:00:00 ws connected: abc123",
-			want: LogLevelInfo,
-		},
-		{
-			name: "info listening",
-			line: "2024/04/13 10:00:00 listening on 127.0.0.1:8080",
-			want: LogLevelInfo,
-		},
-		{
-			name: "short line",
-			line: "short",
-			want: LogLevelInfo,
-		},
-		{
-			name: "empty line",
-			line: "",
-			want: LogLevelInfo,
-		},
+		// Error (red)
+		{name: "server error", line: "2024/04/13 10:00:00 server error: bind failed", want: LogCatError},
+		{name: "ws accept", line: "2024/04/13 10:00:00 ws accept: connection refused", want: LogCatError},
+		{name: "window not found", line: "2024/04/13 10:00:00 notify: window not found for pid=1234 type=tool tool=bash", want: LogCatError},
+		{name: "DROPPED", line: "2024/04/13 10:00:00 notify: DROPPED — empty toolName for window @1 pid=1234", want: LogCatError},
+		{name: "encode error", line: "2024/04/13 10:00:00 notify: encode error: EOF", want: LogCatError},
+		{name: "invalid params", line: "2024/04/13 10:00:00 ide_connected: invalid params: bad json", want: LogCatError},
+		{name: "invalid pid", line: "2024/04/13 10:00:00 ide_connected: invalid pid: 0", want: LogCatError},
+		{name: "local resolve failed", line: "2024/04/13 10:00:00 local resolve failed: dial tcp", want: LogCatError},
+
+		// Warning (yellow)
+		{name: "warning prefix", line: "2024/04/13 10:00:00 warning: write port file: permission denied", want: LogCatWarn},
+		{name: "not found using last pending", line: "2024/04/13 10:00:00 notify: pid=1234 not found, using last pending window @1", want: LogCatWarn},
+
+		// Debug (dim gray)
+		{name: "ws read", line: "2024/04/13 10:00:00 ws read conn123: EOF", want: LogCatDebug},
+		{name: "ws parse", line: "2024/04/13 10:00:00 ws parse conn123: invalid json", want: LogCatDebug},
+		{name: "ws marshal", line: "2024/04/13 10:00:00 ws marshal conn123: unsupported type", want: LogCatDebug},
+		{name: "ws write", line: "2024/04/13 10:00:00 ws write conn123: broken pipe", want: LogCatDebug},
+		{name: "cleaned stale", line: "2024/04/13 10:00:00 cleaned 2 stale lock file(s)", want: LogCatDebug},
+
+		// Notify (cyan)
+		{name: "notify event", line: "2024/04/13 10:00:00 notify: type=tool pid=1234 window=@1 tool=bash", want: LogCatNotify},
+		{name: "notify delivered", line: "2024/04/13 10:00:00 notify: delivered via broker for window @1", want: LogCatNotify},
+
+		// Lifecycle (green)
+		{name: "session-start", line: "2024/04/13 10:00:00 session-start: pid=1234 window=@1", want: LogCatLifecycle},
+		{name: "stop", line: "2024/04/13 10:00:00 stop: pid=1234 window=@1 reason=end_turn", want: LogCatLifecycle},
+		{name: "prompt-submit", line: "2024/04/13 10:00:00 prompt-submit: pid=1234 window=@1", want: LogCatLifecycle},
+		{name: "listening", line: "2024/04/13 10:00:00 listening on 127.0.0.1:8080", want: LogCatLifecycle},
+
+		// Connection (blue)
+		{name: "ws connected", line: "2024/04/13 10:00:00 ws connected: abc123", want: LogCatConnection},
+		{name: "ws disconnected", line: "2024/04/13 10:00:00 ws disconnected: abc123", want: LogCatConnection},
+		{name: "ide_connected", line: "2024/04/13 10:00:00 ide_connected: pid=1001 window=@1", want: LogCatConnection},
+
+		// DiffMsg (magenta)
+		{name: "openDiff", line: "2024/04/13 10:00:00 openDiff: window=@1 file=/home/user/main.go", want: LogCatDiffMsg},
+		{name: "msg/create", line: "2024/04/13 10:00:00 msg/create: session created", want: LogCatDiffMsg},
+		{name: "msg/send", line: "2024/04/13 10:00:00 msg/send: sent to pane @1", want: LogCatDiffMsg},
+
+		// Info (default)
+		{name: "short line", line: "short", want: LogCatInfo},
+		{name: "empty line", line: "", want: LogCatInfo},
+
 		// Regression: false positive guards
-		{
-			name: "no false positive on error in payload",
-			line: "2024/04/13 10:00:00 msg/create: nil result with no error",
-			want: LogLevelInfo,
-		},
-		{
-			name: "no false positive on warn in file path",
-			line: "2024/04/13 10:00:00 openDiff: window=@0 file=/home/user/warnings.go",
-			want: LogLevelInfo,
-		},
-		{
-			name: "no false positive on fail in function name",
-			line: "2024/04/13 10:00:00 notify: resolved failover handler",
-			want: LogLevelInfo,
-		},
-		{
-			name: "no false positive on error in notify",
-			line: "2024/04/13 10:00:00 notify: encode error: EOF",
-			want: LogLevelInfo,
-		},
+		{name: "no false positive on error in payload", line: "2024/04/13 10:00:00 msg/create: nil result with no error", want: LogCatDiffMsg},
+		{name: "no false positive on warn in file path", line: "2024/04/13 10:00:00 openDiff: window=@0 file=/home/user/warnings.go", want: LogCatDiffMsg},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -103,49 +70,64 @@ func TestClassifyLogLine(t *testing.T) {
 }
 
 func TestColorizeLogLine(t *testing.T) {
+	ts := "2024/04/13 10:00:00"
+
 	tests := []struct {
-		name     string
-		line     string
-		wantPfx  string // expected prefix escape
-		wantSfx  string // expected suffix (Reset)
-		noEscape bool   // true if no coloring expected
+		name    string
+		line    string
+		want    string
 	}{
 		{
-			name:    "error gets red",
-			line:    "2024/04/13 10:00:00 server error: bind",
-			wantPfx: fgLogError,
-			wantSfx: Reset,
+			name: "error: dim timestamp + red message",
+			line: ts + " server error: bind",
+			want: FgDimGray + ts + Reset + fgLogError + " server error: bind" + Reset,
 		},
 		{
-			name:    "warning gets yellow",
-			line:    "2024/04/13 10:00:00 warning: port file",
-			wantPfx: fgLogWarn,
-			wantSfx: Reset,
+			name: "warning: dim timestamp + yellow message",
+			line: ts + " warning: port file",
+			want: FgDimGray + ts + Reset + fgLogWarn + " warning: port file" + Reset,
 		},
 		{
-			name:    "debug gets dim",
-			line:    "2024/04/13 10:00:00 ws read conn1: EOF",
-			wantPfx: fgLogDebug,
-			wantSfx: Reset,
+			name: "notify: dim timestamp + cyan message",
+			line: ts + " notify: type=tool",
+			want: FgDimGray + ts + Reset + fgLogNotify + " notify: type=tool" + Reset,
 		},
 		{
-			name:     "info unchanged",
-			line:     "2024/04/13 10:00:00 listening on 127.0.0.1:8080",
-			noEscape: true,
+			name: "lifecycle: dim timestamp + green message",
+			line: ts + " session-start: pid=1",
+			want: FgDimGray + ts + Reset + fgLogLifecycle + " session-start: pid=1" + Reset,
+		},
+		{
+			name: "connection: dim timestamp + blue message",
+			line: ts + " ws connected: abc",
+			want: FgDimGray + ts + Reset + fgLogConnection + " ws connected: abc" + Reset,
+		},
+		{
+			name: "diffmsg: dim timestamp + magenta message",
+			line: ts + " msg/create: ok",
+			want: FgDimGray + ts + Reset + fgLogDiffMsg + " msg/create: ok" + Reset,
+		},
+		{
+			name: "debug: dim timestamp + dim message",
+			line: ts + " ws read conn1: EOF",
+			want: FgDimGray + ts + Reset + fgLogDebug + " ws read conn1: EOF" + Reset,
+		},
+		{
+			name: "info: dim timestamp only, message uncolored",
+			line: ts + " something unknown",
+			want: FgDimGray + ts + Reset + " something unknown",
+		},
+		{
+			name: "short line: no timestamp split",
+			line: "short",
+			want: "short",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := ColorizeLogLine(tt.line)
-			if tt.noEscape {
-				if got != tt.line {
-					t.Errorf("expected no color, got %q", got)
-				}
-				return
-			}
-			want := tt.wantPfx + tt.line + tt.wantSfx
-			if got != want {
-				t.Errorf("ColorizeLogLine(%q)\n  got  %q\n  want %q", tt.line, got, want)
+			if got != tt.want {
+				t.Errorf("ColorizeLogLine(%q)\n  got  %q\n  want %q", tt.line, got, tt.want)
 			}
 		})
 	}
