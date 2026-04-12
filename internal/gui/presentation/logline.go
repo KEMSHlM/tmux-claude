@@ -27,20 +27,23 @@ const (
 	fgLogDebug      = "\x1b[38;5;242m" // dim gray
 )
 
+// timestampPrefixLen is the length of "2006/01/02 15:04:05 " (timestamp + space).
+// Used by both ClassifyLogLine and ColorizeLogLine to ensure consistency.
+const timestampPrefixLen = 20
+
 // ClassifyLogLine determines the visual category from the message portion
 // of a standard-library log line.  The expected format is
 // "2006/01/02 15:04:05 <message>".  Classification uses prefix matching
 // on the message text to avoid false positives from substrings in payloads.
 func ClassifyLogLine(line string) LogCategory {
-	// Skip the timestamp portion (first 20 chars: "2006/01/02 15:04:05 ").
 	msg := line
-	if len(msg) > 20 {
-		msg = msg[20:]
+	if len(msg) > timestampPrefixLen {
+		msg = msg[timestampPrefixLen:]
 	}
 	lower := strings.ToLower(msg)
 
 	// Debug (dim gray): noisy per-connection websocket logs and cleanup.
-	// Checked first because ws frame errors contain "invalid" which would
+	// Checked first because ws frame errors contain keywords that would
 	// otherwise match the error category.
 	if strings.HasPrefix(lower, "ws read ") ||
 		strings.HasPrefix(lower, "ws parse ") ||
@@ -50,25 +53,43 @@ func ClassifyLogLine(line string) LogCategory {
 		return LogCatDebug
 	}
 
-	// Error (red): known error-only prefixes and error patterns
+	// Error (red): known error-only prefixes
 	if strings.HasPrefix(lower, "server error:") ||
 		strings.HasPrefix(lower, "ws accept:") ||
-		strings.Contains(lower, "window not found") ||
-		strings.Contains(lower, "dropped") ||
-		strings.Contains(lower, "encode error") ||
-		strings.Contains(lower, "invalid") ||
-		strings.Contains(lower, "no window found") ||
-		strings.Contains(lower, "local resolve failed") {
+		strings.HasPrefix(lower, "local resolve failed") {
 		return LogCatError
+	}
+	// Error (red): notify sub-patterns that indicate failures
+	if strings.HasPrefix(lower, "notify:") {
+		rest := lower[len("notify:"):]
+		if strings.Contains(rest, "window not found") ||
+			strings.Contains(rest, "no window found") ||
+			strings.Contains(rest, "dropped") ||
+			strings.Contains(rest, "encode error") ||
+			strings.Contains(rest, "encode response:") {
+			return LogCatError
+		}
+	}
+	// Error (red): ide_connected sub-patterns
+	if strings.HasPrefix(lower, "ide_connected:") {
+		rest := lower[len("ide_connected:"):]
+		if strings.Contains(rest, "invalid") {
+			return LogCatError
+		}
 	}
 
 	// Warning (yellow): warning prefixes and soft-failure patterns
-	if strings.HasPrefix(lower, "warning:") ||
-		(strings.Contains(lower, "not found") && strings.Contains(lower, "using last pending")) {
+	if strings.HasPrefix(lower, "warning:") {
 		return LogCatWarn
 	}
+	if strings.HasPrefix(lower, "notify:") {
+		rest := lower[len("notify:"):]
+		if strings.Contains(rest, "not found") && strings.Contains(rest, "using last pending") {
+			return LogCatWarn
+		}
+	}
 
-	// Notify (cyan): notification pipeline events
+	// Notify (cyan): notification pipeline events (not matched above)
 	if strings.HasPrefix(lower, "notify:") {
 		return LogCatNotify
 	}
@@ -83,8 +104,11 @@ func ClassifyLogLine(line string) LogCategory {
 
 	// Connection (blue): websocket and IDE connection events
 	if strings.HasPrefix(lower, "ws connected:") ||
-		strings.HasPrefix(lower, "ws disconnected:") ||
-		strings.HasPrefix(lower, "ide_connected:") {
+		strings.HasPrefix(lower, "ws disconnected:") {
+		return LogCatConnection
+	}
+	// ide_connected (not matched by error above)
+	if strings.HasPrefix(lower, "ide_connected:") {
 		return LogCatConnection
 	}
 
@@ -97,13 +121,11 @@ func ClassifyLogLine(line string) LogCategory {
 	return LogCatInfo
 }
 
-// timestampLen is the length of the "2006/01/02 15:04:05" timestamp.
-const timestampLen = 19
-
 // categoryColor returns the ANSI foreground escape for a category.
-// Returns empty string for Info (no color override).
 func categoryColor(cat LogCategory) string {
 	switch cat {
+	case LogCatInfo:
+		return ""
 	case LogCatError:
 		return fgLogError
 	case LogCatWarn:
@@ -118,23 +140,25 @@ func categoryColor(cat LogCategory) string {
 		return fgLogDiffMsg
 	case LogCatDebug:
 		return fgLogDebug
-	default:
-		return ""
 	}
+	return ""
 }
 
 // ColorizeLogLine wraps a log line with ANSI color escapes based on its
 // classified category.  The timestamp portion (first 19 chars) is rendered
-// in dim gray, and the message portion uses the category color.
+// in dim gray, and the message portion (including the separator space)
+// uses the category color.
 // Lines shorter than the timestamp format are returned unmodified.
 func ColorizeLogLine(line string) string {
 	cat := ClassifyLogLine(line)
 	color := categoryColor(cat)
 
-	// Split timestamp and message when the line is long enough.
-	if len(line) > timestampLen {
-		ts := line[:timestampLen]
-		rest := line[timestampLen:]
+	// Split at the timestamp boundary (19 chars = timestamp without space).
+	// The space separator stays with the message portion for coloring.
+	const tsDisplay = timestampPrefixLen - 1 // 19: "2006/01/02 15:04:05"
+	if len(line) > tsDisplay {
+		ts := line[:tsDisplay]
+		rest := line[tsDisplay:]
 		if color != "" {
 			return FgDimGray + ts + Reset + color + rest + Reset
 		}
