@@ -114,6 +114,13 @@ Host staging
 `,
 			want: []string{"staging"},
 		},
+		{
+			name: "bracket pattern skipped",
+			content: `Host web[12]
+Host db1
+`,
+			want: []string{"db1"},
+		},
 	}
 
 	for _, tt := range tests {

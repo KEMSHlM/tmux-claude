@@ -9,7 +9,7 @@ import (
 )
 
 // ParseSSHHosts reads an SSH config file and returns a sorted, deduplicated
-// list of Host aliases. Wildcard patterns (containing * or ?) are skipped.
+// list of Host aliases. Wildcard patterns (containing *, ?, or [) are skipped.
 // Returns an empty slice (not an error) when the file does not exist.
 func ParseSSHHosts(path string) ([]string, error) {
 	f, err := os.Open(path)
@@ -43,7 +43,7 @@ func ParseSSHHosts(path string) ([]string, error) {
 		// Extract patterns after "Host".
 		rest := strings.TrimSpace(line[4:]) // len("Host") == 4
 		for _, pattern := range strings.Fields(rest) {
-			if strings.ContainsAny(pattern, "*?") {
+			if strings.ContainsAny(pattern, "*?[") {
 				continue
 			}
 			if pattern == "" || strings.HasPrefix(pattern, "!") {
