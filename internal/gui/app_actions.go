@@ -788,8 +788,14 @@ func (a *App) ConnectRemote() {
 		return
 	}
 	a.gui.Update(func(g *gocui.Gui) error {
-		home, _ := os.UserHomeDir()
-		hosts, _ := ParseSSHHosts(filepath.Join(home, ".ssh", "config"))
+		var hosts []string
+		if home, err := os.UserHomeDir(); err == nil {
+			parsed, parseErr := ParseSSHHosts(filepath.Join(home, ".ssh", "config"))
+			if parseErr != nil {
+				debugLog("ConnectRemote: ParseSSHHosts error: %v", parseErr)
+			}
+			hosts = parsed
+		}
 		if len(hosts) > 0 {
 			if !a.showConnectChooser(g, hosts) {
 				a.showError(g, "Error: could not open host chooser")

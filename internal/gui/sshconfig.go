@@ -2,6 +2,7 @@ package gui
 
 import (
 	"bufio"
+	"errors"
 	"os"
 	"sort"
 	"strings"
@@ -13,7 +14,7 @@ import (
 func ParseSSHHosts(path string) ([]string, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil
 		}
 		return nil, err
@@ -31,8 +32,8 @@ func ParseSSHHosts(path string) ([]string, error) {
 		}
 
 		// Match "Host" directive (case-insensitive).
-		if !strings.HasPrefix(strings.ToLower(line), "host ") &&
-			!strings.HasPrefix(strings.ToLower(line), "host\t") {
+		lower := strings.ToLower(line)
+		if !strings.HasPrefix(lower, "host ") && !strings.HasPrefix(lower, "host\t") {
 			continue
 		}
 
