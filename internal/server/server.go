@@ -506,14 +506,13 @@ func (s *Server) dispatchToolNotification(window, toolName, input, cwd string) {
 	// For Write tool, extract file_path and content from input JSON
 	// so the notification routes to DiffPopup instead of ToolPopup.
 	if toolName == "Write" {
-		var parsed map[string]any
-		if err := json.Unmarshal([]byte(input), &parsed); err == nil {
-			if fp, ok := parsed["file_path"].(string); ok && fp != "" {
-				n.OldFilePath = fp
-			}
-			if content, ok := parsed["content"].(string); ok {
-				n.NewContents = content
-			}
+		var params struct {
+			FilePath string `json:"file_path"`
+			Content  string `json:"content"`
+		}
+		if json.Unmarshal([]byte(input), &params) == nil && params.FilePath != "" {
+			n.OldFilePath = params.FilePath
+			n.NewContents = params.Content
 		}
 	}
 

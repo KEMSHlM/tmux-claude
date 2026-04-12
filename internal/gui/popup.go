@@ -156,6 +156,11 @@ func (a *App) layoutToolPopup(g *gocui.Gui, maxX, maxY int) error {
 		p := focusedEntry.popup
 		maxOpt := p.MaxOption()
 
+		vh := p.ViewportHeight()
+		if vh <= 0 {
+			vh = 20
+		}
+
 		popupHints := a.keyRegistry.HintsForScope(keymap.ScopePopup)
 		var defs []presentation.HintDef
 		for _, h := range popupHints {
@@ -171,6 +176,10 @@ func (a *App) layoutToolPopup(g *gocui.Gui, maxX, maxY int) error {
 				}
 			case keymap.ActionPopupFocusNext:
 				if visible <= 1 {
+					continue
+				}
+			case keymap.ActionPopupScrollDown:
+				if p.MaxScroll(vh) == 0 {
 					continue
 				}
 			}
