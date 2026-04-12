@@ -258,21 +258,32 @@ func scrollToCursor(v *gocui.View, cursorY int) {
 	v.SetCursor(0, cursorY-oy)
 }
 
+// popupVisibleLines returns the number of visible lines for a popup.
+// Uses the stored viewport height (set during layout) to stay consistent
+// with scroll bounds in PopupScrollDown/PopupScrollUp.
+func popupVisibleLines(v *gocui.View, p Popup) int {
+	if vh := p.ViewportHeight(); vh > 0 {
+		return vh
+	}
+	// Fallback: compute from view size (first layout before SetViewportHeight).
+	_, viewH := v.Size()
+	return viewH - 1
+}
+
 // renderToolPopup writes a tool popup to a view with viewport slicing.
 func renderToolPopup(v *gocui.View, p Popup) {
 	v.Title = p.Title()
 
 	lines := p.ContentLines()
-	_, viewH := v.Size()
-	visibleLines := viewH - 1
+	visibleLines := popupVisibleLines(v, p)
 
 	start := p.ScrollY()
+	if start > len(lines) {
+		start = len(lines)
+	}
 	end := start + visibleLines
 	if end > len(lines) {
 		end = len(lines)
-	}
-	if start < 0 {
-		start = 0
 	}
 
 	for i := start; i < end; i++ {
@@ -286,16 +297,15 @@ func renderDiffPopup(v *gocui.View, p Popup) {
 
 	diffLines := p.ContentLines()
 	diffKinds := p.ContentKinds()
-	_, viewH := v.Size()
-	visibleLines := viewH - 1
+	visibleLines := popupVisibleLines(v, p)
 
 	start := p.ScrollY()
+	if start > len(diffLines) {
+		start = len(diffLines)
+	}
 	end := start + visibleLines
 	if end > len(diffLines) {
 		end = len(diffLines)
-	}
-	if start < 0 {
-		start = 0
 	}
 
 	for i := start; i < end; i++ {
@@ -308,8 +318,6 @@ func renderDiffPopup(v *gocui.View, p Popup) {
 			fmt.Fprintf(v, "\x1b[31m%s\x1b[0m\n", line)
 		case presentation.DiffHunk:
 			fmt.Fprintf(v, "\x1b[36m%s\x1b[0m\n", line)
-		case presentation.DiffHeader:
-			fmt.Fprintf(v, "\x1b[1m%s\x1b[0m\n", line)
 		case presentation.DiffFilePath:
 			fmt.Fprintf(v, "\x1b[2m%s\x1b[0m\n", line)
 		default:

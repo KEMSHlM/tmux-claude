@@ -42,7 +42,7 @@ func ParseUnifiedDiff(raw string) []DiffLine {
 
 	for _, line := range rawLines {
 		// Skip "no newline at end of file" marker.
-		if strings.HasPrefix(line, `\ `) {
+		if line == `\ No newline at end of file` {
 			continue
 		}
 
