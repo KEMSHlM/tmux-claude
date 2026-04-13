@@ -17,7 +17,9 @@ import (
 //        so that remote fullscreen copy mode can read the remote tmux server's
 //        scrollback directly (the local mirror window's tmux buffer does not
 //        contain the remote tmux's historical scrollback).
-const APIVersion = 2
+//   - 3: adds POST /session/resume for resuming GC'd sessions by ID with
+//        worktree name fallback.
+const APIVersion = 3
 
 // --- Session CRUD ---
 
@@ -157,6 +159,24 @@ type WorktreeResumeRequest struct {
 
 // WorktreeResumeResponse is returned after a worktree session is resumed.
 type WorktreeResumeResponse struct {
+	SessionID  string `json:"session_id"`
+	Name       string `json:"name"`
+	Path       string `json:"path,omitempty"`
+	TmuxWindow string `json:"tmux_window"`
+	Role       string `json:"role,omitempty"`
+}
+
+// SessionResumeRequest resumes a session by ID, with a worktree name fallback
+// for sessions that have been GC'd from state.json but whose worktree directory
+// still exists on disk.
+type SessionResumeRequest struct {
+	ID     string `json:"id"`
+	Prompt string `json:"prompt,omitempty"`
+	Name   string `json:"name,omitempty"` // worktree name (for GC'd sessions)
+}
+
+// SessionResumeResponse is returned after a session is resumed.
+type SessionResumeResponse struct {
 	SessionID  string `json:"session_id"`
 	Name       string `json:"name"`
 	Path       string `json:"path,omitempty"`
