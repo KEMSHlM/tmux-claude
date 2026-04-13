@@ -380,8 +380,8 @@ func (m *Manager) buildLaunchCommand(sess Session, systemPrompt, userPrompt stri
 
 // writeWorktreeLauncher writes a shell script that launches claude with
 // --append-system-prompt and an optional user prompt as positional argument.
-// When resume is true, the script includes --resume so Claude Code resumes
-// an existing conversation instead of failing with "Session ID already in use".
+// When resume is true, the script uses --resume <id> instead of --session-id <id>
+// so Claude Code resumes an existing conversation.
 // Returns the script path. The script self-deletes after execution.
 func writeWorktreeLauncher(systemPrompt, userPrompt, runtimeDir, sessionID string, resume bool) (string, error) {
 	f, err := os.CreateTemp("", "lazyclaude-wt-*.sh")
@@ -395,9 +395,12 @@ func writeWorktreeLauncher(systemPrompt, userPrompt, runtimeDir, sessionID strin
 	sb.WriteString("rm -f \"$0\"\n")
 	sb.WriteString("exec claude")
 	if resume {
-		sb.WriteString(" --resume")
+		// Use --resume <id> to continue an existing conversation.
+		// --session-id and --resume cannot be combined without --fork-session.
+		sb.WriteString(" --resume ")
+	} else {
+		sb.WriteString(" --session-id ")
 	}
-	sb.WriteString(" --session-id ")
 	sb.WriteString(shell.Quote(sessionID))
 
 	// Inject hooks via --settings file so ~/.claude/settings.json stays untouched.
