@@ -44,8 +44,8 @@ type PluginState struct {
 	installedCursor int
 	marketCursor    int
 	loading         bool
-	errMsg          string
 	projectDir      string // current project context (from Sessions cursor)
+	remoteDisabled  bool   // true when cursor is on a remote (SSH) node
 }
 
 // NewPluginState creates a new PluginState.

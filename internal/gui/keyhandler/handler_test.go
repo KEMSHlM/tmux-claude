@@ -32,6 +32,7 @@ func TestSessionsPanel_Keys(t *testing.T) {
 		{keyhandler.KeyEvent{Rune: 'D'}, "PurgeOrphans"},
 		{keyhandler.KeyEvent{Rune: 'P'}, "StartPMSession"},
 		{keyhandler.KeyEvent{Rune: '/'}, "StartSearch"},
+		{keyhandler.KeyEvent{Rune: 'c'}, "ConnectRemote"},
 	}
 	for _, tt := range tests {
 		a := &mockSessionActions{}
@@ -95,6 +96,7 @@ func TestLogsPanel_Keys(t *testing.T) {
 		{keyhandler.KeyEvent{Rune: 'g'}, "LogsCursorToTop"},
 		{keyhandler.KeyEvent{Rune: 'v'}, "LogsToggleSelect"},
 		{keyhandler.KeyEvent{Rune: 'y'}, "LogsCopySelection"},
+		{keyhandler.KeyEvent{Rune: 'c'}, "LogsClear"},
 		{keyhandler.KeyEvent{Rune: '/'}, "StartSearch"},
 	}
 	for _, tt := range tests {

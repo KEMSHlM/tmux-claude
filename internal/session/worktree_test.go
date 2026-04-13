@@ -48,8 +48,8 @@ func TestValidateWorktreeName_Invalid(t *testing.T) {
 }
 
 func TestBuildWorktreePrompt(t *testing.T) {
-	prompt := BuildWorktreePrompt("/project/.claude/worktrees/fix", "/project")
-	if !strings.Contains(prompt, "/project/.claude/worktrees/fix") {
+	prompt := BuildWorktreePrompt("/project/.lazyclaude/worktrees/fix", "/project")
+	if !strings.Contains(prompt, "/project/.lazyclaude/worktrees/fix") {
 		t.Error("should contain worktree path")
 	}
 	if !strings.Contains(prompt, "/project") {
@@ -62,7 +62,7 @@ func TestBuildWorktreePrompt(t *testing.T) {
 
 func TestWorktreePath(t *testing.T) {
 	got := WorktreePath("/home/user/project", "fix-popup")
-	want := filepath.Join("/home/user/project", ".claude", "worktrees", "fix-popup")
+	want := filepath.Join("/home/user/project", ".lazyclaude", "worktrees", "fix-popup")
 	if got != want {
 		t.Errorf("WorktreePath = %q, want %q", got, want)
 	}
@@ -73,8 +73,8 @@ func TestIsWorktreePath(t *testing.T) {
 		path string
 		want bool
 	}{
-		{"/project/.claude/worktrees/fix-popup", true},
-		{"/project/.claude/worktrees/x/sub", true},
+		{"/project/.lazyclaude/worktrees/fix-popup", true},
+		{"/project/.lazyclaude/worktrees/x/sub", true},
 		{"/project/src/main.go", false},
 		{"", false},
 	}
@@ -91,11 +91,11 @@ func TestListWorktrees_ParsesPorcelainOutput(t *testing.T) {
 HEAD abc123
 branch refs/heads/main
 
-worktree /project/.claude/worktrees/fix-popup
+worktree /project/.lazyclaude/worktrees/fix-popup
 HEAD def456
 branch refs/heads/fix-popup
 
-worktree /project/.claude/worktrees/feat-auth
+worktree /project/.lazyclaude/worktrees/feat-auth
 HEAD 789abc
 branch refs/heads/feat/auth
 
@@ -114,7 +114,7 @@ branch refs/heads/other
 	if items[0].Branch != "fix-popup" {
 		t.Errorf("items[0].Branch = %q, want %q", items[0].Branch, "fix-popup")
 	}
-	if items[0].Path != "/project/.claude/worktrees/fix-popup" {
+	if items[0].Path != "/project/.lazyclaude/worktrees/fix-popup" {
 		t.Errorf("items[0].Path = %q", items[0].Path)
 	}
 	if items[1].Name != "feat-auth" {
@@ -147,7 +147,7 @@ branch refs/heads/main
 }
 
 func TestWriteWorktreeLauncher_BasicContent(t *testing.T) {
-	path, err := writeWorktreeLauncher("system prompt here", "user task", t.TempDir())
+	path, err := writeWorktreeLauncher("system prompt here", "user task", t.TempDir(), "test-uuid-1234", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,10 +177,13 @@ func TestWriteWorktreeLauncher_BasicContent(t *testing.T) {
 	if !strings.Contains(content, "exec claude") {
 		t.Error("should exec claude")
 	}
+	if !strings.Contains(content, "--session-id 'test-uuid-1234'") {
+		t.Error("should contain --session-id")
+	}
 }
 
 func TestWriteWorktreeLauncher_EmptyUserPrompt(t *testing.T) {
-	path, err := writeWorktreeLauncher("system only", "", t.TempDir())
+	path, err := writeWorktreeLauncher("system only", "", t.TempDir(), "test-uuid-empty", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +220,7 @@ func TestWriteWorktreeLauncher_SpecialChars(t *testing.T) {
 	// Prompt with single quotes, newlines, and Japanese text
 	system := "Don't modify /project"
 	user := "日本語プロンプト\nwith 'quotes' and $vars"
-	path, err := writeWorktreeLauncher(system, user, t.TempDir())
+	path, err := writeWorktreeLauncher(system, user, t.TempDir(), "test-uuid-special", false)
 	if err != nil {
 		t.Fatal(err)
 	}

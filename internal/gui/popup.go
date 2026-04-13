@@ -105,6 +105,15 @@ func (a *App) layoutToolPopup(g *gocui.Gui, maxX, maxY int) error {
 		setRoundedFrame(v)
 		v.Clear()
 
+		// Store viewport height before rendering so scroll bounds stay consistent.
+		_, viewH := v.Size()
+		visibleLines := viewH - 1
+		e.popup.SetViewportHeight(visibleLines)
+		// Clamp scroll position to new max after viewport resize.
+		if max := e.popup.MaxScroll(visibleLines); e.popup.ScrollY() > max {
+			e.popup.SetScrollY(max)
+		}
+
 		if e.popup.IsDiff() {
 			renderDiffPopup(v, e.popup)
 		} else {
@@ -147,6 +156,11 @@ func (a *App) layoutToolPopup(g *gocui.Gui, maxX, maxY int) error {
 		p := focusedEntry.popup
 		maxOpt := p.MaxOption()
 
+		vh := p.ViewportHeight()
+		if vh <= 0 {
+			vh = 20
+		}
+
 		popupHints := a.keyRegistry.HintsForScope(keymap.ScopePopup)
 		var defs []presentation.HintDef
 		for _, h := range popupHints {
@@ -156,12 +170,16 @@ func (a *App) layoutToolPopup(g *gocui.Gui, maxX, maxY int) error {
 				if maxOpt < 3 {
 					continue
 				}
-			case keymap.ActionPopupScrollDown:
-				if !p.IsDiff() {
-					continue
-				}
 			case keymap.ActionPopupAcceptAll:
 				if visible <= 1 {
+					continue
+				}
+			case keymap.ActionPopupFocusNext:
+				if visible <= 1 {
+					continue
+				}
+			case keymap.ActionPopupScrollDown:
+				if p.MaxScroll(vh) == 0 {
 					continue
 				}
 			}
@@ -241,7 +259,6 @@ func generateDiffFromContents(oldFilePath, newContents string) string {
 
 func (a *App) hasPopup() bool                              { return a.popups.HasVisible() }
 func (a *App) popupCount() int                             { return a.popups.Count() }
-func (a *App) visiblePopupCount() int                      { return a.popups.VisibleCount() }
 func (a *App) activePopup() *model.ToolNotification        { return a.popups.ActiveNotification() }
 func (a *App) activeEntry() *popupEntry                    { return a.popups.ActiveEntry() }
 func (a *App) pushPopup(n *model.ToolNotification)         { a.popups.PushPopup(newPopupFromNotification(n)) }
@@ -250,7 +267,6 @@ func (a *App) popupFocusNext()                             { a.popups.FocusNext(
 func (a *App) popupFocusPrev()                             { a.popups.FocusPrev() }
 func (a *App) suspendAllPopups()                           { a.popups.SuspendAll() }
 func (a *App) unsuspendAll()                               { a.popups.UnsuspendAll() }
-func (a *App) visibleIndexOf(stackIdx int) int             { return a.popups.VisibleIndexOf(stackIdx) }
 
 func popupCascadeOffset(baseX, baseY, index int) (int, int) {
 	return baseX + index*2, baseY + index

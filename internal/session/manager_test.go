@@ -32,7 +32,7 @@ func TestManager_Create_FirstSession(t *testing.T) {
 	mgr, _ := newTestManager(t)
 	ctx := context.Background()
 
-	sess, err := mgr.Create(ctx, "/home/user/my-app", "")
+	sess, err := mgr.Create(ctx, "/home/user/my-app")
 	require.NoError(t, err)
 	require.NotNil(t, sess)
 
@@ -52,7 +52,7 @@ func TestManager_Create_SecondSession(t *testing.T) {
 	ctx := context.Background()
 
 	// First creates the tmux session
-	_, err := mgr.Create(ctx, "/home/user/app1", "")
+	_, err := mgr.Create(ctx, "/home/user/app1")
 	require.NoError(t, err)
 
 	// Mock: session now exists
@@ -61,7 +61,7 @@ func TestManager_Create_SecondSession(t *testing.T) {
 	}
 
 	// Second adds a window
-	sess2, err := mgr.Create(ctx, "/home/user/app2", "")
+	sess2, err := mgr.Create(ctx, "/home/user/app2")
 	require.NoError(t, err)
 	assert.Equal(t, "app2", sess2.Name)
 
@@ -69,7 +69,7 @@ func TestManager_Create_SecondSession(t *testing.T) {
 	assert.Len(t, all, 2)
 }
 
-// setupMCPInfo writes port file and lock file so Manager.Create can build SSH commands.
+// setupMCPInfo writes port file and lock file needed for PM and worker session tests.
 func setupMCPInfo(t *testing.T, paths config.Paths, port int, token string) {
 	t.Helper()
 	// Write port file
@@ -82,27 +82,14 @@ func setupMCPInfo(t *testing.T, paths config.Paths, port int, token string) {
 	require.NoError(t, os.WriteFile(paths.LockFile(port), lockData, 0o600))
 }
 
-func TestManager_Create_RemoteSession(t *testing.T) {
+func TestManager_Create_LocalSession(t *testing.T) {
 	t.Parallel()
-	tmp := t.TempDir()
-	paths := config.TestPaths(tmp)
-	setupMCPInfo(t, paths, 12345, "test-token")
+	mgr, _ := newTestManager(t)
 
-	store := session.NewStore(filepath.Join(paths.DataDir, "state.json"))
-	mock := tmux.NewMockClient()
-	mgr := session.NewManager(store, mock, paths, nil)
-
-	sess, err := mgr.Create(context.Background(), "/home/user/work", "srv1")
+	sess, err := mgr.Create(context.Background(), "/home/user/work")
 	require.NoError(t, err)
 	assert.Equal(t, "work", sess.Name)
-	assert.Equal(t, "srv1", sess.Host)
-
-	// Verify SSH command was passed to tmux
-	lastCmd := mock.LastNewSessionOpts.Command
-	assert.Contains(t, lastCmd, "ssh")
-	assert.Contains(t, lastCmd, "srv1")
-	assert.Contains(t, lastCmd, "-R")
-	assert.Contains(t, lastCmd, "base64 -d")
+	assert.Empty(t, sess.Host)
 }
 
 func TestManager_Delete(t *testing.T) {
@@ -110,7 +97,7 @@ func TestManager_Delete(t *testing.T) {
 	mgr, _ := newTestManager(t)
 	ctx := context.Background()
 
-	sess, err := mgr.Create(ctx, "/home/user/app", "")
+	sess, err := mgr.Create(ctx, "/home/user/app")
 	require.NoError(t, err)
 
 	err = mgr.Delete(ctx, sess.ID)
@@ -131,7 +118,7 @@ func TestManager_Rename(t *testing.T) {
 	t.Parallel()
 	mgr, _ := newTestManager(t)
 
-	sess, err := mgr.Create(context.Background(), "/home/user/app", "")
+	sess, err := mgr.Create(context.Background(), "/home/user/app")
 	require.NoError(t, err)
 
 	err = mgr.Rename(sess.ID, "renamed-app")
@@ -148,8 +135,8 @@ func TestManager_PurgeOrphans(t *testing.T) {
 	ctx := context.Background()
 
 	// Create two sessions
-	s1, _ := mgr.Create(ctx, "/home/user/app1", "")
-	s2, _ := mgr.Create(ctx, "/home/user/app2", "")
+	s1, _ := mgr.Create(ctx, "/home/user/app1")
+	s2, _ := mgr.Create(ctx, "/home/user/app2")
 
 	// Manually set one as orphan
 	all := mgr.Store().All()
@@ -175,7 +162,7 @@ func TestManager_Sync_WithTmux(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a session
-	sess, err := mgr.Create(ctx, "/home/user/app", "")
+	sess, err := mgr.Create(ctx, "/home/user/app")
 	require.NoError(t, err)
 
 	// Set up mock tmux state
@@ -202,7 +189,7 @@ func TestManager_Sync_HasSessionError_DoesNotOrphan(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a session
-	_, err := mgr.Create(ctx, "/home/user/app", "")
+	_, err := mgr.Create(ctx, "/home/user/app")
 	require.NoError(t, err)
 
 	// Inject a transient error into HasSession
@@ -222,7 +209,7 @@ func TestManager_Sync_ConsecutiveFailCount(t *testing.T) {
 	mgr, mock := newTestManager(t)
 	ctx := context.Background()
 
-	_, err := mgr.Create(ctx, "/home/user/app", "")
+	_, err := mgr.Create(ctx, "/home/user/app")
 	require.NoError(t, err)
 
 	// Remove the lazyclaude session from mock so HasSession returns false
@@ -259,7 +246,7 @@ func TestManager_Sync_FailCountResetsOnSuccess(t *testing.T) {
 	mgr, mock := newTestManager(t)
 	ctx := context.Background()
 
-	sess, err := mgr.Create(ctx, "/home/user/app", "")
+	sess, err := mgr.Create(ctx, "/home/user/app")
 	require.NoError(t, err)
 
 	// Remove session so HasSession returns false
@@ -302,7 +289,7 @@ func TestManager_CleanSessionCommands_ExitEmpty(t *testing.T) {
 	mgr, mock := newTestManager(t)
 
 	// Create a session to trigger cleanSessionCommands via PostCommands
-	_, err := mgr.Create(context.Background(), "/home/user/app", "")
+	_, err := mgr.Create(context.Background(), "/home/user/app")
 	require.NoError(t, err)
 
 	// Verify exit-empty off is in PostCommands
@@ -316,11 +303,30 @@ func TestManager_CleanSessionCommands_ExitEmpty(t *testing.T) {
 	assert.True(t, found, "cleanSessionCommands should include exit-empty off")
 }
 
+func TestManager_Create_PostCommands_AllowRenameOff(t *testing.T) {
+	t.Parallel()
+	mgr, mock := newTestManager(t)
+
+	_, err := mgr.Create(context.Background(), "/home/user/app")
+	require.NoError(t, err)
+
+	// allow-rename=off prevents processes from renaming windows via escape
+	// sequences (OSC 2), which would break SyncWithTmux's name-based matching.
+	found := false
+	for _, cmd := range mock.LastNewSessionOpts.PostCommands {
+		if len(cmd) >= 4 && cmd[0] == "set-option" && cmd[2] == "allow-rename" && cmd[3] == "off" {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "cleanSessionCommands should include allow-rename off")
+}
+
 func TestManager_Create_PostCommands_NoWindowFlag(t *testing.T) {
 	t.Parallel()
 	mgr, mock := newTestManager(t)
 
-	_, err := mgr.Create(context.Background(), "/home/user/app", "")
+	_, err := mgr.Create(context.Background(), "/home/user/app")
 	require.NoError(t, err)
 
 	// Verify automatic-rename and remain-on-exit are session-level (no -w flag).
@@ -361,7 +367,7 @@ func TestManager_Persistence(t *testing.T) {
 	mock := tmux.NewMockClient()
 	mgr1 := session.NewManager(store1, mock, paths, nil)
 
-	_, err := mgr1.Create(context.Background(), "/home/user/app", "")
+	_, err := mgr1.Create(context.Background(), "/home/user/app")
 	require.NoError(t, err)
 
 	// Load in a new manager
@@ -406,7 +412,7 @@ func TestManager_CreateWorktree_Basic(t *testing.T) {
 	assert.Equal(t, session.StatusRunning, sess.Status)
 
 	// Worktree directory should exist
-	wtDir := filepath.Join(projectRoot, ".claude", "worktrees", "fix-popup")
+	wtDir := filepath.Join(projectRoot, ".lazyclaude", "worktrees", "fix-popup")
 	info, err := os.Stat(wtDir)
 	require.NoError(t, err)
 	assert.True(t, info.IsDir())
@@ -475,7 +481,7 @@ func TestManager_CreateWorktree_ExistingDir(t *testing.T) {
 
 	projectRoot := t.TempDir()
 	initGitRepo(t, projectRoot)
-	wtDir := filepath.Join(projectRoot, ".claude", "worktrees", "reuse-me")
+	wtDir := filepath.Join(projectRoot, ".lazyclaude", "worktrees", "reuse-me")
 	require.NoError(t, os.MkdirAll(wtDir, 0o755))
 
 	// Should succeed even if directory already exists (reuse)
@@ -502,7 +508,7 @@ func TestManager_CreateWorktree_LauncherScriptContents(t *testing.T) {
 	_ = sess2
 
 	// Worktree dir should contain the isolation marker
-	wtDir := filepath.Join(projectRoot, ".claude", "worktrees", "inspect-me")
+	wtDir := filepath.Join(projectRoot, ".lazyclaude", "worktrees", "inspect-me")
 	_, err = os.Stat(wtDir)
 	require.NoError(t, err)
 }
@@ -529,7 +535,7 @@ func TestManager_CreateWorktree_AddsWindowToExistingSession(t *testing.T) {
 	ctx := context.Background()
 
 	// Create first session to establish tmux session
-	_, err := mgr.Create(ctx, "/home/user/app1", "")
+	_, err := mgr.Create(ctx, "/home/user/app1")
 	require.NoError(t, err)
 
 	// Mock: session now exists
@@ -649,7 +655,7 @@ func TestManager_CreateWorkerSession_Basic(t *testing.T) {
 	assert.NotEmpty(t, sess.ID)
 
 	// Worktree directory should exist
-	wtDir := filepath.Join(projectRoot, ".claude", "worktrees", "feat-x")
+	wtDir := filepath.Join(projectRoot, ".lazyclaude", "worktrees", "feat-x")
 	info, err := os.Stat(wtDir)
 	require.NoError(t, err)
 	assert.True(t, info.IsDir())
@@ -701,7 +707,7 @@ func TestManager_CreateWorkerSession_DuplicateName(t *testing.T) {
 	assert.Contains(t, err.Error(), "already exists")
 }
 
-func TestManager_launchWorktreeSession_RoleNone_UsesWorktreePrompt(t *testing.T) {
+func TestManager_CreateWorktree_SetsWorkerRole(t *testing.T) {
 	t.Parallel()
 	mgr, mock := newTestManager(t)
 	ctx := context.Background()
@@ -709,15 +715,14 @@ func TestManager_launchWorktreeSession_RoleNone_UsesWorktreePrompt(t *testing.T)
 	projectRoot := t.TempDir()
 	initGitRepo(t, projectRoot)
 
-	// CreateWorktree uses RoleNone (backward compat path)
-	sess, err := mgr.CreateWorktree(ctx, "role-none-wt", "task", projectRoot)
+	sess, err := mgr.CreateWorktree(ctx, "wt-worker", "task", projectRoot)
 	require.NoError(t, err)
 	require.NotNil(t, sess)
 
-	// Role should be RoleNone (zero value)
-	assert.Equal(t, session.RoleNone, sess.Role)
+	// CreateWorktree should set RoleWorker
+	assert.Equal(t, session.RoleWorker, sess.Role)
 
-	// Command should reference a launcher script (uses BuildWorktreePrompt path)
+	// Command should reference a launcher script
 	cmd := mock.LastNewSessionOpts.Command
 	assert.Contains(t, cmd, "sh")
 	assert.Contains(t, cmd, "lazyclaude-wt-")
@@ -751,6 +756,66 @@ func TestManager_launchWorktreeSession_RoleWorker_UsesWorkerPrompt(t *testing.T)
 }
 
 // --- claudeEnv tests ---
+
+// --- buildClaudeCommand tests ---
+
+func TestBuildClaudeCommand_IncludesSessionID(t *testing.T) {
+	t.Parallel()
+	mgr, _ := newTestManager(t)
+
+	sess := session.Session{
+		ID:   "aaaabbbb-cccc-dddd-eeee-ffffffffffff",
+		Name: "test",
+		Path: "/tmp/test",
+	}
+	cmd := mgr.BuildClaudeCommand(sess)
+	assert.Contains(t, cmd, "--session-id aaaabbbb-cccc-dddd-eeee-ffffffffffff")
+}
+
+func TestBuildClaudeCommand_SkipsSessionID_WhenResumeFlag(t *testing.T) {
+	t.Parallel()
+	mgr, _ := newTestManager(t)
+
+	sess := session.Session{
+		ID:    "aaaabbbb-cccc-dddd-eeee-ffffffffffff",
+		Name:  "test",
+		Path:  "/tmp/test",
+		Flags: []string{"--resume"},
+	}
+	cmd := mgr.BuildClaudeCommand(sess)
+	assert.NotContains(t, cmd, "--session-id")
+}
+
+func TestBuildClaudeCommand_SkipsSessionID_WhenSessionIDFlag(t *testing.T) {
+	t.Parallel()
+	mgr, _ := newTestManager(t)
+
+	sess := session.Session{
+		ID:    "aaaabbbb-cccc-dddd-eeee-ffffffffffff",
+		Name:  "test",
+		Path:  "/tmp/test",
+		Flags: []string{"--session-id", "explicit-value"},
+	}
+	cmd := mgr.BuildClaudeCommand(sess)
+	// Should not inject a second --session-id; only the one from Flags
+	assert.NotContains(t, cmd, "aaaabbbb-cccc-dddd-eeee-ffffffffffff")
+	assert.Contains(t, cmd, "explicit-value")
+}
+
+func TestBuildClaudeCommand_SkipsSessionID_WhenSessionIDEqualForm(t *testing.T) {
+	t.Parallel()
+	mgr, _ := newTestManager(t)
+
+	sess := session.Session{
+		ID:    "aaaabbbb-cccc-dddd-eeee-ffffffffffff",
+		Name:  "test",
+		Path:  "/tmp/test",
+		Flags: []string{"--session-id=other-uuid"},
+	}
+	cmd := mgr.BuildClaudeCommand(sess)
+	assert.NotContains(t, cmd, "aaaabbbb-cccc-dddd-eeee-ffffffffffff")
+	assert.Contains(t, cmd, "--session-id=other-uuid")
+}
 
 func TestClaudeEnv_InjectsSessionID(t *testing.T) {
 	t.Parallel()

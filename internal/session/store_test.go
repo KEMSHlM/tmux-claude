@@ -23,14 +23,56 @@ func newTestSession(id, name, path string) session.Session {
 	}
 }
 
+func TestSession_TmuxTarget(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		sess session.Session
+		want string
+	}{
+		{
+			name: "local with TmuxWindow ID",
+			sess: session.Session{ID: "0123456789abcdef", TmuxWindow: "@42"},
+			want: "lazyclaude:@42",
+		},
+		{
+			name: "local with TmuxWindow already prefixed",
+			sess: session.Session{ID: "0123456789abcdef", TmuxWindow: "lazyclaude:@42"},
+			want: "lazyclaude:@42",
+		},
+		{
+			name: "local fallback (empty TmuxWindow)",
+			sess: session.Session{ID: "0123456789abcdef"},
+			want: "lazyclaude:lc-01234567",
+		},
+		{
+			name: "remote mirror with TmuxWindow name",
+			sess: session.Session{ID: "0123456789abcdef", Host: "AERO", TmuxWindow: "rm-01234567"},
+			want: "lazyclaude:rm-01234567",
+		},
+		{
+			name: "remote fallback (empty TmuxWindow, desync)",
+			sess: session.Session{ID: "0123456789abcdef", Host: "AERO"},
+			want: "lazyclaude:rm-01234567",
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tc.want, tc.sess.TmuxTarget())
+		})
+	}
+}
+
 func TestStore_SaveAndLoad(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "state.json")
 
 	s1 := session.NewStore(path)
-	s1.Add(newTestSession("id-1", "my-app", "/home/user/my-app"))
-	s1.Add(newTestSession("id-2", "my-lib", "/home/user/my-lib"))
+	s1.Add(newTestSession("id-1", "my-app", "/home/user/my-app"), "")
+	s1.Add(newTestSession("id-2", "my-lib", "/home/user/my-lib"), "")
 	require.NoError(t, s1.Save())
 
 	s2 := session.NewStore(path)
@@ -54,7 +96,7 @@ func TestStore_Load_NonExistentFile(t *testing.T) {
 func TestStore_FindByID(t *testing.T) {
 	t.Parallel()
 	s := session.NewStore("")
-	s.Add(newTestSession("id-1", "my-app", "/path"))
+	s.Add(newTestSession("id-1", "my-app", "/path"), "")
 
 	found := s.FindByID("id-1")
 	require.NotNil(t, found)
@@ -67,7 +109,7 @@ func TestStore_FindByID(t *testing.T) {
 func TestStore_FindByName(t *testing.T) {
 	t.Parallel()
 	s := session.NewStore("")
-	s.Add(newTestSession("id-1", "my-app", "/path"))
+	s.Add(newTestSession("id-1", "my-app", "/path"), "")
 
 	found := s.FindByName("my-app")
 	require.NotNil(t, found)
@@ -80,8 +122,8 @@ func TestStore_FindByName(t *testing.T) {
 func TestStore_Remove(t *testing.T) {
 	t.Parallel()
 	s := session.NewStore("")
-	s.Add(newTestSession("id-1", "my-app", "/path"))
-	s.Add(newTestSession("id-2", "my-lib", "/path2"))
+	s.Add(newTestSession("id-1", "my-app", "/path"), "")
+	s.Add(newTestSession("id-2", "my-lib", "/path2"), "")
 
 	ok := s.Remove("id-1")
 	assert.True(t, ok)
@@ -95,7 +137,7 @@ func TestStore_Remove(t *testing.T) {
 func TestStore_Rename(t *testing.T) {
 	t.Parallel()
 	s := session.NewStore("")
-	s.Add(newTestSession("id-1", "my-app", "/path"))
+	s.Add(newTestSession("id-1", "my-app", "/path"), "")
 
 	ok := s.Rename("id-1", "renamed-app")
 	assert.True(t, ok)
@@ -112,34 +154,34 @@ func TestStore_GenerateName_Simple(t *testing.T) {
 	t.Parallel()
 	s := session.NewStore("")
 
-	name := s.GenerateName("/home/user/my-app", "")
+	name := s.GenerateName("/home/user/my-app")
 	assert.Equal(t, "my-app", name)
 }
 
 func TestStore_GenerateName_Dedup(t *testing.T) {
 	t.Parallel()
 	s := session.NewStore("")
-	s.Add(newTestSession("id-1", "my-app", "/path1"))
+	s.Add(newTestSession("id-1", "my-app", "/path1"), "")
 
-	name := s.GenerateName("/other/path/my-app", "")
+	name := s.GenerateName("/other/path/my-app")
 	assert.Equal(t, "my-app-2", name)
 }
 
 func TestStore_GenerateName_Dedup_Multiple(t *testing.T) {
 	t.Parallel()
 	s := session.NewStore("")
-	s.Add(newTestSession("id-1", "my-app", "/path1"))
-	s.Add(newTestSession("id-2", "my-app-2", "/path2"))
+	s.Add(newTestSession("id-1", "my-app", "/path1"), "")
+	s.Add(newTestSession("id-2", "my-app-2", "/path2"), "")
 
-	name := s.GenerateName("/other/my-app", "")
+	name := s.GenerateName("/other/my-app")
 	assert.Equal(t, "my-app-3", name)
 }
 
-func TestStore_GenerateName_Remote(t *testing.T) {
+func TestStore_GenerateName_PathOnly(t *testing.T) {
 	t.Parallel()
 	s := session.NewStore("")
 
-	name := s.GenerateName("/home/user/work", "srv1")
+	name := s.GenerateName("/home/user/work")
 	assert.Equal(t, "work", name)
 }
 
@@ -177,9 +219,9 @@ func TestSession_InitialStatusIsUnknown(t *testing.T) {
 func TestStore_SyncWithTmux(t *testing.T) {
 	t.Parallel()
 	s := session.NewStore("")
-	s.Add(newTestSession("550e8400-aaa", "my-app", "/path1"))   // will match
-	s.Add(newTestSession("6ba7b810-bbb", "my-lib", "/path2"))   // will match (dead)
-	s.Add(newTestSession("cccccccc-ddd", "orphaned", "/path3")) // no tmux window
+	s.Add(newTestSession("550e8400-aaa", "my-app", "/path1"), "")   // will match
+	s.Add(newTestSession("6ba7b810-bbb", "my-lib", "/path2"), "")   // will match (dead)
+	s.Add(newTestSession("cccccccc-ddd", "orphaned", "/path3"), "") // no tmux window
 
 	windows := []tmux.WindowInfo{
 		{ID: "@1", Name: "lc-550e8400", Session: "lazyclaude"},
@@ -234,7 +276,7 @@ func TestStore_RoleRoundTrip(t *testing.T) {
 	store := session.NewStore(path)
 	sess := newTestSession("id-pm", "pm-session", "/project")
 	sess.Role = session.RolePM
-	store.Add(sess)
+	store.Add(sess, "")
 	require.NoError(t, store.Save())
 
 	store2 := session.NewStore(path)
@@ -254,7 +296,7 @@ func TestStore_RoleOmittedWhenNone(t *testing.T) {
 	store := session.NewStore(path)
 	sess := newTestSession("id-1", "regular", "/project")
 	// Role is zero value (RoleNone)
-	store.Add(sess)
+	store.Add(sess, "")
 	require.NoError(t, store.Save())
 
 	data, err := os.ReadFile(path)
@@ -280,9 +322,9 @@ func TestStore_WorkerRoleRoundTrip(t *testing.T) {
 	path := filepath.Join(dir, "state.json")
 
 	store := session.NewStore(path)
-	sess := newTestSession("id-w", "worker-1", "/project/.claude/worktrees/feat-x")
+	sess := newTestSession("id-w", "worker-1", "/project/.lazyclaude/worktrees/feat-x")
 	sess.Role = session.RoleWorker
-	store.Add(sess)
+	store.Add(sess, "")
 	require.NoError(t, store.Save())
 
 	store2 := session.NewStore(path)
@@ -298,8 +340,8 @@ func TestStore_WorkerRoleRoundTrip(t *testing.T) {
 func TestStore_FindProjectForSession_RegularSession(t *testing.T) {
 	t.Parallel()
 	s := session.NewStore("")
-	s.Add(newTestSession("id-1", "my-app", "/project/a"))
-	s.Add(newTestSession("id-2", "my-lib", "/project/b"))
+	s.Add(newTestSession("id-1", "my-app", "/project/a"), "")
+	s.Add(newTestSession("id-2", "my-lib", "/project/b"), "")
 
 	p := s.FindProjectForSession("id-1")
 	require.NotNil(t, p)
@@ -311,7 +353,7 @@ func TestStore_FindProjectForSession_PMSession(t *testing.T) {
 	s := session.NewStore("")
 	pmSess := newTestSession("pm-id", "pm", "/project")
 	pmSess.Role = session.RolePM
-	s.Add(pmSess)
+	s.Add(pmSess, "")
 
 	p := s.FindProjectForSession("pm-id")
 	require.NotNil(t, p)
@@ -321,7 +363,7 @@ func TestStore_FindProjectForSession_PMSession(t *testing.T) {
 func TestStore_FindProjectForSession_NotFound(t *testing.T) {
 	t.Parallel()
 	s := session.NewStore("")
-	s.Add(newTestSession("id-1", "my-app", "/project"))
+	s.Add(newTestSession("id-1", "my-app", "/project"), "")
 
 	p := s.FindProjectForSession("nonexistent")
 	assert.Nil(t, p)
@@ -330,8 +372,8 @@ func TestStore_FindProjectForSession_NotFound(t *testing.T) {
 func TestStore_FindProjectForSession_MultipleProjects(t *testing.T) {
 	t.Parallel()
 	s := session.NewStore("")
-	s.Add(newTestSession("id-a", "app-a", "/project/a"))
-	s.Add(newTestSession("id-b", "app-b", "/project/b"))
+	s.Add(newTestSession("id-a", "app-a", "/project/a"), "")
+	s.Add(newTestSession("id-b", "app-b", "/project/b"), "")
 
 	p := s.FindProjectForSession("id-b")
 	require.NotNil(t, p)
@@ -341,10 +383,10 @@ func TestStore_FindProjectForSession_MultipleProjects(t *testing.T) {
 func TestStore_FindProjectForSession_WorkerInWorktree(t *testing.T) {
 	t.Parallel()
 	s := session.NewStore("")
-	// Worktree path → InferProjectRoot maps to /project
-	workerSess := newTestSession("w-id", "feat-x", "/project/.claude/worktrees/feat-x")
+	// Worktree path -> InferProjectRoot maps to /project
+	workerSess := newTestSession("w-id", "feat-x", "/project/.lazyclaude/worktrees/feat-x")
 	workerSess.Role = session.RoleWorker
-	s.Add(workerSess)
+	s.Add(workerSess, "")
 
 	p := s.FindProjectForSession("w-id")
 	require.NotNil(t, p)
@@ -354,7 +396,7 @@ func TestStore_FindProjectForSession_WorkerInWorktree(t *testing.T) {
 func TestStore_SyncWithTmux_Detached(t *testing.T) {
 	t.Parallel()
 	s := session.NewStore("")
-	s.Add(newTestSession("aabbccdd-eee", "detached-app", "/path"))
+	s.Add(newTestSession("aabbccdd-eee", "detached-app", "/path"), "")
 
 	windows := []tmux.WindowInfo{
 		{ID: "@5", Name: "lc-aabbccdd", Session: "lazyclaude"},
@@ -367,4 +409,177 @@ func TestStore_SyncWithTmux_Detached(t *testing.T) {
 	all := s.All()
 	require.Len(t, all, 1)
 	assert.Equal(t, session.StatusDetached, all[0].Status)
+}
+
+func TestStore_SyncWithTmux_PrefersAlivePaneOverDead(t *testing.T) {
+	t.Parallel()
+	s := session.NewStore("")
+	s.Add(newTestSession("aabbccdd-eee", "my-app", "/path"), "")
+
+	windows := []tmux.WindowInfo{
+		{ID: "@5", Name: "lc-aabbccdd", Session: "lazyclaude"},
+	}
+	// Multiple panes in same window: dead pane listed first, alive pane second.
+	// With remain-on-exit=on a dead pane can coexist with a respawned one.
+	panes := []tmux.PaneInfo{
+		{ID: "%10", Window: "@5", PID: 0, Dead: true},
+		{ID: "%11", Window: "@5", PID: 9999, Dead: false},
+	}
+
+	s.SyncWithTmux(windows, panes)
+
+	all := s.All()
+	require.Len(t, all, 1)
+	assert.Equal(t, session.StatusRunning, all[0].Status, "alive pane should take precedence over dead pane")
+	assert.Equal(t, 9999, all[0].PID)
+}
+
+func TestStore_SyncWithTmux_PrefersAlivePaneOverDead_ReverseOrder(t *testing.T) {
+	t.Parallel()
+	s := session.NewStore("")
+	s.Add(newTestSession("aabbccdd-eee", "my-app", "/path"), "")
+
+	windows := []tmux.WindowInfo{
+		{ID: "@5", Name: "lc-aabbccdd", Session: "lazyclaude"},
+	}
+	// Alive pane listed first, dead pane second — alive should still win.
+	panes := []tmux.PaneInfo{
+		{ID: "%11", Window: "@5", PID: 9999, Dead: false},
+		{ID: "%10", Window: "@5", PID: 0, Dead: true},
+	}
+
+	s.SyncWithTmux(windows, panes)
+
+	all := s.All()
+	require.Len(t, all, 1)
+	assert.Equal(t, session.StatusRunning, all[0].Status, "alive pane should take precedence over dead pane")
+	assert.Equal(t, 9999, all[0].PID)
+}
+
+// --- Host-aware project matching tests ---
+
+func newTestSessionWithHost(id, name, path, host string) session.Session {
+	return session.Session{
+		ID:        id,
+		Name:      name,
+		Path:      path,
+		Host:      host,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+}
+
+func TestStore_Add_SamePathDifferentHosts_CreatesSeparateProjects(t *testing.T) {
+	t.Parallel()
+	s := session.NewStore("")
+
+	// Local session
+	s.Add(newTestSession("local-1", "local-app", "/home/user/project"), "")
+	// SSH session with same path but different host
+	s.Add(newTestSessionWithHost("ssh-1", "remote-app", "/home/user/project", "user@srv1"), "")
+
+	projects := s.Projects()
+	require.Len(t, projects, 2, "same path + different host should create separate projects")
+
+	// Verify each project has exactly one session
+	assert.Len(t, projects[0].Sessions, 1)
+	assert.Len(t, projects[1].Sessions, 1)
+}
+
+func TestStore_Add_SamePathSameHost_SameProject(t *testing.T) {
+	t.Parallel()
+	s := session.NewStore("")
+
+	s.Add(newTestSessionWithHost("ssh-1", "app-1", "/home/user/project", "user@srv1"), "")
+	s.Add(newTestSessionWithHost("ssh-2", "app-2", "/home/user/project", "user@srv1"), "")
+
+	projects := s.Projects()
+	require.Len(t, projects, 1, "same path + same host should group into one project")
+	assert.Len(t, projects[0].Sessions, 2)
+}
+
+func TestStore_Add_PMHostMatchesWorkerHost(t *testing.T) {
+	t.Parallel()
+	s := session.NewStore("")
+
+	// Add PM first
+	pmSess := newTestSessionWithHost("pm-1", "pm", "/remote/project", "user@srv1")
+	pmSess.Role = session.RolePM
+	s.Add(pmSess, "")
+
+	// Add worker with same host -- should match the PM's project
+	s.Add(newTestSessionWithHost("w-1", "worker-1", "/remote/project", "user@srv1"), "")
+
+	projects := s.Projects()
+	require.Len(t, projects, 1)
+	require.NotNil(t, projects[0].PM)
+	assert.Equal(t, "pm-1", projects[0].PM.ID)
+	assert.Len(t, projects[0].Sessions, 1)
+}
+
+func TestStore_Add_WorkerHostMatchesNewPM(t *testing.T) {
+	t.Parallel()
+	s := session.NewStore("")
+
+	// Add worker first (no PM yet)
+	s.Add(newTestSessionWithHost("w-1", "worker-1", "/remote/project", "user@srv1"), "")
+
+	// Add PM with same host -- should match the worker's project
+	pmSess := newTestSessionWithHost("pm-1", "pm", "/remote/project", "user@srv1")
+	pmSess.Role = session.RolePM
+	s.Add(pmSess, "")
+
+	projects := s.Projects()
+	require.Len(t, projects, 1)
+	require.NotNil(t, projects[0].PM)
+	assert.Len(t, projects[0].Sessions, 1)
+}
+
+func TestStore_Add_LocalDoesNotMatchSSH(t *testing.T) {
+	t.Parallel()
+	s := session.NewStore("")
+
+	// SSH session
+	s.Add(newTestSessionWithHost("ssh-1", "remote-app", "/home/user/project", "user@srv1"), "")
+	// Local session with same path
+	s.Add(newTestSession("local-1", "local-app", "/home/user/project"), "")
+
+	projects := s.Projects()
+	require.Len(t, projects, 2, "local and SSH with same path should be separate projects")
+}
+
+// --- Explicit projectRoot tests ---
+
+func TestStore_Add_ExplicitProjectRoot_OverridesInference(t *testing.T) {
+	t.Parallel()
+	s := session.NewStore("")
+
+	// Create project with path "."
+	s.Add(newTestSessionWithHost("pm-1", "pm", ".", "user@host"), ".")
+
+	// Resume worktree: git worktree list returns absolute path, but we pass
+	// the explicit project root "." so it matches the existing project.
+	s.Add(newTestSessionWithHost("w-1", "feat", "/home/user/project/.lazyclaude/worktrees/feat", "user@host"), ".")
+
+	projects := s.Projects()
+	require.Len(t, projects, 1, "explicit projectRoot should match existing project")
+	assert.Len(t, projects[0].Sessions, 2)
+}
+
+func TestStore_Add_ExplicitProjectRoot_SymlinkMismatch(t *testing.T) {
+	t.Parallel()
+	s := session.NewStore("")
+
+	// Project stored with logical path
+	s.Add(newTestSessionWithHost("pm-1", "pm", "/home/user/project", "user@host"), "")
+
+	// Worktree path has resolved symlink, but explicit projectRoot uses
+	// the stored logical path.
+	s.Add(newTestSessionWithHost("w-1", "feat",
+		"/data/home/user/project/.lazyclaude/worktrees/feat", "user@host"),
+		"/home/user/project")
+
+	projects := s.Projects()
+	require.Len(t, projects, 1, "explicit projectRoot should prevent symlink mismatch")
+	assert.Len(t, projects[0].Sessions, 2)
 }

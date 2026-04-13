@@ -46,6 +46,9 @@ func (m *mockSessionActions) CollapseProject()         { m.record("CollapseProje
 func (m *mockSessionActions) ExpandProject()           { m.record("ExpandProject") }
 func (m *mockSessionActions) CursorIsProject() bool    { return m.cursorIsProject }
 func (m *mockSessionActions) StartSearch()             { m.record("StartSearch") }
+func (m *mockSessionActions) ConnectRemote()           { m.record("ConnectRemote") }
+func (m *mockSessionActions) DismissError()            { m.record("DismissError") }
+func (m *mockSessionActions) CopyError()               { m.record("CopyError") }
 
 // --- PopupActions mock ---
 
@@ -98,6 +101,7 @@ func (m *mockLogsActions) LogsCursorToEnd()   { m.record("LogsCursorToEnd") }
 func (m *mockLogsActions) LogsCursorToTop()   { m.record("LogsCursorToTop") }
 func (m *mockLogsActions) LogsToggleSelect()  { m.record("LogsToggleSelect") }
 func (m *mockLogsActions) LogsCopySelection() { m.record("LogsCopySelection") }
+func (m *mockLogsActions) LogsClear()         { m.record("LogsClear") }
 func (m *mockLogsActions) StartSearch()       { m.record("StartSearch") }
 
 // --- PluginsPanelActions mock ---

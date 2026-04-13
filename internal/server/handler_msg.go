@@ -23,6 +23,9 @@ type SessionCreator interface {
 	CreateWorkerSession(ctx context.Context, name, prompt, projectRoot string) (*SessionCreateResult, error)
 	// CreateLocalSession creates a plain session at projectPath.
 	CreateLocalSession(ctx context.Context, name, projectPath string) (*SessionCreateResult, error)
+	// ResumeSession resumes a session by ID with a worktree name fallback
+	// for sessions that have been GC'd from state.json.
+	ResumeSession(ctx context.Context, id, prompt, name string) (*SessionCreateResult, error)
 }
 
 // SessionProjectInfo is the minimal project data needed by the handler.
@@ -57,12 +60,14 @@ type MsgCreateSession struct {
 
 // SessionInfo is a lightweight session descriptor returned by /msg/sessions.
 type SessionInfo struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Role   string `json:"role"`
-	Path   string `json:"path"`
-	Window string `json:"window,omitempty"` // tmux window ID (e.g. "@1")
-	Status string `json:"status,omitempty"` // runtime status string (e.g. "Running")
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Role     string `json:"role"`
+	Path     string `json:"path"`
+	Host     string `json:"host,omitempty"`     // SSH host (e.g. "user@host"); empty for local
+	Window   string `json:"window,omitempty"`   // tmux window ID (e.g. "@1")
+	Status   string `json:"status,omitempty"`   // runtime status string (e.g. "Running")
+	Activity string `json:"activity"` // hook-based activity state (e.g. "running", "idle", "unknown")
 }
 
 type msgCreateRequest struct {
@@ -127,12 +132,14 @@ func (s *Server) handleMsgCreate(w http.ResponseWriter, r *http.Request) {
 		result, err = sc.CreateWorkerSession(ctx, req.Name, req.Prompt, project.Path)
 	case "local":
 		result, err = sc.CreateLocalSession(ctx, req.Name, project.Path)
-	default:
-		http.Error(w, "unsupported type", http.StatusBadRequest)
-		return
 	}
 	if err != nil {
 		s.log.Printf("msg/create: %v", err)
+		http.Error(w, "create session failed", http.StatusInternalServerError)
+		return
+	}
+	if result == nil {
+		s.log.Printf("msg/create: nil result with no error")
 		http.Error(w, "create session failed", http.StatusInternalServerError)
 		return
 	}
@@ -195,6 +202,11 @@ func (s *Server) handleMsgSend(w http.ResponseWriter, r *http.Request) {
 
 	if req.From == "" || req.To == "" {
 		http.Error(w, "from and to are required", http.StatusBadRequest)
+		return
+	}
+
+	if req.From == req.To {
+		http.Error(w, "cannot send a message to yourself", http.StatusBadRequest)
 		return
 	}
 
@@ -284,12 +296,87 @@ func (s *Server) handleMsgSend(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// MsgResumeResponse is the JSON response for POST /msg/resume.
+type MsgResumeResponse struct {
+	Status  string            `json:"status"`
+	Session *MsgCreateSession `json:"session,omitempty"`
+	Error   string            `json:"error,omitempty"`
+}
+
+type msgResumeRequest struct {
+	ID     string `json:"id"`
+	Prompt string `json:"prompt,omitempty"`
+	Name   string `json:"name,omitempty"` // worktree name (for GC'd sessions)
+}
+
+// handleMsgResume handles POST /msg/resume.
+// It resumes a session by ID, falling back to the worktree name when the
+// session has been GC'd from state.json.
+func (s *Server) handleMsgResume(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	token := extractAuthToken(r)
+	if subtle.ConstantTimeCompare([]byte(token), []byte(s.config.Token)) != 1 {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	s.mu.RLock()
+	sc := s.sessionCreator
+	s.mu.RUnlock()
+
+	if sc == nil {
+		http.Error(w, "session creator not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	var req msgResumeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+
+	if req.ID == "" {
+		http.Error(w, "id is required", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+	result, err := sc.ResumeSession(ctx, req.ID, req.Prompt, req.Name)
+	if err != nil {
+		s.log.Printf("msg/resume: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	resp := MsgResumeResponse{
+		Status: "resumed",
+		Session: &MsgCreateSession{
+			ID:     result.ID,
+			Name:   result.Name,
+			Role:   result.Role,
+			Path:   result.Path,
+			Window: result.Window,
+		},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		s.log.Printf("msg/resume: encode: %v", err)
+	}
+}
+
 // validMsgTypes is the allowlist of message types accepted by /msg/send.
 var validMsgTypes = map[string]bool{
 	"review_request":  true,
 	"review_response": true,
 	"status":          true,
 	"done":            true,
+	"issue":           true,
 }
 
 func isValidMsgType(t string) bool {
@@ -327,6 +414,9 @@ func (s *Server) handleMsgSessions(w http.ResponseWriter, r *http.Request) {
 		sessions = []SessionInfo{}
 	}
 
+	// Overlay hook-based activity state recorded by hook handlers.
+	s.enrichWithActivity(sessions)
+
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(sessions); err != nil {
 		s.log.Printf("msg/sessions: encode: %v", err)
@@ -338,6 +428,7 @@ type stateSession struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	Path string `json:"path"`
+	Host string `json:"host,omitempty"`
 	Role string `json:"role,omitempty"`
 }
 
@@ -391,6 +482,7 @@ func (s *Server) readSessionsFromState() []SessionInfo {
 			Name: r.Name,
 			Role: r.Role,
 			Path: r.Path,
+			Host: r.Host,
 		}
 		// Compute window name: "lc-" + first 8 chars of ID.
 		wName := "lc-" + r.ID

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -22,11 +21,11 @@ func e2eBinary(t *testing.T) string {
 	return ensureBinary(t)
 }
 
-// cleanLazyClaudeState kills any shared lazyclaude tmux server and removes port file.
-// Required between E2E tests that start lazyclaude (shared internal socket).
+// cleanLazyClaudeState removes stale port/state files for E2E test isolation.
+// NOTE: Never kill the production "lazyclaude" tmux server here — tests must
+// use their own tmux socket (via newTmuxHelper) to avoid destroying live sessions.
 func cleanLazyClaudeState(t *testing.T) {
 	t.Helper()
-	exec.Command("tmux", "-L", "lazyclaude", "kill-server").Run()
 	os.Remove(filepath.Join(os.TempDir(), "lazyclaude-mcp.port"))
 	// Remove stale state file so lazyclaude starts fresh
 	os.Remove(filepath.Join(os.Getenv("HOME"), ".local", "share", "lazyclaude", "state.json"))

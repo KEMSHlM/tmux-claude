@@ -3,6 +3,7 @@ package gui
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -106,6 +107,7 @@ func (a *App) MoveCursorDown() {
 	if a.cursor < len(nodes)-1 {
 		a.cursor++
 	}
+	a.clearError()
 	a.syncPluginProject()
 }
 
@@ -113,6 +115,7 @@ func (a *App) MoveCursorUp() {
 	if a.cursor > 0 {
 		a.cursor--
 	}
+	a.clearError()
 	a.syncPluginProject()
 }
 
@@ -126,21 +129,36 @@ func (a *App) syncPluginProjectOnce() {
 	}
 
 	// Try session tree first (preferred: project-scoped context).
+	// syncPluginProject handles both local and remote nodes: for remote
+	// it sets pluginState.remoteDisabled without touching projectDir,
+	// for local it sets projectDir and triggers the async refresh.
+	// Either signal is enough to short-circuit before the CWD fallback.
 	node := a.currentNode()
 	if node != nil {
 		a.syncPluginProject()
-		if a.pluginState.projectDir != "" {
+		if a.pluginState.projectDir != "" || a.pluginState.remoteDisabled {
 			return
 		}
 	}
 
 	// Fallback: no sessions yet — use process CWD so plugins load immediately.
+	// Explicitly clear remoteDisabled: we are going to refresh against local
+	// data, so the panels must leave any prior "remote disabled" state even
+	// if the caller had a remote node selected before landing here.
+	a.pluginState.remoteDisabled = false
+	if a.mcpServers != nil {
+		a.mcpState.remoteDisabled = false
+		a.mcpState.remoteKey = ""
+	}
 	a.runPluginAsync(func(ctx context.Context) error {
 		return a.plugins.Refresh(ctx)
 	})
 	if a.mcpServers != nil {
 		cwd, _ := filepath.Abs(".")
-		a.mcpServers.SetProjectDir(cwd)
+		// Atomically install the local target so any in-flight async
+		// goroutine spawned from a previous remote selection cannot
+		// observe a (host, projectDir) mixed pair mid-swap.
+		a.mcpServers.SetRemote("", cwd)
 		a.runMCPAsync(func(ctx context.Context) error {
 			return a.mcpServers.Refresh(ctx)
 		})
@@ -154,17 +172,156 @@ func (a *App) syncPluginProject() {
 	if a.plugins == nil {
 		return
 	}
+
+	// clearRemoteDisabled resets the plugin remoteDisabled flag and
+	// the MCP dedupe cache. It deliberately does NOT touch the MCP
+	// provider's host/projectDir — the caller path is responsible for
+	// calling SetRemote atomically with the final target so that no
+	// async goroutine can observe a mid-swap mixed pair.
+	clearRemoteDisabled := func() {
+		a.pluginState.remoteDisabled = false
+		if a.mcpServers != nil {
+			a.mcpState.remoteDisabled = false
+			a.mcpState.remoteKey = ""
+		}
+	}
+
 	node := a.currentNode()
 	if node == nil {
+		// Recovery path — only when the underlying tree is genuinely
+		// empty (not a transient filter-hides-everything or cursor-
+		// out-of-range state). Reset the providers to the CWD fallback
+		// so a cached pluginState.projectDir from an earlier local
+		// selection cannot bleed through into subsequent writes.
+		// Without this reset, the flow (local A → remote B → tree
+		// empties out-of-band) would leave pluginState.projectDir at
+		// "A" and the next plugin/MCP write would mutate an unrelated
+		// local repo. See codex P1 on commit a25ed88 for the scenario.
+		//
+		// Idempotent by the projectDir-equals-CWD short-circuit: once
+		// the reset has run the first time, subsequent layout passes
+		// observe projectDir == cwd and skip the re-spawn.
+		if len(a.cachedNodes) == 0 {
+			// Always clear the remoteDisabled flags on empty-tree
+			// recovery: even if projectDir already matches cwd (the
+			// user started lazyclaude in the lazyclaude repo, for
+			// instance), leaving the flags set would pin the panels
+			// to the remote placeholder and make guardRemoteOp reject
+			// local plugin/MCP actions forever.
+			clearRemoteDisabled()
+
+			cwd, _ := filepath.Abs(".")
+
+			// Atomic SetRemote is unconditional: even when
+			// pluginState.projectDir already equals cwd (user
+			// started lazyclaude in the fallback directory), the
+			// MCP manager may still hold a stale (remoteHost,
+			// remoteDir) pair from a prior remote selection.
+			// Without this reset the nil-node fallback in
+			// guardRemoteOp would permit an MCP toggle that
+			// ultimately targets the old remote file.
+			if a.mcpServers != nil {
+				a.mcpServers.SetRemote("", cwd)
+			}
+
+			if a.pluginState.projectDir != cwd {
+				// Panel cursors track the previous project's item
+				// count; swapping to the CWD fallback without
+				// zeroing them can leave installedCursor /
+				// marketCursor / mcpState.cursor out of range,
+				// which silently blocks write handlers that
+				// short-circuit on `cursor >= len(...)`. Mirror
+				// the local-node branch below.
+				a.pluginState.installedCursor = 0
+				a.pluginState.marketCursor = 0
+				a.pluginState.projectDir = cwd
+				a.plugins.SetProjectDir(cwd)
+				a.runPluginAsync(func(ctx context.Context) error {
+					return a.plugins.Refresh(ctx)
+				})
+				if a.mcpServers != nil {
+					a.mcpState.cursor = 0
+					a.runMCPAsync(func(ctx context.Context) error {
+						return a.mcpServers.Refresh(ctx)
+					})
+				}
+			}
+		}
+		// Transient nil-node (filter hides everything, cursor out of
+		// range): preserve the previous flag and projectDir so the
+		// logical selection is intact. The write guards' flag fallback
+		// keeps writes honest until the tree resolves.
 		return
 	}
+
+	// Remote node.
+	//   - Plugin panel: stays disabled (Phase 3 will SSH-wrap the
+	//     `claude plugins` CLI). We intentionally do NOT clear
+	//     pluginState.projectDir or call SetProjectDir("") — see the
+	//     Phase 1 rationale below.
+	//   - MCP panel: Phase 2 drives the provider through its SSH code
+	//     path. SetRemote atomically flips the manager into remote
+	//     mode and runMCPAsync loads the remote server list.
+	if host, isRemote := a.isRemoteNodeSelected(); isRemote {
+		a.pluginState.remoteDisabled = true
+		if a.mcpServers != nil {
+			a.mcpState.remoteDisabled = false
+
+			var remoteProjectPath string
+			if node.Kind == ProjectNode && node.Project != nil {
+				remoteProjectPath = node.Project.Path
+			} else if node.Session != nil {
+				remoteProjectPath = a.configDirForSession(node.Session)
+			}
+
+			// Dedupe: avoid respam on cursor moves within the same
+			// remote project. Every MoveCursorUp/Down triggers this
+			// sync, so kicking off an SSH round-trip unconditionally
+			// would hammer the remote host.
+			key := host + "|" + remoteProjectPath
+			if remoteProjectPath != "" && a.mcpState.remoteKey != key {
+				a.mcpState.remoteKey = key
+				a.mcpState.cursor = 0
+				// Atomic: one lock acquisition installs both
+				// host and projectDir, so a racing async
+				// goroutine cannot observe a mixed pair.
+				a.mcpServers.SetRemote(host, remoteProjectPath)
+				a.runMCPAsync(func(ctx context.Context) error {
+					return a.mcpServers.Refresh(ctx)
+				})
+			}
+		}
+		return
+	}
+
+	// Local node: clear the remote flag and proceed with the existing refresh.
+	clearRemoteDisabled()
+
 	var projectPath string
 	if node.Kind == ProjectNode && node.Project != nil {
 		projectPath = node.Project.Path
 	} else if node.Session != nil {
 		projectPath = a.configDirForSession(node.Session)
 	}
-	if projectPath == "" || projectPath == a.pluginState.projectDir {
+	if projectPath == "" {
+		return
+	}
+
+	// Atomically install the local MCP target BEFORE the refresh
+	// short-circuit. Even when projectPath matches the cached
+	// pluginState.projectDir (local-to-same-local cursor movement, or
+	// remote→local where the cache points to this local project),
+	// this guarantees the provider's (host, projectDir) pair is
+	// consistent with the live cursor. Without the unconditional
+	// SetRemote here, a remote→local transition into a cached
+	// project would leave the manager holding (remoteHost, remoteDir)
+	// — a subsequent MCPRefresh / MCPToggleDenied would then target
+	// the wrong machine.
+	if a.mcpServers != nil {
+		a.mcpServers.SetRemote("", projectPath)
+	}
+
+	if projectPath == a.pluginState.projectDir {
 		return
 	}
 	a.pluginState.projectDir = projectPath
@@ -177,18 +334,82 @@ func (a *App) syncPluginProject() {
 
 	if a.mcpServers != nil {
 		a.mcpState.cursor = 0
-		a.mcpServers.SetProjectDir(projectPath)
 		a.runMCPAsync(func(ctx context.Context) error {
 			return a.mcpServers.Refresh(ctx)
 		})
 	}
 }
 
+// isRemoteNodeSelected reports whether the cursor is on a remote (SSH) node.
+// Returns (host, true) when the cursor is on a remote session/project,
+// ("", false) otherwise. Wraps currentSessionHost() so callers do not need
+// to interpret its (host, onNode) return shape.
+func (a *App) isRemoteNodeSelected() (string, bool) {
+	host, onNode := a.currentSessionHost()
+	if !onNode || host == "" {
+		return "", false
+	}
+	return host, true
+}
+
+// guardRemoteOp short-circuits a write handler when the cursor is on a
+// remote node, showing a status message. Returns true if the caller should
+// return early.
+//
+// Decision order:
+//
+//  1. Live local node → false (allow).
+//  2. Live remote node → true (block, status message).
+//  3. Nil node (filter hid every row, cursor briefly out of range) →
+//     fall back to pluginState.remoteDisabled / mcpState.remoteDisabled.
+//     When set, block; when clear, allow.
+//
+// Callers MUST have synced the panel state to the current cursor
+// before invoking writes — this is done automatically by the standard
+// cursor-moving paths (MoveCursorDown/Up, applySearchFilter,
+// closeSearch Esc restore, moveCursorToLastSession). Do NOT call
+// syncPluginProject from inside guardRemoteOp: the refresh it spawns
+// is asynchronous, so a write handler running immediately afterwards
+// would read stale cached Installed()/Servers() data from the previous
+// project and mutate items that no longer exist in the new context.
+//
+// The caller sites are AppActions methods invoked by the keydispatch
+// layer and do not receive a *gocui.Gui. setStatus requires a gui to
+// find the status view, so we re-enter the main goroutine via
+// gui.Update. This is the same pattern runPluginAsync / runMCPAsync
+// use for their own status writes and is consistent with the
+// plan-mandated wrapper shape.
+func (a *App) guardRemoteOp(feature string) bool {
+	host, onNode := a.currentSessionHost()
+
+	switch {
+	case onNode && host == "":
+		// Live local node — authoritative, ignore the cached flag.
+		return false
+	case onNode && host != "":
+		// Live remote node — guard regardless of flag state.
+	default:
+		// No resolvable node: fall back to the cached panel flag.
+		if !a.pluginState.remoteDisabled && !a.mcpState.remoteDisabled {
+			return false
+		}
+		host = "remote"
+	}
+
+	msg := fmt.Sprintf("%s on remote (%s) is not supported yet", feature, host)
+	a.gui.Update(func(g *gocui.Gui) error {
+		a.setStatus(g, msg)
+		return nil
+	})
+	return true
+}
+
 // --- Path helpers ---
 
 // currentProjectRoot returns the project root path for the currently selected
 // tree node. For ProjectNode, returns Project.Path directly. For SessionNode,
-// infers the project root via InferProjectRoot (handles worktree paths).
+// looks up the parent project's stored Path (avoids InferProjectRoot which can
+// mismatch on remote when paths differ from the stored project path).
 // Falls back to filepath.Abs(".") when no node is selected.
 func (a *App) currentProjectRoot() string {
 	node := a.currentNode()
@@ -199,6 +420,13 @@ func (a *App) currentProjectRoot() string {
 				return node.Project.Path
 			}
 		case SessionNode:
+			// Look up the parent project's stored path instead of inferring
+			// from the session's worktree path. This prevents mismatches when
+			// the stored project path differs from InferProjectRoot output
+			// (e.g. relative "." vs absolute, or symlink-resolved paths).
+			if path := a.projectPathByID(node.ProjectID); path != "" {
+				return path
+			}
 			if node.Session != nil && node.Session.Path != "" {
 				return session.InferProjectRoot(node.Session.Path)
 			}
@@ -209,6 +437,21 @@ func (a *App) currentProjectRoot() string {
 		return "."
 	}
 	return session.InferProjectRoot(abs)
+}
+
+// projectPathByID returns the stored Path for the project with the given ID.
+// Returns "" if not found. Scans the current tree nodes which are already
+// cached, so this is inexpensive.
+func (a *App) projectPathByID(projectID string) string {
+	if projectID == "" {
+		return ""
+	}
+	for _, n := range a.treeNodes() {
+		if n.Kind == ProjectNode && n.ProjectID == projectID && n.Project != nil {
+			return n.Project.Path
+		}
+	}
+	return ""
 }
 
 // configDirForSession returns the directory to use for configuration lookups
@@ -226,61 +469,138 @@ func (a *App) configDirForSession(s *SessionItem) string {
 	return session.InferProjectRoot(s.Path)
 }
 
+// --- Host routing ---
+
+// CurrentSessionHost returns the SSH host of the currently selected session
+// or project node along with a flag indicating whether the cursor is on a node.
+// The host is "" for local sessions/projects, and onNode is false when no node
+// is under the cursor. Callers distinguish "on a local node" (host="", onNode=true)
+// from "no node selected" (host="", onNode=false) so that local-node operations
+// do not fall back to pendingHost.
+// Must be called from the gocui main goroutine (e.g. inside keybinding handlers
+// or Update callbacks) because it reads GUI state (cursor, tree nodes).
+func (a *App) CurrentSessionHost() (string, bool) {
+	return a.currentSessionHost()
+}
+
+func (a *App) currentSessionHost() (string, bool) {
+	node := a.currentNode()
+	if node == nil {
+		return "", false
+	}
+	switch node.Kind {
+	case SessionNode:
+		if node.Session != nil {
+			return node.Session.Host, true
+		}
+	case ProjectNode:
+		if node.Project != nil {
+			return node.Project.Host, true
+		}
+	}
+	// Defensive: a node with a nil payload should not be treated as
+	// "cursor on a local node" — fall through to pendingHost instead.
+	return "", false
+}
+
 // --- Session operations ---
 
 func (a *App) CreateSession() { a.createSession(a.currentProjectRoot()) }
-func (a *App) CreateSessionAtCWD() { a.createSession(".") }
 
-// createSession is the shared implementation for CreateSession and CreateSessionAtCWD.
-// localPath is the fallback directory for non-SSH sessions.
-func (a *App) createSession(localPath string) {
-	if a.sessions == nil {
+// CreateSessionAtCWD creates a session in the lazyclaude pane's CWD. Unlike
+// CreateSession, routing is pane-based, not cursor-based: it delegates to
+// sessions.CreateAtPaneCWD() which uses pendingHost rather than the cursor's
+// tree node host. This keeps N predictable regardless of cursor position.
+func (a *App) CreateSessionAtCWD() {
+	if a.sessions == nil || a.HasActiveDialog() {
 		return
 	}
-	host := DetectSSHHost()
-	path := localPath
-	if host != "" {
-		path = "."
-		if rp := DetectRemotePath(); rp != "" {
-			path = rp
-		}
-	}
-	if err := a.sessions.Create(path, host); err != nil {
+	debugLog("CreateSessionAtCWD")
+	go func() {
+		err := a.sessions.CreateAtPaneCWD()
 		a.gui.Update(func(g *gocui.Gui) error {
-			a.setStatus(g, fmt.Sprintf("Error: %v", err))
+			if err != nil {
+				a.showError(g, fmt.Sprintf("Error: %v", err))
+			} else {
+				a.setStatus(g, "Session created")
+				a.moveCursorToLastSession()
+			}
 			return nil
 		})
+	}()
+}
+
+// createSession is the shared implementation for CreateSession.
+// localPath is the fallback directory for non-SSH sessions.
+// Routes to the host of the currently selected tree node. Falls back to
+// pendingHost (inside the adapter) when no node is selected.
+// Runs asynchronously to avoid blocking the GUI thread during remote operations.
+func (a *App) createSession(localPath string) {
+	if a.sessions == nil || a.HasActiveDialog() {
 		return
 	}
-	a.gui.Update(func(g *gocui.Gui) error {
-		a.setStatus(g, "Session created")
-		return nil
-	})
+	debugLog("createSession: path=%q", localPath)
+	go func() {
+		err := a.sessions.Create(localPath)
+		a.gui.Update(func(g *gocui.Gui) error {
+			if err != nil {
+				a.showError(g, fmt.Sprintf("Error: %v", err))
+			} else {
+				a.setStatus(g, "Session created")
+				a.moveCursorToLastSession()
+			}
+			return nil
+		})
+	}()
+}
+
+// moveCursorToLastSession moves the cursor to the last session node in the
+// tree. Used after session creation to select the newly created session.
+// Re-syncs the plugin/MCP panels so their remoteDisabled flags and
+// cached project path follow the newly selected session — the write
+// guards rely on the panel state matching the cursor.
+func (a *App) moveCursorToLastSession() {
+	a.refreshTreeNodes()
+	nodes := a.treeNodes()
+	for i := len(nodes) - 1; i >= 0; i-- {
+		if nodes[i].Kind == SessionNode {
+			a.cursor = i
+			a.syncPluginProject()
+			return
+		}
+	}
 }
 
 func (a *App) DeleteSession() {
-	if a.sessions == nil {
+	if a.sessions == nil || a.HasActiveDialog() {
 		return
 	}
 	sess := a.currentSession()
 	if sess == nil {
 		return
 	}
-	if err := a.sessions.Delete(sess.ID); err != nil {
+	sessID := sess.ID
+	go func() {
+		err := a.sessions.Delete(sessID)
 		a.gui.Update(func(g *gocui.Gui) error {
-			a.setStatus(g, fmt.Sprintf("Error: %v", err))
+			if err != nil {
+				a.showError(g, fmt.Sprintf("Error: %v", err))
+			} else {
+				nodes := a.treeNodes()
+				if a.cursor > 0 && a.cursor >= len(nodes) {
+					a.cursor--
+				}
+				// Re-sync the plugin/MCP panels: deleting the last
+				// session in a project pulls the cursor onto a
+				// neighbouring node which may belong to a different
+				// project (or host). The write guards need the panel
+				// state to track that jump.
+				a.syncPluginProject()
+				a.setStatus(g, "Session deleted")
+			}
 			return nil
 		})
-		return
-	}
-	nodes := a.treeNodes()
-	if a.cursor > 0 && a.cursor >= len(nodes) {
-		a.cursor--
-	}
-	a.gui.Update(func(g *gocui.Gui) error {
-		a.setStatus(g, "Session deleted")
-		return nil
-	})
+	}()
 }
 
 func (a *App) LaunchLazygit() {
@@ -295,18 +615,18 @@ func (a *App) LaunchLazygit() {
 	g := a.gui
 	if err := g.Suspend(); err != nil {
 		a.gui.Update(func(g *gocui.Gui) error {
-			a.setStatus(g, fmt.Sprintf("Suspend error: %v", err))
+			a.showError(g, fmt.Sprintf("Suspend error: %v", err))
 			return nil
 		})
 		return
 	}
-	launchErr := a.sessions.LaunchLazygit(sess.Path, sess.Host)
+	launchErr := a.sessions.LaunchLazygit(sess.Path)
 	if err := g.Resume(); err != nil {
 		return
 	}
 	if launchErr != nil {
 		a.gui.Update(func(g *gocui.Gui) error {
-			a.setStatus(g, fmt.Sprintf("lazygit error: %v", launchErr))
+			a.showError(g, fmt.Sprintf("lazygit error: %v", launchErr))
 			return nil
 		})
 	}
@@ -323,7 +643,7 @@ func (a *App) AttachSession() {
 	g := a.gui
 	if err := g.Suspend(); err != nil {
 		a.gui.Update(func(g *gocui.Gui) error {
-			a.setStatus(g, fmt.Sprintf("Suspend error: %v", err))
+			a.showError(g, fmt.Sprintf("Suspend error: %v", err))
 			return nil
 		})
 		return
@@ -334,7 +654,7 @@ func (a *App) AttachSession() {
 	}
 	if attachErr != nil {
 		a.gui.Update(func(g *gocui.Gui) error {
-			a.setStatus(g, fmt.Sprintf("Attach error: %v", attachErr))
+			a.showError(g, fmt.Sprintf("Attach error: %v", attachErr))
 			return nil
 		})
 	}
@@ -349,6 +669,17 @@ func (a *App) EnterFullScreen() {
 		return
 	}
 	a.enterFullScreen(sess.ID)
+}
+
+func (a *App) DismissError() {
+	a.clearError()
+}
+
+func (a *App) CopyError() {
+	if a.errorMsg == "" {
+		return
+	}
+	copyToClipboard(a.errorMsg)
 }
 
 func (a *App) StartRename() {
@@ -374,11 +705,12 @@ func (a *App) StartPMSession() {
 		return
 	}
 	projectRoot := a.currentProjectRoot()
+	debugLog("StartPMSession: projectRoot=%q", projectRoot)
 	go func() {
 		err := a.sessions.CreatePMSession(projectRoot)
 		a.gui.Update(func(g *gocui.Gui) error {
 			if err != nil {
-				a.setStatus(g, fmt.Sprintf("PM error: %v", err))
+				a.showError(g, fmt.Sprintf("PM error: %v", err))
 			} else {
 				a.setStatus(g, "PM session started")
 			}
@@ -393,7 +725,7 @@ func (a *App) StartWorktreeInput() {
 	}
 	a.gui.Update(func(g *gocui.Gui) error {
 		if !a.showWorktreeDialog(g) {
-			a.setStatus(g, "Error: could not open worktree dialog")
+			a.showError(g, "Error: could not open worktree dialog")
 		}
 		return nil
 	})
@@ -404,11 +736,12 @@ func (a *App) SelectWorktree() {
 		return
 	}
 	projectRoot := a.currentProjectRoot()
+	debugLog("SelectWorktree: projectRoot=%q", projectRoot)
 	go func() {
 		items, err := a.sessions.ListWorktrees(projectRoot)
 		a.gui.Update(func(g *gocui.Gui) error {
 			if err != nil {
-				a.setStatus(g, fmt.Sprintf("Error: %v", err))
+				a.showError(g, fmt.Sprintf("Error: %v", err))
 				return nil
 			}
 			if len(items) == 0 {
@@ -418,29 +751,87 @@ func (a *App) SelectWorktree() {
 			wtItems := make([]WorktreeInfo, len(items))
 			copy(wtItems, items)
 			if !a.showWorktreeChooser(g, wtItems) {
-				a.setStatus(g, "Error: could not open worktree chooser")
+				a.showError(g, "Error: could not open worktree chooser")
 			}
 			return nil
 		})
 	}()
 }
 
-func (a *App) PurgeOrphans() {
-	if a.sessions == nil {
+// connectToHost initiates a remote connection to the given host.
+// Must be called from the gocui event loop goroutine.
+func (a *App) connectToHost(g *gocui.Gui, host string) {
+	if a.connectFn == nil {
+		a.showError(g, "Remote connection not available")
 		return
 	}
-	count, err := a.sessions.PurgeOrphans()
-	if err != nil {
+	debugLog("connectToHost: host=%q", host)
+	a.setStatus(g, "Connecting to "+host+"...")
+	go func() {
+		debugLog("connectToHost: calling connectFn host=%q", host)
+		err := a.connectFn(host)
+		debugLog("connectToHost: connectFn result: %v", err)
 		a.gui.Update(func(g *gocui.Gui) error {
-			a.setStatus(g, fmt.Sprintf("Error: %v", err))
+			if err != nil {
+				a.showError(g, fmt.Sprintf("Connection failed: %v", err))
+			} else {
+				a.setStatus(g, "Connected to "+host)
+			}
 			return nil
 		})
+	}()
+}
+
+func (a *App) ConnectRemote() {
+	debugLog("ConnectRemote: triggered hasDialog=%v", a.HasActiveDialog())
+	if a.HasActiveDialog() {
 		return
 	}
 	a.gui.Update(func(g *gocui.Gui) error {
-		a.setStatus(g, fmt.Sprintf("Purged %d orphans", count))
+		var hosts []string
+		home, homeErr := os.UserHomeDir()
+		if homeErr != nil {
+			debugLog("ConnectRemote: UserHomeDir error: %v", homeErr)
+			a.setStatus(g, fmt.Sprintf("SSH config: %v", homeErr))
+		} else {
+			parsed, parseErr := ParseSSHHosts(filepath.Join(home, ".ssh", "config"))
+			if parseErr != nil {
+				debugLog("ConnectRemote: ParseSSHHosts error: %v", parseErr)
+				a.setStatus(g, fmt.Sprintf("SSH config read error: %v", parseErr))
+			}
+			hosts = parsed
+		}
+		if len(hosts) > 0 {
+			if !a.showConnectChooser(g, hosts) {
+				a.showError(g, "Error: could not open host chooser")
+			}
+		} else {
+			if !a.showConnectDialog(g) {
+				debugLog("ConnectRemote: showConnectDialog failed")
+				a.showError(g, "Error: could not open connect dialog")
+			} else {
+				debugLog("ConnectRemote: dialog opened")
+			}
+		}
 		return nil
 	})
+}
+
+func (a *App) PurgeOrphans() {
+	if a.sessions == nil || a.HasActiveDialog() {
+		return
+	}
+	go func() {
+		count, err := a.sessions.PurgeOrphans()
+		a.gui.Update(func(g *gocui.Gui) error {
+			if err != nil {
+				a.showError(g, fmt.Sprintf("Error: %v", err))
+			} else {
+				a.setStatus(g, fmt.Sprintf("Purged %d orphans", count))
+			}
+			return nil
+		})
+	}()
 }
 
 // --- Popup ---
@@ -464,19 +855,25 @@ func (a *App) PopupFocusPrev() { a.popupFocusPrev() }
 
 func (a *App) PopupScrollDown() {
 	p := a.popups.ActivePopup()
-	if p != nil && p.IsDiff() {
-		if p.ScrollY() < maxScrollFor(len(p.ContentLines()), 20) {
-			p.SetScrollY(p.ScrollY() + 1)
-		}
+	if p == nil {
+		return
+	}
+	vh := p.ViewportHeight()
+	if vh <= 0 {
+		vh = 20 // fallback before first layout
+	}
+	if p.ScrollY() < p.MaxScroll(vh) {
+		p.SetScrollY(p.ScrollY() + 1)
 	}
 }
 
 func (a *App) PopupScrollUp() {
 	p := a.popups.ActivePopup()
-	if p != nil && p.IsDiff() {
-		if p.ScrollY() > 0 {
-			p.SetScrollY(p.ScrollY() - 1)
-		}
+	if p == nil {
+		return
+	}
+	if p.ScrollY() > 0 {
+		p.SetScrollY(p.ScrollY() - 1)
 	}
 }
 
@@ -517,6 +914,21 @@ func (a *App) LogsCopySelection() {
 		copyToClipboard(text)
 	}
 	a.logs.ClearSelection()
+}
+
+func (a *App) LogsClear() {
+	// Best-effort truncate: the server logger may be writing concurrently
+	// via its own *os.File handle, so the file position may be stale after
+	// truncation.  This is acceptable for a single-user TUI tool — the next
+	// log write will simply start at whatever offset the logger's fd is at.
+	if err := os.Truncate(serverLogPath, 0); err != nil && !os.IsNotExist(err) {
+		return
+	}
+	a.logCache = logFileCache{modTime: -1}
+	a.logRender = logRenderCache{}
+	a.logs.ClearSelection()
+	a.logs.SetLineCount(0)
+	a.logs.ToTop()
 }
 
 // --- Panel tab switching (generic) ---
@@ -581,6 +993,9 @@ func (a *App) PluginCursorUp() {
 }
 
 func (a *App) PluginInstall() {
+	if a.guardRemoteOp("Plugin editing") {
+		return
+	}
 	if a.plugins == nil || a.pluginState.tabIdx != keymap.PluginTabMarketplace {
 		return
 	}
@@ -595,6 +1010,9 @@ func (a *App) PluginInstall() {
 }
 
 func (a *App) PluginUninstall() {
+	if a.guardRemoteOp("Plugin editing") {
+		return
+	}
 	if a.plugins == nil || a.pluginState.tabIdx != keymap.PluginTabPlugins {
 		return
 	}
@@ -604,7 +1022,10 @@ func (a *App) PluginUninstall() {
 	}
 	p := installed[a.pluginState.installedCursor]
 	if p.Scope != "project" {
-		a.pluginState.errMsg = "only project-scoped plugins can be uninstalled"
+		a.gui.Update(func(g *gocui.Gui) error {
+			a.showError(g, "Only project-scoped plugins can be uninstalled")
+			return nil
+		})
 		return
 	}
 	a.runPluginAsync(func(ctx context.Context) error {
@@ -613,6 +1034,9 @@ func (a *App) PluginUninstall() {
 }
 
 func (a *App) PluginToggleEnabled() {
+	if a.guardRemoteOp("Plugin editing") {
+		return
+	}
 	if a.plugins == nil || a.pluginState.tabIdx != keymap.PluginTabPlugins {
 		return
 	}
@@ -627,6 +1051,9 @@ func (a *App) PluginToggleEnabled() {
 }
 
 func (a *App) PluginUpdate() {
+	if a.guardRemoteOp("Plugin editing") {
+		return
+	}
 	if a.plugins == nil || a.pluginState.tabIdx != keymap.PluginTabPlugins {
 		return
 	}
@@ -641,6 +1068,9 @@ func (a *App) PluginUpdate() {
 }
 
 func (a *App) PluginRefresh() {
+	if a.guardRemoteOp("Plugin editing") {
+		return
+	}
 	if a.plugins == nil {
 		return
 	}
@@ -652,13 +1082,12 @@ func (a *App) PluginRefresh() {
 // runPluginAsync runs a plugin operation asynchronously with loading state management.
 func (a *App) runPluginAsync(fn func(ctx context.Context) error) {
 	a.pluginState.loading = true
-	a.pluginState.errMsg = ""
 	go func() {
 		err := fn(context.Background())
 		a.gui.Update(func(g *gocui.Gui) error {
 			a.pluginState.loading = false
 			if err != nil {
-				a.pluginState.errMsg = err.Error()
+				a.showError(g, fmt.Sprintf("Plugin error: %v", err))
 			}
 			return nil
 		})
@@ -721,13 +1150,12 @@ func (a *App) MCPRefresh() {
 
 func (a *App) runMCPAsync(fn func(ctx context.Context) error) {
 	a.mcpState.loading = true
-	a.mcpState.errMsg = ""
 	go func() {
 		err := fn(context.Background())
 		a.gui.Update(func(g *gocui.Gui) error {
 			a.mcpState.loading = false
 			if err != nil {
-				a.mcpState.errMsg = err.Error()
+				a.showError(g, fmt.Sprintf("MCP error: %v", err))
 			}
 			return nil
 		})
@@ -809,18 +1237,14 @@ func (a *App) ScrollModeEnter() {
 		return
 	}
 	a.scroll.Enter(viewH)
-	// Query history_size to set maxOffset so g/G work correctly.
-	target := a.fullscreen.Target()
-	if target != "" {
-		if histSize, err := a.sessions.HistorySize(target); err == nil && histSize > 0 {
-			a.scroll.SetMaxOffset(histSize)
-		}
-	}
 	a.scroll.BumpGeneration()
-	a.captureScrollbackAsync()
+	a.captureScrollbackWithHistorySize()
 }
 
 func (a *App) ScrollModeExit() {
+	// Bump generation to invalidate in-flight async captures so they
+	// cannot call SetLines after scroll mode is deactivated.
+	a.scroll.BumpGeneration()
 	a.scroll.Exit()
 	a.preview.Invalidate()
 }
@@ -871,16 +1295,9 @@ func (a *App) ScrollModeHalfDown() {
 }
 
 func (a *App) ScrollModeToTop() {
-	// Re-query history_size since it grows while the session is active.
-	target := a.fullscreen.Target()
-	if target != "" {
-		if histSize, err := a.sessions.HistorySize(target); err == nil && histSize > 0 {
-			a.scroll.SetMaxOffset(histSize)
-		}
-	}
-	a.scroll.ToTop()
+	a.scroll.ToTop() // sets cursorY=0; sets scrollOffset only if maxOffset known
 	a.scroll.BumpGeneration()
-	a.captureScrollbackAsync()
+	a.captureScrollbackToTop()
 }
 
 func (a *App) ScrollModeToBottom() {
@@ -898,6 +1315,9 @@ func (a *App) ScrollModeCopy() {
 	if text != "" {
 		copyToClipboard(stripANSI(text))
 	}
+	// Bump generation to invalidate in-flight async captures so they
+	// cannot call SetLines after scroll mode is deactivated.
+	a.scroll.BumpGeneration()
 	a.scroll.Exit()
 	a.preview.Invalidate()
 }
@@ -907,9 +1327,20 @@ const mouseScrollLines = 3
 
 // ScrollModeMouseUp handles mouse wheel up in fullscreen.
 // Enters scroll mode if not already active, then scrolls the viewport up.
+//
+// Unlike Ctrl+V (ScrollModeEnter), this inlines the Enter logic to avoid
+// a double BumpGeneration+capture. ScrollModeEnter issues its own
+// BumpGeneration + captureScrollbackWithHistorySize, and a second
+// BumpGeneration here would invalidate that in-flight capture. Under
+// rapid mouse scrolling, every capture gets invalidated before completing,
+// so SetLines is never called and the view stays stuck on "Loading...".
 func (a *App) ScrollModeMouseUp() {
 	if !a.scroll.IsActive() {
-		a.ScrollModeEnter()
+		viewH := a.scrollViewHeight()
+		if viewH <= 0 {
+			return
+		}
+		a.scroll.Enter(viewH)
 	}
 	a.scroll.ScrollUp(mouseScrollLines)
 	a.scroll.BumpGeneration()
@@ -947,6 +1378,85 @@ func (a *App) scrollViewHeight() int {
 	return v.InnerHeight()
 }
 
+
+// captureScrollbackWithHistorySize is like captureScrollbackAsync but also
+// queries HistorySize asynchronously to update the scroll maxOffset. Used by
+// ScrollModeEnter where the history size is needed for correct g/G navigation
+// but must not block the GUI thread.
+//
+// Both HistorySize and CaptureScrollback run sequentially in the same goroutine.
+// Their gui.Update callbacks are delivered in FIFO order (gocui channel semantics).
+// The generation guard discards stale results if the user scrolls during the
+// network round-trips.
+func (a *App) captureScrollbackWithHistorySize() {
+	target := a.fullscreen.Target()
+	if target == "" {
+		return
+	}
+	gen := a.scroll.Generation()
+	startLine, endLine := a.scroll.CaptureRange()
+	viewW := a.scrollViewWidth()
+
+	go func() {
+		histSize, histErr := a.sessions.HistorySize(target)
+		result, scrollErr := a.sessions.CaptureScrollback(target, viewW, startLine, endLine)
+		a.gui.Update(func(g *gocui.Gui) error {
+			if a.scroll.Generation() != gen {
+				return nil
+			}
+			if histErr == nil && histSize > 0 {
+				a.scroll.SetMaxOffset(histSize)
+			}
+			if scrollErr == nil {
+				a.scroll.SetLines(splitLines(result.Content))
+			}
+			return nil
+		})
+	}()
+}
+
+// captureScrollbackToTop fetches HistorySize first, then captures at the
+// computed top position. Unlike captureScrollbackWithHistorySize which
+// captures at the current scrollOffset, this function uses HistorySize to
+// compute the correct top-of-scrollback range before calling CaptureScrollback.
+// This ensures the first "g" press works correctly even when maxOffset is
+// unknown (e.g. after mouse-wheel entry, which skips HistorySize).
+func (a *App) captureScrollbackToTop() {
+	target := a.fullscreen.Target()
+	if target == "" {
+		return
+	}
+	gen := a.scroll.Generation()
+	viewW := a.scrollViewWidth()
+	viewH := a.scroll.ViewHeight()
+
+	go func() {
+		histSize, histErr := a.sessions.HistorySize(target)
+
+		// Compute the top-of-scrollback capture range from HistorySize.
+		topOffset := 0
+		if histErr == nil && histSize > 0 {
+			topOffset = histSize
+		}
+		startLine := -topOffset
+		endLine := viewH - 1 - topOffset
+
+		result, scrollErr := a.sessions.CaptureScrollback(target, viewW, startLine, endLine)
+		a.gui.Update(func(g *gocui.Gui) error {
+			if a.scroll.Generation() != gen {
+				return nil
+			}
+			if histErr == nil && histSize > 0 {
+				a.scroll.SetMaxOffset(histSize)
+			}
+			a.scroll.ToTop() // apply after maxOffset is set
+			if scrollErr == nil {
+				a.scroll.SetLines(splitLines(result.Content))
+			}
+			return nil
+		})
+	}()
+}
 
 // captureScrollbackAsync launches a goroutine to capture scrollback content.
 func (a *App) captureScrollbackAsync() {

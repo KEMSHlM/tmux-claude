@@ -94,14 +94,22 @@ func (a *App) setupGlobalKeybindings() error {
 	// 5. Rename input
 	if err := a.gui.SetKeybinding("rename-input", gocui.KeyEnter, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
 		newName := strings.TrimSpace(v.TextArea.GetContent())
-		if newName != "" && a.dialog.RenameID != "" {
-			if err := a.sessions.Rename(a.dialog.RenameID, newName); err != nil {
-				a.setStatus(g, fmt.Sprintf("Error: %v", err))
-			} else {
-				a.setStatus(g, "Renamed to "+newName)
-			}
-		}
+		renameID := a.dialog.RenameID
 		a.closeRenameInput(g)
+		if newName == "" || renameID == "" {
+			return nil
+		}
+		go func() {
+			err := a.sessions.Rename(renameID, newName)
+			a.gui.Update(func(g *gocui.Gui) error {
+				if err != nil {
+					a.showError(g, fmt.Sprintf("Error: %v", err))
+				} else {
+					a.setStatus(g, "Renamed to "+newName)
+				}
+				return nil
+			})
+		}()
 		return nil
 	}); err != nil {
 		return err
@@ -128,20 +136,21 @@ func (a *App) setupGlobalKeybindings() error {
 
 		// Validate before closing the dialog so errors appear inline.
 		if err := session.ValidateWorktreeName(branchName); err != nil {
-			a.setStatus(g, fmt.Sprintf("Error: %v", err))
+			a.showError(g, fmt.Sprintf("Error: %v", err))
 			return nil
 		}
 
+		projectRoot := a.currentProjectRoot()
 		a.closeWorktreeDialog(g)
 
 		go func() {
 			if a.sessions == nil {
 				return
 			}
-			projectRoot := a.currentProjectRoot()
-			if err := a.sessions.CreateWorktree(branchName, userPrompt, projectRoot); err != nil {
+			err := a.sessions.CreateWorktree(branchName, userPrompt, projectRoot)
+			if err != nil {
 				a.gui.Update(func(g *gocui.Gui) error {
-					a.setStatus(g, fmt.Sprintf("Error: %v", err))
+					a.showError(g, fmt.Sprintf("Error: %v", err))
 					return nil
 				})
 				return
@@ -244,13 +253,13 @@ func (a *App) setupGlobalKeybindings() error {
 		if idx >= len(items) {
 			// "New worktree" selected
 			if !a.showWorktreeDialog(g) {
-				a.setStatus(g, "Error: could not open worktree dialog")
+				a.showError(g, "Error: could not open worktree dialog")
 			}
 		} else {
 			// Existing worktree selected
 			a.dialog.SelectedPath = items[idx].Path
 			if !a.showWorktreeResumePrompt(g, items[idx].Name) {
-				a.setStatus(g, "Error: could not open prompt dialog")
+				a.showError(g, "Error: could not open prompt dialog")
 			}
 		}
 		return nil
@@ -269,16 +278,17 @@ func (a *App) setupGlobalKeybindings() error {
 	if err := a.gui.SetKeybinding("worktree-resume-prompt", gocui.KeyEnter, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
 		userPrompt := v.TextArea.GetContent()
 		wtPath := a.dialog.SelectedPath
+		projectRoot := a.currentProjectRoot()
 		a.closeWorktreeResumePrompt(g)
 
 		go func() {
 			if a.sessions == nil {
 				return
 			}
-			projectRoot := a.currentProjectRoot()
-			if err := a.sessions.ResumeWorktree(wtPath, userPrompt, projectRoot); err != nil {
+			err := a.sessions.ResumeWorktree(wtPath, userPrompt, projectRoot)
+			if err != nil {
 				a.gui.Update(func(g *gocui.Gui) error {
-					a.setStatus(g, fmt.Sprintf("Error: %v", err))
+					a.showError(g, fmt.Sprintf("Error: %v", err))
 					return nil
 				})
 				return
@@ -323,7 +333,108 @@ func (a *App) setupGlobalKeybindings() error {
 		return err
 	}
 
-	// 10. Keybind help overlay bindings
+	// 10. Askpass dialog bindings (Enter to submit, Esc to cancel)
+	if err := a.gui.SetKeybinding("askpass-input", gocui.KeyEnter, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		password := v.TextArea.GetContent()
+		ch := a.askpassCh
+		a.closeAskpassDialog(g)
+		if ch != nil {
+			ch <- password
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	if err := a.gui.SetKeybinding("askpass-input", gocui.KeyEsc, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		ch := a.askpassCh
+		a.closeAskpassDialog(g)
+		if ch != nil {
+			ch <- ""
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	// 11. Connect dialog bindings (Enter to connect, Esc to cancel)
+	if err := a.gui.SetKeybinding("connect-input", gocui.KeyEnter, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		host := strings.TrimSpace(v.TextArea.GetContent())
+		a.closeConnectDialog(g)
+		if host == "" {
+			return nil
+		}
+		a.connectToHost(g, host)
+		return nil
+	}); err != nil {
+		return err
+	}
+	if err := a.gui.SetKeybinding("connect-input", gocui.KeyEsc, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		a.closeConnectDialog(g)
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	// 11. Connect chooser bindings (j/k/Arrow/Enter/Esc)
+	connectChooserMove := func(delta int) func(*gocui.Gui, *gocui.View) error {
+		return func(g *gocui.Gui, v *gocui.View) error {
+			maxIdx := len(a.dialog.ConnectHosts) // last index = "Manual input"
+			a.dialog.ConnectCursor += delta
+			if a.dialog.ConnectCursor < 0 {
+				a.dialog.ConnectCursor = 0
+			}
+			if a.dialog.ConnectCursor > maxIdx {
+				a.dialog.ConnectCursor = maxIdx
+			}
+			renderConnectChooser(v, a.dialog.ConnectHosts, a.dialog.ConnectCursor)
+			return nil
+		}
+	}
+	for _, key := range []gocui.Key{gocui.KeyArrowDown, gocui.KeyArrowUp} {
+		delta := 1
+		if key == gocui.KeyArrowUp {
+			delta = -1
+		}
+		if err := a.gui.SetKeybinding("connect-chooser", key, gocui.ModNone, connectChooserMove(delta)); err != nil {
+			return err
+		}
+	}
+	for _, ch := range []rune{'j', 'k'} {
+		delta := 1
+		if ch == 'k' {
+			delta = -1
+		}
+		if err := a.gui.SetKeybinding("connect-chooser", ch, gocui.ModNone, connectChooserMove(delta)); err != nil {
+			return err
+		}
+	}
+
+	if err := a.gui.SetKeybinding("connect-chooser", gocui.KeyEnter, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		idx := a.dialog.ConnectCursor
+		hosts := a.dialog.ConnectHosts
+		a.closeConnectChooser(g)
+
+		if idx >= len(hosts) {
+			// "Manual input" selected
+			if !a.showConnectDialog(g) {
+				a.showError(g, "Error: could not open connect dialog")
+			}
+		} else {
+			a.connectToHost(g, hosts[idx])
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	if err := a.gui.SetKeybinding("connect-chooser", gocui.KeyEsc, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+		a.closeConnectChooser(g)
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	// 12. Keybind help overlay bindings
 	// Esc: close help
 	for _, viewName := range []string{helpInputView, helpListView} {
 		if err := a.gui.SetKeybinding(viewName, gocui.KeyEsc, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {

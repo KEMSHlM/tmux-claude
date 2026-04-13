@@ -3,15 +3,13 @@ package session
 import (
 	"context"
 	"fmt"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 )
 
 // WorktreePathSegment is the relative path segment identifying worktree directories.
 // Used for both path construction and detection.
-const WorktreePathSegment = ".claude/worktrees"
+const WorktreePathSegment = ".lazyclaude/worktrees"
 
 // worktreeSystemPrompt is the isolation instruction prepended to the user's prompt.
 const worktreeSystemPrompt = `You are working in an isolated worktree at %s.
@@ -51,35 +49,21 @@ func BuildWorktreePrompt(worktreePath, projectRoot string) string {
 	return fmt.Sprintf(worktreeSystemPrompt, worktreePath, projectRoot)
 }
 
-// WorktreeInfo describes an existing git worktree under .claude/worktrees/.
+// WorktreeInfo describes an existing git worktree under .lazyclaude/worktrees/.
 type WorktreeInfo struct {
 	Name   string // last path segment (e.g. "fix-popup")
 	Path   string // full path to worktree directory
 	Branch string // branch name without refs/heads/ prefix
 }
 
-// ListWorktrees returns existing git worktrees under .claude/worktrees/.
+// ListWorktrees returns existing git worktrees under .lazyclaude/worktrees/.
 // Returns nil (not error) if projectRoot is not a git repo.
 func ListWorktrees(ctx context.Context, projectRoot string) ([]WorktreeInfo, error) {
-	cmd := exec.CommandContext(ctx, "git", "worktree", "list", "--porcelain")
-	cmd.Dir = projectRoot
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, nil // not a git repo or git not available
-	}
-	items := parseWorktreePorcelain(string(out))
-	// Filter out worktrees whose directory no longer exists on disk.
-	result := items[:0]
-	for _, item := range items {
-		if _, err := os.Stat(item.Path); err == nil {
-			result = append(result, item)
-		}
-	}
-	return result, nil
+	return ListWorktreesWithRunner(ctx, &LocalRunner{}, projectRoot)
 }
 
 // parseWorktreePorcelain parses `git worktree list --porcelain` output
-// and returns only entries under .claude/worktrees/.
+// and returns only entries under .lazyclaude/worktrees/.
 func parseWorktreePorcelain(output string) []WorktreeInfo {
 	var items []WorktreeInfo
 	blocks := strings.Split(strings.TrimSpace(output), "\n\n")

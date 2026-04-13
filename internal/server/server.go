@@ -32,6 +32,12 @@ type Config struct {
 	RuntimeDir string // choice files directory
 }
 
+// activityEntry stores the current activity state for a tmux window.
+type activityEntry struct {
+	State    model.ActivityState
+	ToolName string
+}
+
 // Server is the MCP WebSocket + HTTP server.
 type Server struct {
 	config         Config
@@ -44,6 +50,11 @@ type Server struct {
 	ownsBroker     bool // true when the server created the broker (and must close it)
 	sessionLister  SessionLister
 	sessionCreator SessionCreator
+
+	// activityMap tracks hook-based activity state per tmux window.
+	// Updated directly by hook handlers; read by /msg/sessions.
+	activityMap map[string]activityEntry
+	activityMu  sync.RWMutex
 
 	listener net.Listener
 	httpSrv  *http.Server
@@ -74,12 +85,13 @@ func New(cfg Config, tmuxClient tmux.Client, logger *log.Logger, opts ...ServerO
 	lockMgr := NewLockManager(cfg.IDEDir)
 
 	s := &Server{
-		config:  cfg,
-		state:   state,
-		handler: handler,
-		lock:    lockMgr,
-		tmux:    tmuxClient,
-		log:     logger,
+		config:      cfg,
+		state:       state,
+		handler:     handler,
+		lock:        lockMgr,
+		tmux:        tmuxClient,
+		log:         logger,
+		activityMap: make(map[string]activityEntry),
 	}
 
 	for _, opt := range opts {
@@ -99,6 +111,7 @@ func New(cfg Config, tmuxClient tmux.Client, logger *log.Logger, opts ...ServerO
 	mux.HandleFunc("/prompt-submit", s.handlePromptSubmit)
 	mux.HandleFunc("/msg/send", s.handleMsgSend)
 	mux.HandleFunc("/msg/create", s.handleMsgCreate)
+	mux.HandleFunc("/msg/resume", s.handleMsgResume)
 	mux.HandleFunc("/msg/sessions", s.handleMsgSessions)
 	mux.HandleFunc("/", s.handleWebSocket)
 
@@ -207,6 +220,56 @@ func (s *Server) SetSessionCreator(sc SessionCreator) {
 // external broker is injected via WithBroker, it outlives the server.
 func (s *Server) NotifyBroker() *event.Broker[model.Event] {
 	return s.notifyBroker
+}
+
+// setActivity records the hook-based activity state for a tmux window.
+// Called directly by hook handlers (not via broker subscription) to avoid
+// inflating HasSubscribers() and altering broker-vs-file dispatch logic.
+func (s *Server) setActivity(window string, state model.ActivityState, toolName string) {
+	if window == "" {
+		return
+	}
+	s.activityMu.Lock()
+	defer s.activityMu.Unlock()
+	s.activityMap[window] = activityEntry{State: state, ToolName: toolName}
+}
+
+// stopReasonToActivity maps a stop_reason string to an ActivityState.
+func stopReasonToActivity(reason string) model.ActivityState {
+	switch reason {
+	case "error", "interrupt":
+		return model.ActivityError
+	default:
+		return model.ActivityIdle
+	}
+}
+
+// WindowActivity returns the current activity state for a tmux window.
+func (s *Server) WindowActivity(window string) (model.ActivityState, string) {
+	s.activityMu.RLock()
+	defer s.activityMu.RUnlock()
+	e, ok := s.activityMap[window]
+	if !ok {
+		return model.ActivityUnknown, ""
+	}
+	return e.State, e.ToolName
+}
+
+// enrichWithActivity overlays hook-based activity state onto session info.
+func (s *Server) enrichWithActivity(sessions []SessionInfo) {
+	s.activityMu.RLock()
+	defer s.activityMu.RUnlock()
+	for i := range sessions {
+		if sessions[i].Window == "" {
+			sessions[i].Activity = model.ActivityUnknown.String()
+			continue
+		}
+		if e, ok := s.activityMap[sessions[i].Window]; ok {
+			sessions[i].Activity = e.State.String()
+			continue
+		}
+		sessions[i].Activity = model.ActivityUnknown.String()
+	}
 }
 
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -337,8 +400,9 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "window not found", http.StatusNotFound)
 		return
 	}
-	// Cache for future lookups from same PID
-	s.state.SetConn(fmt.Sprintf("notify-%d", req.PID), &ConnState{PID: req.PID, Window: window})
+	// Cache for future lookups from same PID. Use a fixed "hook-" prefix so all
+	// hook types share one entry per PID, avoiding unbounded accumulation.
+	s.state.SetConn(fmt.Sprintf("hook-%d", req.PID), &ConnState{PID: req.PID, Window: window})
 
 	s.log.Printf("notify: type=%s pid=%d window=%s tool=%s", req.Type, req.PID, window, req.ToolName)
 
@@ -351,6 +415,7 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 			CWD:      req.CWD,
 		})
 		// Also signal Running state with the tool name for sidebar display.
+		s.setActivity(window, model.ActivityRunning, req.ToolName)
 		s.notifyBroker.Publish(model.Event{ActivityNotification: &model.ActivityNotification{
 			Window:    window,
 			State:     model.ActivityRunning,
@@ -389,29 +454,14 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 }
 
 // resolveNotifyWindow determines which tmux window a /notify request belongs to.
-// It checks the state cache first, then falls back to local PID walk, then to
-// the pending-window file written for SSH remote sessions.
+// It checks the state cache first, then falls back to local PID walk.
 func (s *Server) resolveNotifyWindow(ctx context.Context, pid int) string {
 	if window := s.state.WindowForPID(pid); window != "" {
 		return window
 	}
 
-	// Try local tmux PID resolution
 	if w2, err := tmux.FindWindowForPid(ctx, s.tmux, pid); err == nil && w2 != nil {
 		return w2.ID
-	}
-
-	// Fallback for remote SSH sessions: read pending window file.
-	// Consumed after first use to match ide_connected behavior.
-	pending := filepath.Join(s.config.RuntimeDir, pendingWindowFile)
-	if data, err := os.ReadFile(pending); err == nil {
-		if w := strings.TrimSpace(string(data)); w != "" {
-			s.log.Printf("notify: using pending remote window %q for pid %d", w, pid)
-			if rmErr := os.Remove(pending); rmErr != nil {
-				s.log.Printf("notify: remove pending file: %v", rmErr)
-			}
-			return w
-		}
 	}
 
 	return ""
@@ -439,6 +489,7 @@ func (s *Server) resolveToolInfo(window string, req notifyRequest) (toolName, in
 // dispatchToolNotification builds a ToolNotification and delivers it via
 // the appropriate single path: broker (TUI in-process) or display-popup (daemon).
 func (s *Server) dispatchToolNotification(window, toolName, input, cwd string) {
+	s.setActivity(window, model.ActivityNeedsInput, toolName)
 	// Detect max option from Claude's permission dialog.
 	// Use bare window ID (e.g., "@1") — tmux resolves it across sessions.
 	maxOpt := 3
@@ -453,6 +504,54 @@ func (s *Server) dispatchToolNotification(window, toolName, input, cwd string) {
 		Window:    window,
 		Timestamp: time.Now(),
 		MaxOption: maxOpt,
+	}
+
+	// For Write tool, extract file_path and content from input JSON
+	// so the notification routes to DiffPopup instead of ToolPopup.
+	if toolName == "Write" {
+		var params struct {
+			FilePath string `json:"file_path"`
+			Content  string `json:"content"`
+		}
+		if json.Unmarshal([]byte(input), &params) == nil && params.FilePath != "" {
+			n.OldFilePath = params.FilePath
+			n.NewContents = params.Content
+		}
+	}
+
+	// For Edit tool, read the existing file and apply the replacement to
+	// compute new contents. This routes the notification to DiffPopup.
+	// Falls back to ToolPopup when the file cannot be read or is too large.
+	if toolName == "Edit" {
+		var params struct {
+			FilePath   string `json:"file_path"`
+			OldString  string `json:"old_string"`
+			NewString  string `json:"new_string"`
+			ReplaceAll bool   `json:"replace_all"`
+		}
+		if json.Unmarshal([]byte(input), &params) == nil && params.FilePath != "" && params.OldString != "" {
+			// Resolve relative paths against the working directory.
+			absPath := params.FilePath
+			if !filepath.IsAbs(absPath) && cwd != "" {
+				absPath = filepath.Join(cwd, absPath)
+			}
+			// Only read regular files up to 2 MB to avoid blocking on
+			// FIFOs, device nodes, or excessively large files.
+			const maxEditFileSize = 2 << 20
+			if fi, statErr := os.Stat(absPath); statErr == nil && fi.Mode().IsRegular() && fi.Size() <= maxEditFileSize {
+				oldContent, err := os.ReadFile(absPath)
+				if err == nil {
+					var newContent string
+					if params.ReplaceAll {
+						newContent = strings.ReplaceAll(string(oldContent), params.OldString, params.NewString)
+					} else {
+						newContent = strings.Replace(string(oldContent), params.OldString, params.NewString, 1)
+					}
+					n.OldFilePath = absPath
+					n.NewContents = newContent
+				}
+			}
+		}
 	}
 
 	// NOTE: HasSubscribers() and Publish() acquire separate locks, so a
@@ -511,8 +610,12 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 	if window == "" {
 		window = s.state.LastPendingWindow()
 	}
+	if window != "" && req.PID > 0 {
+		s.state.SetConn(fmt.Sprintf("hook-%d", req.PID), &ConnState{PID: req.PID, Window: window})
+	}
 
 	s.log.Printf("stop: pid=%d window=%s reason=%s", req.PID, window, req.StopReason)
+	s.setActivity(window, stopReasonToActivity(req.StopReason), "")
 
 	n := model.StopNotification{
 		Window:     window,
@@ -554,8 +657,12 @@ func (s *Server) handleSessionStart(w http.ResponseWriter, r *http.Request) {
 	if window == "" {
 		window = s.state.LastPendingWindow()
 	}
+	if window != "" && req.PID > 0 {
+		s.state.SetConn(fmt.Sprintf("hook-%d", req.PID), &ConnState{PID: req.PID, Window: window})
+	}
 
 	s.log.Printf("session-start: pid=%d window=%s", req.PID, window)
+	s.setActivity(window, model.ActivityRunning, "")
 
 	n := model.SessionStartNotification{
 		Window:    window,
@@ -601,8 +708,12 @@ func (s *Server) handlePromptSubmit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "window not found", http.StatusNotFound)
 		return
 	}
+	if req.PID > 0 {
+		s.state.SetConn(fmt.Sprintf("hook-%d", req.PID), &ConnState{PID: req.PID, Window: window})
+	}
 
 	s.log.Printf("prompt-submit: pid=%d window=%s", req.PID, window)
+	s.setActivity(window, model.ActivityRunning, "")
 
 	n := model.PromptSubmitNotification{
 		Window:    window,

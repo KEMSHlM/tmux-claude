@@ -6,11 +6,22 @@
 # standalone:  called with no args, queries tmux directly
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BINARY="${SCRIPT_DIR}/../bin/lazyclaude"
+
+# Use LAZYCLAUDE_BINARY from lazyclaude.tmux if set; otherwise resolve here.
+if [ -z "$LAZYCLAUDE_BINARY" ]; then
+    LAZYCLAUDE_BINARY="$(command -v lazyclaude 2>/dev/null || true)"
+    if [ -z "$LAZYCLAUDE_BINARY" ] && [ -x "$HOME/.local/bin/lazyclaude" ]; then
+        LAZYCLAUDE_BINARY="$HOME/.local/bin/lazyclaude"
+    fi
+    if [ -z "$LAZYCLAUDE_BINARY" ]; then
+        LAZYCLAUDE_BINARY="${SCRIPT_DIR}/../bin/lazyclaude"
+    fi
+fi
+BINARY="$LAZYCLAUDE_BINARY"
 
 if [ ! -x "$BINARY" ]; then
-    echo "lazyclaude: binary not found at $BINARY" >&2
-    echo "Run 'make build' in $(dirname "$SCRIPT_DIR")" >&2
+    echo "lazyclaude: binary not found" >&2
+    echo "Run 'make install PREFIX=~/.local' or 'make build' in $(dirname "$SCRIPT_DIR")" >&2
     exit 1
 fi
 
@@ -50,9 +61,7 @@ LAZYCLAUDE_PANE_TTY='$PANE_TTY' \
 LAZYCLAUDE_PANE_PATH='$PANE_PATH' \
 env -u TMUX $BINARY 2>>$CRASH_LOG
 rc=\$?
-if [ \$rc -ne 0 ]; then
-    echo "[\$(date)] exit_code=\$rc" >>$CRASH_LOG
-fi
+echo "[\$(date)] exit_code=\$rc pid=\$\$" >>$CRASH_LOG
 exit \$rc
 WRAPPER_EOF
 chmod +x "$WRAPPER"

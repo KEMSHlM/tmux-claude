@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"testing"
 
@@ -86,6 +87,13 @@ func (f *fakeSessionCreator) CreateWorkerSession(ctx context.Context, name, prom
 }
 
 func (f *fakeSessionCreator) CreateLocalSession(ctx context.Context, name, projectPath string) (*server.SessionCreateResult, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.result, nil
+}
+
+func (f *fakeSessionCreator) ResumeSession(ctx context.Context, id, prompt, name string) (*server.SessionCreateResult, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -228,7 +236,7 @@ func TestMsgCreate_worker_success(t *testing.T) {
 			ID:     "new-session-id",
 			Name:   "feat-auth",
 			Role:   "worker",
-			Path:   "/project/.claude/worktrees/feat-auth",
+			Path:   "/project/.lazyclaude/worktrees/feat-auth",
 			Window: "@5",
 		},
 	}
@@ -247,7 +255,7 @@ func TestMsgCreate_worker_success(t *testing.T) {
 	assert.Equal(t, "new-session-id", result.Session.ID)
 	assert.Equal(t, "feat-auth", result.Session.Name)
 	assert.Equal(t, "worker", result.Session.Role)
-	assert.Equal(t, "/project/.claude/worktrees/feat-auth", result.Session.Path)
+	assert.Equal(t, "/project/.lazyclaude/worktrees/feat-auth", result.Session.Path)
 	assert.Equal(t, "@5", result.Session.Window)
 }
 
@@ -403,6 +411,27 @@ func TestHandleMsgSend_EmptyTo(t *testing.T) {
 	})
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+func TestMsgSend_FromEqualsTo(t *testing.T) {
+	t.Parallel()
+	sessions := []server.SessionInfo{
+		{ID: "self-id", Name: "pm", Role: "pm", Window: "lc-aabbccdd", Status: "Running"},
+	}
+	_, port, _ := startTestServerWithMock(t, sessions)
+
+	resp := msgSend(t, port, "test-token", map[string]string{
+		"from": "self-id",
+		"to":   "self-id",
+		"type": "status",
+		"body": "hello myself",
+	})
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Contains(t, string(body), "cannot send a message to yourself")
 }
 
 // --- Push-based delivery tests ---

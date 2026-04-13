@@ -9,11 +9,20 @@
 
 CURRENT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 LAUNCHER="${CURRENT_DIR}/scripts/lazyclaude-launch.sh"
-BINARY="${CURRENT_DIR}/bin/lazyclaude"
+
+# Prefer the installed binary on PATH; fall back to common install dirs, then repo-local bin/.
+BINARY="$(command -v lazyclaude 2>/dev/null || true)"
+if [ -z "$BINARY" ] && [ -x "$HOME/.local/bin/lazyclaude" ]; then
+    BINARY="$HOME/.local/bin/lazyclaude"
+fi
+if [ -z "$BINARY" ]; then
+    BINARY="${CURRENT_DIR}/bin/lazyclaude"
+fi
 
 if [ ! -x "$BINARY" ]; then
     echo "lazyclaude: binary not found, building..." >&2
     (cd "$CURRENT_DIR" && make build) >&2
+    BINARY="${CURRENT_DIR}/bin/lazyclaude"
     if [ ! -x "$BINARY" ]; then
         echo "lazyclaude: build failed (is Go installed?)" >&2
         exit 1
@@ -38,7 +47,7 @@ launch_key="${launch_key:-C-\\}"
 # Keybinding does ONE thing: call the launcher with pane info as arguments.
 # run-shell expands #{} formats at keypress time using the active pane's context.
 tmux bind-key -T root "$launch_key" run-shell \
-    "$LAUNCHER '#{pane_current_command}' '#{pane_pid}' '#{pane_tty}' '#{pane_path}' '#{pane_current_path}'"
+    "LAZYCLAUDE_BINARY='$BINARY' $LAUNCHER '#{pane_current_command}' '#{pane_pid}' '#{pane_tty}' '#{pane_path}' '#{pane_current_path}'"
 
 # Register detach binding on lazyclaude tmux server (same key).
 tmux -L lazyclaude bind-key -T root "$launch_key" detach-client 2>/dev/null

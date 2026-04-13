@@ -26,6 +26,17 @@ const (
 	ModeMain AppMode = iota // lazyclaude -> session list + preview
 )
 
+// ConnectionStatus represents the remote connection state for TUI display.
+type ConnectionStatus struct {
+	Host            string // remote hostname (e.g. "AERO")
+	State           string // "connected", "reconnecting", "error", "disconnected"
+	VersionMismatch bool   // true if remote binary version differs from local
+}
+
+// ConnectionStatusProvider returns the current remote connection status.
+// Returns nil if no remote connection is configured.
+type ConnectionStatusProvider func() []ConnectionStatus
+
 // SessionProvider abstracts session operations for the GUI layer.
 // NotificationCacher caches pending notifications for badge rendering.
 // Implemented by sessionAdapter to avoid redundant (and destructive)
@@ -39,7 +50,12 @@ type SessionProvider interface {
 	Sessions() []SessionItem
 	Projects() []ProjectItem
 	ToggleProjectExpanded(projectID string)
-	Create(path, host string) error
+	Create(path string) error
+	// CreateAtPaneCWD creates a session in the TUI pane's CWD. Unlike Create,
+	// this is pane-based (not cursor-based): it always uses pendingHost so the
+	// N key consistently creates a session wherever the lazyclaude pane lives,
+	// regardless of which tree node the cursor happens to be on.
+	CreateAtPaneCWD() error
 	Delete(id string) error
 	Rename(id, newName string) error
 	PurgeOrphans() (int, error)
@@ -49,7 +65,7 @@ type SessionProvider interface {
 	PendingNotifications() []*model.ToolNotification
 	SendChoice(window string, choice Choice) error
 	AttachSession(id string) error
-	LaunchLazygit(path, host string) error
+	LaunchLazygit(path string) error
 	CreateWorktree(name, prompt, projectRoot string) error
 	ResumeWorktree(worktreePath, prompt, projectRoot string) error
 	ListWorktrees(projectRoot string) ([]WorktreeInfo, error)
@@ -113,11 +129,18 @@ type App struct {
 	mcpServers         MCPProvider                  // MCP operations (nil until wired)
 	logCache           logFileCache                 // cached server log file content
 	logRender          logRenderCache               // tracks last rendered log state
+	scrollRender       scrollRenderCache            // tracks last rendered scroll state
 	previewByScope     map[keymap.Scope]func(*gocui.View, int, int) // scope -> preview renderer
 	// windowActivity tracks the 5-stage activity state per tmux window.
 	// All reads/writes happen on the gocui event loop goroutine (gui.Update callbacks
 	// and layout), so no mutex is needed.
-	windowActivity map[string]WindowActivityEntry
+	windowActivity   map[string]WindowActivityEntry
+	connectionStatus   ConnectionStatusProvider // remote connection status for options bar
+	connectFn          func(host string) error  // connects to a remote host (injected from root.go)
+	askpassCh          chan string              // askpass response channel (set per-request)
+	cachedSessionItems []SessionItem            // cached session list; refreshed asynchronously
+	sessionRefreshing  bool                     // true while a background refresh is in flight
+	errorMsg           string                   // currently displayed error message
 }
 
 
@@ -305,9 +328,17 @@ func (a *App) Run() error {
 				}
 				a.notify.OnTick()
 				a.gui.Update(func(g *gocui.Gui) error {
-					// When broker is wired (in-process server), notifications
-					// arrive via brokerCh — skip file polling to avoid duplicates.
-					if a.sessions != nil && !a.notify.HasBroker() {
+					// Refresh the session list cache asynchronously so layout
+					// never blocks on remote API calls.
+					a.refreshSessionsAsync()
+
+					// Poll PendingNotifications for remote SSE-buffered
+					// notifications (which never go through the broker) and,
+					// when no broker is wired, also for local file-based
+					// notifications. When the broker IS active, local
+					// notifications arrive via brokerCh and ReadAll returns
+					// empty, so no duplicates occur.
+					if a.sessions != nil {
 						pending := a.sessions.PendingNotifications()
 						// Cache the pending set for badge rendering in layout.
 						// Must happen before showToolPopup because ReadAll
@@ -316,6 +347,10 @@ func (a *App) Run() error {
 							nc.RefreshPendingFrom(pending)
 						}
 						for _, n := range pending {
+							a.setWindowActivity(n.Window, WindowActivityEntry{
+								State:    model.ActivityNeedsInput,
+								ToolName: n.ToolName,
+							})
 							a.showToolPopup(n)
 						}
 					}
@@ -379,6 +414,37 @@ func (a *App) SetNotifyBroker(broker *event.Broker[model.Event]) {
 	a.notify.SetBroker(broker)
 }
 
+// SetConnectionStatus sets the provider for remote connection status display.
+// Must be called before Run().
+func (a *App) SetConnectionStatus(fn ConnectionStatusProvider) {
+	a.connectionStatus = fn
+}
+
+// SetConnectFn sets the handler called when the user requests a remote
+// connection via the connect dialog. The function should establish the
+// connection and return an error if it fails. Must be called before Run().
+func (a *App) SetConnectFn(fn func(host string) error) {
+	a.connectFn = fn
+}
+
+// ShowAskpassPrompt schedules the askpass password dialog to appear
+// on the next event loop cycle. The channel receives the user's input
+// (or empty string on cancel). Both the channel assignment and dialog
+// creation happen atomically on the gocui event loop goroutine to
+// prevent data races with keybinding handlers.
+// Safe to call from any goroutine.
+func (a *App) ShowAskpassPrompt(prompt string, ch chan string) {
+	a.gui.Update(func(g *gocui.Gui) error {
+		a.askpassCh = ch
+		if !a.showAskpassDialog(g, prompt) {
+			// Dialog creation failed — cancel immediately rather than
+			// waiting for the 120s handler timeout.
+			ch <- ""
+		}
+		return nil
+	})
+}
+
 // WindowActivityEntry stores activity state and context for a tmux window.
 type WindowActivityEntry struct {
 	State    model.ActivityState
@@ -440,15 +506,54 @@ func (a *App) clearUnreadActivity(window string) {
 
 // stopReasonToActivity converts a Claude Code stop_reason to an ActivityState.
 func stopReasonToActivity(reason string) model.ActivityState {
-	if reason == "error" {
+	switch reason {
+	case "error", "interrupt":
 		return model.ActivityError
+	default:
+		return model.ActivityIdle
 	}
-	return model.ActivityIdle
+}
+
+// refreshSessionsAsync fetches the session list in a background goroutine and
+// updates the cached items via gui.Update. Skipped if a refresh is already in
+// flight or no SessionProvider is wired.
+//
+// IMPORTANT: Must only be called from the gocui event loop goroutine (inside
+// gui.Update callbacks or layout). The sessionRefreshing flag has no mutex
+// protection and relies on single-threaded access from the event loop.
+func (a *App) refreshSessionsAsync() {
+	if a.sessions == nil || a.sessionRefreshing {
+		return
+	}
+	a.sessionRefreshing = true
+	go func() {
+		items := a.sessions.Sessions()
+		a.gui.Update(func(g *gocui.Gui) error {
+			a.cachedSessionItems = items
+			a.sessionRefreshing = false
+			return nil
+		})
+	}()
 }
 
 // Gui returns the underlying gocui.Gui (for testing).
 func (a *App) Gui() *gocui.Gui {
 	return a.gui
+}
+
+// ShowError displays an error in the logs and main panels.
+// Public wrapper for callers outside the gui package (e.g. root.go via gui.Update).
+func (a *App) ShowError(g *gocui.Gui, msg string) {
+	a.showError(g, msg)
+}
+
+// ScheduleError queues an error message to be displayed on the next event loop
+// cycle. Safe to call from any goroutine (e.g. adapter error callbacks).
+func (a *App) ScheduleError(msg string) {
+	a.gui.Update(func(g *gocui.Gui) error {
+		a.showError(g, msg)
+		return nil
+	})
 }
 
 func (a *App) setStatus(g *gocui.Gui, msg string) {
@@ -461,4 +566,37 @@ func (a *App) setStatus(g *gocui.Gui, msg string) {
 	// Invalidate the log render cache so the next layout cycle
 	// re-renders the log content over this status message.
 	a.logRender.modTime = -1
+	// A successful status message clears any lingering error display.
+	a.clearError()
+}
+
+// showError displays an error in both the logs panel and the main panel
+// so it is immediately visible regardless of which panel the user is viewing.
+// The error persists until explicitly cleared by clearError (cursor move,
+// Esc, or a successful setStatus call).
+//
+// Note: setStatus clears errorMsg as a side effect, but showError immediately
+// re-sets it on the next line. This is intentional — setStatus handles the
+// logs panel rendering and cache invalidation, while errorMsg controls the
+// main panel guard in isErrorActive.
+func (a *App) showError(g *gocui.Gui, msg string) {
+	a.setStatus(g, msg)
+	a.errorMsg = msg
+	if v, err := g.View("main"); err == nil {
+		v.Clear()
+		fmt.Fprintln(v, "")
+		fmt.Fprintln(v, "  "+msg)
+	}
+}
+
+// clearError removes the current error message so the next layout cycle
+// can render the normal preview again.
+func (a *App) clearError() {
+	a.errorMsg = ""
+}
+
+// isErrorActive reports whether an error message is currently displayed.
+// Used by the split-panel layout to guard preview rendering.
+func (a *App) isErrorActive() bool {
+	return a.errorMsg != ""
 }

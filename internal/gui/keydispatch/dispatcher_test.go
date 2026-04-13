@@ -46,6 +46,9 @@ func (m *mockActions) ToggleProjectExpanded()   { m.record("ToggleProjectExpande
 func (m *mockActions) CollapseProject()         { m.record("CollapseProject") }
 func (m *mockActions) ExpandProject()           { m.record("ExpandProject") }
 func (m *mockActions) CursorIsProject() bool    { return false }
+func (m *mockActions) ConnectRemote()           { m.record("ConnectRemote") }
+func (m *mockActions) DismissError()            { m.record("DismissError") }
+func (m *mockActions) CopyError()               { m.record("CopyError") }
 
 // PopupActions
 func (m *mockActions) HasPopup() bool                   { return m.hasPopup }
@@ -82,6 +85,7 @@ func (m *mockActions) LogsCursorToEnd()   { m.record("LogsCursorToEnd") }
 func (m *mockActions) LogsCursorToTop()   { m.record("LogsCursorToTop") }
 func (m *mockActions) LogsToggleSelect()  { m.record("LogsToggleSelect") }
 func (m *mockActions) LogsCopySelection() { m.record("LogsCopySelection") }
+func (m *mockActions) LogsClear()         { m.record("LogsClear") }
 
 // PluginsPanelActions
 func (m *mockActions) ActivePanelTabIndex() int { return 0 }

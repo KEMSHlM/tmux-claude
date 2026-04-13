@@ -28,6 +28,7 @@ lazyclaude solves this with a single TUI that shows all sessions at a glance, ro
 - Create, rename, delete, and attach to Claude Code sessions
 - Live preview of any session's output without leaving the session list
 - Project-based grouping with collapsible trees
+- Resume terminated sessions with preserved conversation history (`lazyclaude sessions resume`)
 
 **Activity Tracking**
 - Real-time 5-stage status for every session:
@@ -36,8 +37,10 @@ lazyclaude solves this with a single TUI that shows all sessions at a glance, ro
 
 **Permission Prompts**
 - Tool approval popups appear as overlays -- no need to switch windows
-- One-key approval: `y` accept, `a` always allow, `n` reject
-- Stacked popups with `Left`/`Right` navigation when multiple sessions need input
+- One-key approval: `1` accept, `2` always allow, `3` reject
+- Stacked popups with `Up`/`Down` navigation when multiple sessions need input
+- Diff preview with dual line numbers, color-coded additions/deletions, and scrollbar
+- Supports Write and Edit tool diffs (unified diff format with clean inline display)
 - Works across SSH tunnels
 
 **Fullscreen Mode**
@@ -59,12 +62,14 @@ lazyclaude solves this with a single TUI that shows all sessions at a glance, ro
 - Spawn a PM (Project Manager) session that orchestrates multiple Worker sessions
 - Workers run in isolated git worktrees with their own branches
 - PM and Workers communicate via a built-in message API (`/msg/send`, `/msg/create`)
+- Resume terminated workers to continue where they left off (`sessions resume`)
 - PM reviews Worker pull requests and sends structured feedback
 - Each Worker receives a system prompt with its role, task, and communication instructions
 
 **Infrastructure**
 - tmux plugin integration via `display-popup` (`Ctrl+\` to toggle)
 - SSH remote sessions with automatic reverse tunnel for notifications
+- SSH password authentication via SSH_ASKPASS integration
 - Built-in MCP server for Claude Code IDE auto-discovery
 - Launch [lazygit](https://github.com/jesseduffield/lazygit) directly from the TUI (optional, if installed)
 
@@ -145,7 +150,7 @@ make install PREFIX=~/.local
 | Key | Action |
 |-----|--------|
 | `Ctrl+\` / `Ctrl+D` | Exit fullscreen |
-| `Ctrl+V` / `Mouse wheel` | Enter scroll mode |
+| `Ctrl+V` / Mouse wheel | Enter scroll mode |
 | All other keys | Forwarded to Claude Code |
 
 ### Scroll mode (in fullscreen)
@@ -163,12 +168,12 @@ make install PREFIX=~/.local
 
 | Key | Action |
 |-----|--------|
-| `y` | Accept |
-| `a` | Allow always |
-| `n` | Reject |
+| `1` | Accept |
+| `2` | Allow always |
+| `3` | Reject |
 | `Y` | Accept all pending |
-| `j` / `k` | Scroll (diff view) |
-| `Left` / `Right` | Switch between stacked popups |
+| `j` / `k` | Scroll content |
+| `Up` / `Down` | Switch between stacked popups |
 | `Esc` | Hide popup |
 
 ### Global
@@ -219,7 +224,6 @@ make readme-gif    # Regenerate docs/images/hero.gif (Docker required)
 ## Known Issues
 
 - **Paste in fullscreen mode** -- Pasting text (Cmd+V / Ctrl+Shift+V) in fullscreen mode does not work reliably. This is a limitation of how tmux `display-popup` interacts with bracketed paste sequences. Workaround: use `a` to attach directly to the session, then paste.
-- **SSH remote sessions** -- SSH session support is experimental and may not work fully in all environments. Reverse tunnel setup and remote hook injection have not been extensively tested across different SSH configurations.
 
 ## Roadmap
 

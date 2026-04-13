@@ -115,9 +115,20 @@ func (a *App) layout(g *gocui.Gui) error {
 	// Sync plugin panel with current project (lazy init on first layout).
 	a.syncPluginProjectOnce()
 
-	// Detect terminal resize -> clear preview cache
+	// Re-sync every layout after the first so that an out-of-band
+	// tree rebuild (session GC, project removed without going through
+	// DeleteSession, remote mirror window added/removed) cannot leave
+	// pluginState.projectDir / remoteDisabled pointing at a project
+	// that has just slid out from under the cursor. syncPluginProject
+	// is idempotent on the same node because it short-circuits when
+	// projectPath equals the cached projectDir, so the cost is one
+	// cursor lookup per frame when nothing has changed.
+	a.syncPluginProject()
+
+	// Detect terminal resize -> clear preview and scroll render caches
 	if maxX != a.lastWidth || maxY != a.lastHeight {
 		a.preview.Invalidate()
+		a.scrollRender = scrollRenderCache{}
 		a.lastWidth = maxX
 		a.lastHeight = maxY
 	}
@@ -162,11 +173,22 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 		nodes = a.filteredTreeNodes()
 	}
 	if len(nodes) > 0 {
+		clamped := false
 		if a.cursor >= len(nodes) {
 			a.cursor = len(nodes) - 1
+			clamped = true
 		}
 		if a.cursor < 0 {
 			a.cursor = 0
+			clamped = true
+		}
+		if clamped {
+			// The layout-level syncPluginProject call (a.layout) ran
+			// BEFORE this clamp, so re-sync again now that the cursor
+			// actually points at a new node. Without this, the cached
+			// projectDir would still reference the pre-clamp row and
+			// the next write key press would hit stale context.
+			a.syncPluginProject()
 		}
 	}
 	renderTree(v, nodes, a.cursor)
@@ -213,11 +235,7 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 	if render, ok := a.previewByScope[a.panelManager.ActivePanel().Scope()]; ok {
 		render(v3, previewW, previewH)
 	} else {
-		var items []SessionItem
-		if a.sessions != nil {
-			items = a.sessions.Sessions()
-		}
-		a.renderPreview(v3, items, previewW, previewH)
+		a.renderPreview(v3, a.cachedSessionItems, previewW, previewH)
 	}
 
 	// Options bar (bottom, frameless) — dynamic per focused panel
@@ -227,8 +245,11 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 	}
 	v4.Frame = false
 	v4.Clear()
-	if optionsText := a.dispatcher.ActiveOptionsBar(a); optionsText != "" {
-		fmt.Fprint(v4, optionsText)
+	optionsText := a.dispatcher.ActiveOptionsBar(a)
+	connText := a.formatConnectionStatus()
+	if optionsText != "" || connText != "" {
+		barWidth := l.Options.Width() - 1 // inner width
+		a.renderOptionsBarWithStatus(v4, optionsText, connText, barWidth)
 	}
 
 	// Keybind help overlay (rendered before focus logic so views exist).
@@ -293,7 +314,7 @@ func (a *App) layoutMain(g *gocui.Gui, maxX, maxY int) error {
 			if _, err := g.SetCurrentView(viewName); err != nil && !isUnknownView(err) {
 				return err
 			}
-			if a.dialog.Kind != DialogWorktreeChooser {
+			if a.dialog.Kind != DialogWorktreeChooser && a.dialog.Kind != DialogConnectChooser {
 				g.Cursor = true
 			}
 		}
@@ -324,13 +345,9 @@ func (a *App) layoutFullScreen(g *gocui.Gui, maxX, maxY int) error {
 		a.editor = &inputEditor{app: a}
 	}
 	v.Editor = a.editor
-	v.Clear()
 
 	// Render preview content (same pipeline as split-panel mode)
-	var items []SessionItem
-	if a.sessions != nil {
-		items = a.sessions.Sessions()
-	}
+	items := a.cachedSessionItems
 	// Find the full-screen target session
 	targetIdx := -1
 	for i, item := range items {
@@ -349,11 +366,41 @@ func (a *App) layoutFullScreen(g *gocui.Gui, maxX, maxY int) error {
 
 	if a.scroll.IsActive() {
 		v.Editable = false
-		a.renderScrollContent(v)
+		// Skip expensive v.Clear() + renderScrollContent when scroll render
+		// state has not changed. This prevents unnecessary redraws during
+		// active Claude Code output that would cause visual artifacts.
+		cursorY := a.scroll.CursorY()
+		selecting := a.scroll.IsSelecting()
+		selStart, selEnd := a.scroll.SelectionRange()
+		w := v.InnerWidth()
+		rc := &a.scrollRender
+		if rc.linesVersion != a.scroll.LinesVersion() ||
+			rc.cursorY != cursorY ||
+			rc.selecting != selecting ||
+			rc.selStart != selStart ||
+			rc.selEnd != selEnd ||
+			rc.width != w {
+			v.Clear()
+			a.renderScrollContent(v)
+			// Cache the rendered state. During the loading phase (lines
+			// empty), linesVersion is 0 and the loading message is static,
+			// so caching here correctly skips redundant loading redraws.
+			// When SetLines arrives, linesVersion bumps and triggers the
+			// next real render.
+			rc.linesVersion = a.scroll.LinesVersion()
+			rc.cursorY = cursorY
+			rc.selecting = selecting
+			rc.selStart = selStart
+			rc.selEnd = selEnd
+			rc.width = w
+		}
 	} else {
+		v.Clear()
 		a.renderPreview(v, items, previewW, previewH)
 		// Scroll offset for mouse scroll
 		v.SetOrigin(0, a.fullscreen.ScrollY())
+		// Invalidate scroll render cache so next scroll mode entry re-renders
+		a.scrollRender = scrollRenderCache{}
 	}
 
 	// Status bar
@@ -487,6 +534,212 @@ func (a *App) renderPreview(v *gocui.View, items []SessionItem, previewW, previe
 }
 
 
+// formatConnectionStatus returns a styled string showing remote connection state.
+// Returns "" if no remote connections are configured.
+func (a *App) formatConnectionStatus() string {
+	if a.connectionStatus == nil {
+		return ""
+	}
+	statuses := a.connectionStatus()
+	if len(statuses) == 0 {
+		return ""
+	}
+	var parts []string
+	for _, s := range statuses {
+		switch s.State {
+		case "connected":
+			if s.VersionMismatch {
+				parts = append(parts, presentation.FgYellow+s.Host+" (version mismatch)"+presentation.Reset)
+			} else {
+				parts = append(parts, presentation.FgGreen+s.Host+presentation.Reset)
+			}
+		case "reconnecting":
+			parts = append(parts, presentation.FgYellow+s.Host+" (reconnecting...)"+presentation.Reset)
+		case "error":
+			parts = append(parts, presentation.FgRed+s.Host+" (offline)"+presentation.Reset)
+		case "connecting":
+			parts = append(parts, presentation.FgYellow+s.Host+" (connecting...)"+presentation.Reset)
+		default:
+			// disconnected or unknown — don't display
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, " ")
+}
+
+// renderOptionsBarWithStatus writes the options bar with connection status
+// right-aligned. The status is separated from hints by padding.
+func (a *App) renderOptionsBarWithStatus(v *gocui.View, options, status string, barWidth int) {
+	if status == "" {
+		fmt.Fprint(v, options)
+		return
+	}
+	if options == "" {
+		// Right-align the status text.
+		pad := barWidth - printableLen(status) - 1
+		if pad < 0 {
+			pad = 0
+		}
+		fmt.Fprintf(v, "%*s%s", pad, "", status)
+		return
+	}
+	// Both present: left-align options, right-align status.
+	optLen := printableLen(options)
+	statusLen := printableLen(status)
+	gap := barWidth - optLen - statusLen
+	if gap < 2 {
+		// Not enough space — just show options.
+		fmt.Fprint(v, options)
+		return
+	}
+	fmt.Fprintf(v, "%s%*s%s", options, gap, "", status)
+}
+
+// printableLen returns the number of printable characters in a string,
+// stripping ANSI escape sequences.
+func printableLen(s string) int {
+	n := 0
+	inEsc := false
+	for _, r := range s {
+		if r == '\x1b' {
+			inEsc = true
+			continue
+		}
+		if inEsc {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+				inEsc = false
+			}
+			continue
+		}
+		n++
+	}
+	return n
+}
+
+// showConnectDialog creates a small input view for entering a remote hostname.
+// Returns false if the view could not be created.
+func (a *App) showConnectDialog(g *gocui.Gui) bool {
+	maxX, maxY := g.Size()
+	w := 40
+	if w > maxX-4 {
+		w = maxX - 4
+	}
+	x0 := (maxX - w) / 2
+	y0 := maxY/2 - 1
+	x1 := x0 + w
+	y1 := y0 + 2
+
+	v, err := g.SetView("connect-input", x0, y0, x1, y1, 0)
+	if err != nil && !isUnknownView(err) {
+		return false
+	}
+	setRoundedFrame(v)
+	v.Title = " Host "
+	v.Editable = true
+	v.Editor = gocui.DefaultEditor
+	v.TextArea.Clear()
+	v.RenderTextArea()
+	if _, err := g.SetCurrentView("connect-input"); err != nil && !isUnknownView(err) {
+		return false
+	}
+	g.Cursor = true
+	a.dialog.Kind = DialogConnect
+	return true
+}
+
+// closeConnectDialog removes the connect input view and restores focus.
+func (a *App) closeConnectDialog(g *gocui.Gui) {
+	a.dialog.Kind = DialogNone
+	g.DeleteView("connect-input")
+	g.Cursor = false
+	if _, err := g.SetCurrentView("sessions"); err != nil && !isUnknownView(err) {
+		_ = err
+	}
+}
+
+// sanitizePrompt strips control characters, ANSI escape sequences, and
+// newlines from a server-supplied SSH prompt string. The result is capped
+// to maxPromptLen printable characters for safe display in a gocui title.
+func sanitizePrompt(s string) string {
+	const maxPromptLen = 60
+	var b strings.Builder
+	inEsc := false
+	for _, r := range s {
+		if r == '\x1b' {
+			inEsc = true
+			continue
+		}
+		if inEsc {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+				inEsc = false
+			}
+			continue
+		}
+		// Replace control characters and newlines with space.
+		if r < 0x20 || r == 0x7f {
+			if b.Len() > 0 {
+				b.WriteRune(' ')
+			}
+			continue
+		}
+		if b.Len() >= maxPromptLen {
+			break
+		}
+		b.WriteRune(r)
+	}
+	return strings.TrimSpace(b.String())
+}
+
+// showAskpassDialog creates a masked input view for SSH password entry.
+// The prompt string is displayed as the view title.
+func (a *App) showAskpassDialog(g *gocui.Gui, prompt string) bool {
+	maxX, maxY := g.Size()
+	w := 50
+	if w > maxX-4 {
+		w = maxX - 4
+	}
+	x0 := (maxX - w) / 2
+	y0 := maxY/2 - 1
+	x1 := x0 + w
+	y1 := y0 + 2
+
+	v, err := g.SetView("askpass-input", x0, y0, x1, y1, 0)
+	if err != nil && !isUnknownView(err) {
+		return false
+	}
+	setRoundedFrame(v)
+
+	// Sanitize server-supplied prompt: strip control characters and
+	// ANSI escapes, collapse to a single printable line, and cap length.
+	// SSH prompt strings are server-controlled (keyboard-interactive).
+	title := sanitizePrompt(prompt)
+	if title == "" {
+		title = "Password"
+	}
+	v.Title = " " + title + " "
+	v.Editable = true
+	v.Editor = gocui.DefaultEditor
+	v.Mask = "*"
+	v.TextArea.Clear()
+	v.RenderTextArea()
+	if _, err := g.SetCurrentView("askpass-input"); err != nil && !isUnknownView(err) {
+		return false
+	}
+	g.Cursor = true
+	a.dialog.Kind = DialogAskpass
+	return true
+}
+
+// closeAskpassDialog removes the askpass input view and restores focus.
+func (a *App) closeAskpassDialog(g *gocui.Gui) {
+	a.dialog.Kind = DialogNone
+	g.DeleteView("askpass-input")
+	g.Cursor = false
+	_, _ = g.SetCurrentView("sessions")
+}
+
 // copyToClipboard copies text to the system clipboard using pbcopy (macOS).
 func copyToClipboard(text string) {
 	cmd := exec.Command("pbcopy")
@@ -563,6 +816,9 @@ func (a *App) showWorktreeDialog(g *gocui.Gui) bool {
 	v.Title = " Branch "
 	v.Editable = true
 	v.Editor = gocui.DefaultEditor
+	v.Clear()
+	v.TextArea.Clear()
+	v.RenderTextArea()
 	setRoundedFrame(v)
 
 	// Prompt input (6 lines)
@@ -581,8 +837,11 @@ func (a *App) showWorktreeDialog(g *gocui.Gui) bool {
 	v2.Editable = true
 	v2.Editor = gocui.DefaultEditor
 	v2.Wrap = true
+	v2.Clear()
+	v2.TextArea.Clear()
 	v2.TextArea.AutoWrap = true
 	v2.TextArea.AutoWrapWidth = w - 2 // view 幅からフレーム分を引く
+	v2.RenderTextArea()
 	setRoundedFrame(v2)
 
 	// Hint bar (frameless)
@@ -700,8 +959,10 @@ func (a *App) showWorktreeResumePrompt(g *gocui.Gui, worktreeName string) bool {
 	v.Editable = true
 	v.Editor = gocui.DefaultEditor
 	v.Wrap = true
+	v.TextArea.Clear()
 	v.TextArea.AutoWrap = true
 	v.TextArea.AutoWrapWidth = w - 2
+	v.RenderTextArea()
 	setRoundedFrame(v)
 
 	hintY0 := promptY1
@@ -726,6 +987,57 @@ func (a *App) showWorktreeResumePrompt(g *gocui.Gui, worktreeName string) bool {
 	g.Cursor = true
 	a.dialog.Kind = DialogWorktreeResume
 	return true
+}
+
+// showConnectChooser creates a list view for selecting an SSH host.
+// The last item is always "+ Manual input".
+func (a *App) showConnectChooser(g *gocui.Gui, hosts []string) bool {
+	a.dialog.ConnectHosts = hosts
+	a.dialog.ConnectCursor = 0
+
+	maxX, maxY := g.Size()
+	totalItems := len(hosts) + 1 // +1 for "Manual input"
+	w := 50
+	if w > maxX-4 {
+		w = maxX - 4
+	}
+	h := totalItems + 2 // +2 for frame
+	if h > maxY/2 {
+		h = maxY / 2
+	}
+	x0 := (maxX - w) / 2
+	y0 := (maxY - h) / 2
+	if y0 < 1 {
+		y0 = 1
+	}
+
+	v, err := g.SetView("connect-chooser", x0, y0, x0+w, y0+h, 0)
+	if err != nil && !isUnknownView(err) {
+		return false
+	}
+	v.Title = " Connect to Host "
+	v.Editable = false
+	v.Highlight = true
+	v.SelBgColor = gocui.Get256Color(24)
+	v.SelFgColor = gocui.ColorWhite
+	setRoundedFrame(v)
+	renderConnectChooser(v, hosts, a.dialog.ConnectCursor)
+
+	if _, err := g.SetCurrentView("connect-chooser"); err != nil && !isUnknownView(err) {
+		return false
+	}
+	a.dialog.Kind = DialogConnectChooser
+	return true
+}
+
+// closeConnectChooser removes the connect chooser view and restores focus.
+func (a *App) closeConnectChooser(g *gocui.Gui) {
+	a.dialog.Kind = DialogNone
+	a.dialog.ConnectHosts = nil
+	g.DeleteView("connect-chooser")
+	if _, err := g.SetCurrentView("sessions"); err != nil && !isUnknownView(err) {
+		_ = err
+	}
 }
 
 // closeWorktreeResumePrompt removes the resume prompt dialog and restores focus.

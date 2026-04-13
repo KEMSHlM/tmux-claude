@@ -89,6 +89,13 @@ Start a PM (Project Manager) orchestration session.
 The PM session coordinates multiple Claude Code workers,
 dispatching tasks and reviewing results via the MCP server.
 
+## connect_remote
+
+Connect to a remote host running a lazyclaude daemon.
+Opens a hostname input dialog. On Enter, establishes an SSH tunnel
+to the daemon, sets up tmux socket forwarding, and registers the
+remote sessions in the session list.
+
 ## send_key
 
 Send a quick response to the selected session.
@@ -148,6 +155,11 @@ Selected lines can then be copied with `y`.
 
 Copy selected log lines to the system clipboard.
 If no selection is active, copies the current line.
+
+## logs_clear
+
+Clear all log contents from the log panel.
+`c` truncates the server log file and resets the display.
 
 ## popup_accept
 
@@ -211,3 +223,15 @@ Filter the current panel's items by name.
 Type to filter items in real time (case-insensitive substring match).
 `Enter` confirms the filter and keeps the filtered view.
 `Esc` cancels the search and restores the original list.
+
+## dismiss_error
+
+Dismiss the error message displayed in the main panel.
+`Esc` clears the error so the normal session preview is shown again.
+Errors also clear automatically when you move the cursor to another session.
+
+## copy_error
+
+Copy the current error message to the system clipboard.
+`Ctrl+V` copies the error text using `pbcopy` (macOS) so you can paste it
+into a terminal, bug report, or message.

@@ -28,6 +28,9 @@ type SessionActions interface {
 	ExpandProject()
 	CursorIsProject() bool
 	StartSearch()
+	ConnectRemote()
+	DismissError()
+	CopyError()
 }
 
 // PopupActions provides popup management.
@@ -57,6 +60,7 @@ type LogsActions interface {
 	LogsCursorToTop()
 	LogsToggleSelect()
 	LogsCopySelection()
+	LogsClear()
 	StartSearch()
 }
 

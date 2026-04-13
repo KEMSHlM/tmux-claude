@@ -33,7 +33,7 @@ func TestStore_AddSessionCreatesProject(t *testing.T) {
 	t.Parallel()
 	s := session.NewStore("")
 	sess := newTestSession("id-1", "my-app", "/home/user/my-app")
-	s.Add(sess)
+	s.Add(sess, "")
 
 	projects := s.Projects()
 	require.Len(t, projects, 1)
@@ -48,9 +48,9 @@ func TestStore_AddWorktreeSessionGroupsUnderProject(t *testing.T) {
 	s := session.NewStore("")
 
 	// Add a regular session
-	s.Add(newTestSession("id-1", "main", "/home/user/lazyclaude"))
+	s.Add(newTestSession("id-1", "main", "/home/user/lazyclaude"), "")
 	// Add a worktree session under the same project
-	s.Add(newTestSession("id-2", "feat-auth", "/home/user/lazyclaude/.claude/worktrees/feat-auth"))
+	s.Add(newTestSession("id-2", "feat-auth", "/home/user/lazyclaude/.lazyclaude/worktrees/feat-auth"), "")
 
 	projects := s.Projects()
 	require.Len(t, projects, 1, "worktree should belong to same project")
@@ -64,7 +64,7 @@ func TestStore_AddPMSessionSetsProjectPM(t *testing.T) {
 
 	pm := newTestSession("id-pm", "pm", "/home/user/lazyclaude")
 	pm.Role = session.RolePM
-	s.Add(pm)
+	s.Add(pm, "")
 
 	projects := s.Projects()
 	require.Len(t, projects, 1)
@@ -77,8 +77,8 @@ func TestStore_MultipleProjects(t *testing.T) {
 	t.Parallel()
 	s := session.NewStore("")
 
-	s.Add(newTestSession("id-1", "app-a", "/home/user/project-a"))
-	s.Add(newTestSession("id-2", "app-b", "/home/user/project-b"))
+	s.Add(newTestSession("id-1", "app-a", "/home/user/project-a"), "")
+	s.Add(newTestSession("id-2", "app-b", "/home/user/project-b"), "")
 
 	projects := s.Projects()
 	require.Len(t, projects, 2)
@@ -88,8 +88,8 @@ func TestStore_RemoveSessionFromProject(t *testing.T) {
 	t.Parallel()
 	s := session.NewStore("")
 
-	s.Add(newTestSession("id-1", "main", "/home/user/lazyclaude"))
-	s.Add(newTestSession("id-2", "feat", "/home/user/lazyclaude/.claude/worktrees/feat"))
+	s.Add(newTestSession("id-1", "main", "/home/user/lazyclaude"), "")
+	s.Add(newTestSession("id-2", "feat", "/home/user/lazyclaude/.lazyclaude/worktrees/feat"), "")
 
 	ok := s.Remove("id-2")
 	assert.True(t, ok)
@@ -103,7 +103,7 @@ func TestStore_RemoveSessionFromProject(t *testing.T) {
 func TestStore_RemoveLastSessionRemovesProject(t *testing.T) {
 	t.Parallel()
 	s := session.NewStore("")
-	s.Add(newTestSession("id-1", "app", "/home/user/app"))
+	s.Add(newTestSession("id-1", "app", "/home/user/app"), "")
 
 	s.Remove("id-1")
 	assert.Empty(t, s.Projects())
@@ -115,8 +115,8 @@ func TestStore_RemovePMFromProject(t *testing.T) {
 
 	pm := newTestSession("id-pm", "pm", "/home/user/lazyclaude")
 	pm.Role = session.RolePM
-	s.Add(pm)
-	s.Add(newTestSession("id-1", "main", "/home/user/lazyclaude"))
+	s.Add(pm, "")
+	s.Add(newTestSession("id-1", "main", "/home/user/lazyclaude"), "")
 
 	ok := s.Remove("id-pm")
 	assert.True(t, ok)
@@ -133,11 +133,11 @@ func TestStore_SaveAndLoad_ProjectFormat(t *testing.T) {
 	path := filepath.Join(dir, "state.json")
 
 	s1 := session.NewStore(path)
-	s1.Add(newTestSession("id-1", "main", "/home/user/lazyclaude"))
+	s1.Add(newTestSession("id-1", "main", "/home/user/lazyclaude"), "")
 	pm := newTestSession("id-pm", "pm", "/home/user/lazyclaude")
 	pm.Role = session.RolePM
-	s1.Add(pm)
-	s1.Add(newTestSession("id-2", "feat", "/home/user/lazyclaude/.claude/worktrees/feat"))
+	s1.Add(pm, "")
+	s1.Add(newTestSession("id-2", "feat", "/home/user/lazyclaude/.lazyclaude/worktrees/feat"), "")
 	require.NoError(t, s1.Save())
 
 	s2 := session.NewStore(path)
@@ -172,11 +172,11 @@ func TestStore_AllSessions_Flat(t *testing.T) {
 	t.Parallel()
 	s := session.NewStore("")
 
-	s.Add(newTestSession("id-1", "main", "/home/user/lazyclaude"))
+	s.Add(newTestSession("id-1", "main", "/home/user/lazyclaude"), "")
 	pm := newTestSession("id-pm", "pm", "/home/user/lazyclaude")
 	pm.Role = session.RolePM
-	s.Add(pm)
-	s.Add(newTestSession("id-2", "app", "/home/user/other"))
+	s.Add(pm, "")
+	s.Add(newTestSession("id-2", "app", "/home/user/other"), "")
 
 	all := s.All()
 	assert.Len(t, all, 3, "All() should return all sessions flat including PM")
@@ -186,8 +186,8 @@ func TestStore_FindByID_AcrossProjects(t *testing.T) {
 	t.Parallel()
 	s := session.NewStore("")
 
-	s.Add(newTestSession("id-1", "main", "/home/user/project-a"))
-	s.Add(newTestSession("id-2", "feat", "/home/user/project-b/.claude/worktrees/feat"))
+	s.Add(newTestSession("id-1", "main", "/home/user/project-a"), "")
+	s.Add(newTestSession("id-2", "feat", "/home/user/project-b/.lazyclaude/worktrees/feat"), "")
 
 	found := s.FindByID("id-2")
 	require.NotNil(t, found)
@@ -198,7 +198,7 @@ func TestStore_FindProjectByPath(t *testing.T) {
 	t.Parallel()
 	s := session.NewStore("")
 
-	s.Add(newTestSession("id-1", "main", "/home/user/lazyclaude"))
+	s.Add(newTestSession("id-1", "main", "/home/user/lazyclaude"), "")
 
 	p := s.FindProjectByPath("/home/user/lazyclaude")
 	require.NotNil(t, p)
@@ -214,7 +214,7 @@ func TestStore_SaveFormat_IsProjectArray(t *testing.T) {
 	path := filepath.Join(dir, "state.json")
 
 	s := session.NewStore(path)
-	s.Add(newTestSession("id-1", "app", "/home/user/app"))
+	s.Add(newTestSession("id-1", "app", "/home/user/app"), "")
 	require.NoError(t, s.Save())
 
 	data, err := os.ReadFile(path)

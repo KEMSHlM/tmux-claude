@@ -52,9 +52,6 @@ func sessionStatusIcon(item *SessionItem) string {
 // sessionDisplayName returns the decorated name for a session item.
 func sessionDisplayName(item *SessionItem) string {
 	name := item.Name
-	if item.Host != "" {
-		name = presentation.FgPurple + item.Host + presentation.Reset + ":" + name
-	}
 	if session.IsWorktreePath(item.Path) {
 		name = presentation.IconWorktree + " " + name
 	}
@@ -81,7 +78,11 @@ func renderTree(v *gocui.View, nodes []TreeNode, cursor int) {
 			if node.Project.Expanded {
 				expandIcon = presentation.IconProjectExpanded
 			}
-			fmt.Fprintf(v, " %s %s\n", expandIcon, node.Project.Name)
+			projectLabel := node.Project.Name
+			if node.Project.Host != "" {
+				projectLabel = presentation.FgPurple + node.Project.Host + presentation.Reset + ": " + projectLabel
+			}
+			fmt.Fprintf(v, " %s %s\n", expandIcon, projectLabel)
 
 		case SessionNode:
 			name := sessionDisplayName(node.Session)
@@ -111,6 +112,18 @@ func renderWorktreeChooser(v *gocui.View, items []WorktreeInfo, cursor int) {
 	v.SetCursor(0, cursor)
 }
 
+// renderConnectChooser writes the SSH host selection list to a gocui view.
+func renderConnectChooser(v *gocui.View, hosts []string, cursor int) {
+	v.Clear()
+	for _, host := range hosts {
+		fmt.Fprintf(v, "  %s\n", host)
+	}
+	// "Manual input" entry
+	fmt.Fprintf(v, " %s+ Manual input%s\n", presentation.FgGreen, presentation.Reset)
+
+	v.SetCursor(0, cursor)
+}
+
 // logFileCache caches readLogLines results, only re-reading when the
 // file's modification time changes.  This prevents expensive os.ReadFile
 // calls on every layout cycle.
@@ -134,6 +147,23 @@ type logRenderCache struct {
 	searchQuery string
 }
 
+// scrollRenderCache tracks the last rendered scroll state so that
+// layoutFullScreen can skip the expensive v.Clear() + renderScrollContent
+// cycle when nothing has changed (e.g. during Claude Code active output).
+// All access is from the gocui event loop goroutine only.
+//
+// scrollOffset is intentionally omitted: every scroll action that changes
+// the viewport calls SetLines (via captureScrollbackAsync), which bumps
+// linesVersion, so an offset change is always reflected via linesVersion.
+type scrollRenderCache struct {
+	linesVersion int
+	cursorY      int
+	selecting    bool
+	selStart     int
+	selEnd       int
+	width        int
+}
+
 // readLogLines returns all log lines in reverse order (newest first).
 // Results are cached and only refreshed when the file changes.
 // Must be called from the gocui event loop goroutine only.
@@ -150,7 +180,13 @@ func (a *App) readLogLines() []string {
 	if err != nil {
 		return nil
 	}
-	raw := bytes.Split(bytes.TrimRight(data, "\n"), []byte("\n"))
+	trimmed := bytes.TrimRight(data, "\n")
+	if len(trimmed) == 0 {
+		a.logCache.modTime = mt
+		a.logCache.lines = nil
+		return nil
+	}
+	raw := bytes.Split(trimmed, []byte("\n"))
 	lines := make([]string, len(raw))
 	for i, b := range raw {
 		lines[len(raw)-1-i] = string(b)
@@ -219,7 +255,7 @@ func (a *App) renderServerLog(v *gocui.View, logs *LogsState, focused bool) {
 		} else if isCursor {
 			fmt.Fprintf(v, "\x1b[48;5;240m%s\x1b[0m\n", padded)
 		} else {
-			fmt.Fprintln(v, line)
+			fmt.Fprintln(v, presentation.ColorizeLogLine(line))
 		}
 	}
 
@@ -245,34 +281,26 @@ func scrollToCursor(v *gocui.View, cursorY int) {
 	v.SetCursor(0, cursorY-oy)
 }
 
-// renderToolPopup writes a tool popup to a view.
+// renderToolPopup writes all tool popup lines to the view and uses
+// SetOrigin to control the scroll position. Writing all lines allows
+// gocui to compute scrollbar position from ViewLinesHeight/OriginY.
 func renderToolPopup(v *gocui.View, p Popup) {
 	v.Title = p.Title()
 	for _, line := range p.ContentLines() {
 		fmt.Fprintln(v, line)
 	}
+	v.SetOrigin(0, p.ScrollY())
 }
 
-// renderDiffPopup writes a diff popup to a view.
+// renderDiffPopup writes all diff lines to the view with ANSI coloring
+// and uses SetOrigin to control the scroll position.
 func renderDiffPopup(v *gocui.View, p Popup) {
 	v.Title = p.Title()
 
 	diffLines := p.ContentLines()
 	diffKinds := p.ContentKinds()
-	_, viewH := v.Size()
-	visibleLines := viewH - 1
 
-	start := p.ScrollY()
-	end := start + visibleLines
-	if end > len(diffLines) {
-		end = len(diffLines)
-	}
-	if start < 0 {
-		start = 0
-	}
-
-	for i := start; i < end; i++ {
-		line := diffLines[i]
+	for i, line := range diffLines {
 		kind := diffKinds[i]
 		switch kind {
 		case presentation.DiffAdd:
@@ -281,12 +309,13 @@ func renderDiffPopup(v *gocui.View, p Popup) {
 			fmt.Fprintf(v, "\x1b[31m%s\x1b[0m\n", line)
 		case presentation.DiffHunk:
 			fmt.Fprintf(v, "\x1b[36m%s\x1b[0m\n", line)
-		case presentation.DiffHeader:
-			fmt.Fprintf(v, "\x1b[1m%s\x1b[0m\n", line)
+		case presentation.DiffFilePath:
+			fmt.Fprintf(v, "\x1b[2m%s\x1b[0m\n", line)
 		default:
 			fmt.Fprintln(v, line)
 		}
 	}
+	v.SetOrigin(0, p.ScrollY())
 }
 
 // truncateToWidth truncates s so that its display width does not exceed maxW.
@@ -307,6 +336,9 @@ func truncateToWidth(s string, maxW int) string {
 func (a *App) renderScrollContent(v *gocui.View) {
 	lines := a.scroll.Lines()
 	if len(lines) == 0 {
+		// Reset origin and cursor to prevent stale values from non-scroll mode
+		v.SetOrigin(0, 0)
+		v.SetCursor(0, 0)
 		fmt.Fprintln(v, presentation.Dim+"  Loading scrollback..."+presentation.Reset)
 		return
 	}
@@ -337,6 +369,11 @@ func (a *App) renderScrollContent(v *gocui.View) {
 		}
 	}
 
+	// Reset origin to a known state before positioning the cursor.
+	// Scroll mode loads at most viewHeight lines, so origin 0 is correct.
+	// Without this reset, a stale origin from non-scroll mode (e.g. preview
+	// scroll offset) would cause scrollToCursor to miscalculate.
+	v.SetOrigin(0, 0)
 	scrollToCursor(v, cursorY)
 }
 

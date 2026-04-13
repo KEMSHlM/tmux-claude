@@ -416,6 +416,32 @@ func Default() *Registry {
 		Description: "Purge orphaned sessions",
 		DocSection:  "purge_orphans",
 	})
+	r.Register(ActionDef{
+		Action:      ActionConnectRemote,
+		Bindings:    []KeyBinding{{Rune: 'c'}},
+		Scope:       ScopeSession,
+		HintLabel:   "connect",
+		Description: "Connect to remote host",
+		DocSection:  "connect_remote",
+	})
+
+	// --- Error display actions (session panel) ---
+	r.Register(ActionDef{
+		Action:      ActionDismissError,
+		Bindings:    []KeyBinding{{Key: gocui.KeyEsc}},
+		Scope:       ScopeSession,
+		Description: "Dismiss error message",
+		DocSection:  "dismiss_error",
+	})
+	r.Register(ActionDef{
+		Action:      ActionCopyError,
+		Bindings:    []KeyBinding{{Key: gocui.KeyCtrlV}},
+		Scope:       ScopeSession,
+		HintLabel:   "copy err",
+		HintKey:     "C-v",
+		Description: "Copy error message to clipboard",
+		DocSection:  "copy_error",
+	})
 
 	// --- Plugins panel ---
 	// MCP tab: cursor, toggle denied, refresh
@@ -588,6 +614,14 @@ func Default() *Registry {
 		Description: "Copy selected lines to clipboard",
 		DocSection:  "logs_copy",
 	})
+	r.Register(ActionDef{
+		Action:      ActionLogsClear,
+		Bindings:    []KeyBinding{{Rune: 'c'}},
+		Scope:       ScopeLog,
+		HintLabel:   "clear",
+		Description: "Clear log contents",
+		DocSection:  "logs_clear",
+	})
 
 	// --- Search (per-panel) ---
 	r.Register(ActionDef{
@@ -661,6 +695,8 @@ func Default() *Registry {
 		Action:      ActionPopupFocusNext,
 		Bindings:    []KeyBinding{{Key: gocui.KeyArrowDown}},
 		Scope:       ScopePopup,
+		HintLabel:   "switch",
+		HintKey:     "\u2191/\u2193",
 		Description: "Focus next notification",
 		DocSection:  "popup_navigate",
 	})

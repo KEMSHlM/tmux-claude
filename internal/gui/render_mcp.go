@@ -21,12 +21,6 @@ func (a *App) renderMCPList(v *gocui.View, maxWidth int, focused bool) {
 		return
 	}
 
-	if a.mcpState.errMsg != "" {
-		fmt.Fprintln(v, "")
-		fmt.Fprintln(v, presentation.FgYellow+"  "+a.mcpState.errMsg+presentation.Reset)
-		return
-	}
-
 	servers := a.filteredMCPServers()
 	if len(servers) == 0 {
 		fmt.Fprintln(v, "")

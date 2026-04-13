@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -64,6 +65,46 @@ func (s *Session) WindowName() string {
 		return "lc-" + s.ID
 	}
 	return "lc-" + s.ID[:8]
+}
+
+// MirrorWindowName returns the tmux window name for a remote session's
+// local mirror. Uses "rm-" prefix to distinguish from local "lc-" windows.
+func MirrorWindowName(sessionID string) string {
+	if len(sessionID) > 8 {
+		sessionID = sessionID[:8]
+	}
+	return "rm-" + sessionID
+}
+
+// TmuxTarget returns the tmux target string for runtime operations
+// (attach-session, capture-pane, send-keys, kill-window).
+//
+// Encapsulates the local/remote distinction in ONE place so that callers
+// do not need to branch on sess.Host. Returns a fully-qualified target of
+// the form "lazyclaude:<window>" suitable for tmux -L lazyclaude commands
+// that require a session:window target (e.g. attach-session).
+//
+// Resolution order:
+//  1. If TmuxWindow is non-empty, use it (may be a tmux window ID "@42"
+//     for local, or a mirror window name "rm-xxxx" for remote).
+//  2. Otherwise fall back to the canonical window name:
+//     - Remote (Host != ""): MirrorWindowName(ID) -> "rm-xxxx"
+//     - Local  (Host == ""): WindowName()         -> "lc-xxxx"
+//  3. If the resulting target does not contain ':', prefix with
+//     "lazyclaude:" so tmux parses it as a session:window target.
+func (s *Session) TmuxTarget() string {
+	target := s.TmuxWindow
+	if target == "" {
+		if s.Host != "" {
+			target = MirrorWindowName(s.ID)
+		} else {
+			target = s.WindowName()
+		}
+	}
+	if !strings.Contains(target, ":") {
+		target = tmuxSessionName + ":" + target
+	}
+	return target
 }
 
 // stateFile is the versioned on-disk format for state.json.
@@ -199,12 +240,19 @@ func (s *Store) All() []Session {
 
 // Add inserts a session, auto-creating or finding the parent project.
 // PM sessions (Role=RolePM) are stored as Project.PM.
-func (s *Store) Add(sess Session) {
+// When projectRoot is non-empty it is used directly instead of inferring
+// the project root from sess.Path. This avoids mismatches when the
+// worktree path (e.g. from git worktree list on a remote) differs from
+// the stored project path (e.g. relative "." or symlink-resolved).
+func (s *Store) Add(sess Session, projectRoot string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	projectPath := InferProjectRoot(sess.Path)
-	idx := s.findProjectIdxLocked(projectPath)
+	projectPath := projectRoot
+	if projectPath == "" {
+		projectPath = InferProjectRoot(sess.Path)
+	}
+	idx := s.findProjectIdxLocked(projectPath, sess.Host)
 
 	if idx < 0 {
 		// Create new project
@@ -390,7 +438,7 @@ func (s *Store) MarkAllStatus(status Status) {
 }
 
 // GenerateName creates a unique session name from a directory path.
-func (s *Store) GenerateName(dirPath, host string) string {
+func (s *Store) GenerateName(dirPath string) string {
 	base := filepath.Base(dirPath)
 
 	s.mu.RLock()
@@ -461,13 +509,35 @@ func (s *Store) nameExistsLocked(name string) bool {
 	return false
 }
 
-func (s *Store) findProjectIdxLocked(path string) int {
+// findProjectIdxLocked returns the index of the project matching both path and host.
+// Host is derived from the project's sessions (PM or first worker).
+// An empty host matches projects whose sessions also have empty hosts (local).
+func (s *Store) findProjectIdxLocked(path, host string) int {
 	for i := range s.projects {
-		if s.projects[i].Path == path {
+		if s.projects[i].Path != path {
+			continue
+		}
+		if projectHost(&s.projects[i]) == host {
 			return i
 		}
 	}
 	return -1
+}
+
+// projectHost returns the SSH host of a project by inspecting its sessions.
+// Returns "" for local projects.
+// Invariant: all sessions in a project share the same host. Mixed-host
+// projects are not supported.
+func projectHost(p *Project) string {
+	if p.PM != nil && p.PM.Host != "" {
+		return p.PM.Host
+	}
+	for _, s := range p.Sessions {
+		if s.Host != "" {
+			return s.Host
+		}
+	}
+	return ""
 }
 
 func (s *Store) maybeRemoveProjectLocked(idx int) {
@@ -497,6 +567,14 @@ func (s *Store) mutateSessionLocked(id string, fn func(*Session)) {
 	}
 }
 
+// UpdateSession applies fn to the session identified by id.
+// Thread-safe; acquires the write lock.
+func (s *Store) UpdateSession(id string, fn func(*Session)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.mutateSessionLocked(id, fn)
+}
+
 // SyncWithTmux updates runtime state by comparing with tmux windows.
 func (s *Store) SyncWithTmux(windows []tmux.WindowInfo, panes []tmux.PaneInfo) {
 	s.mu.Lock()
@@ -509,12 +587,26 @@ func (s *Store) SyncWithTmux(windows []tmux.WindowInfo, panes []tmux.PaneInfo) {
 
 	paneByWindow := make(map[string]tmux.PaneInfo, len(panes))
 	for _, p := range panes {
+		if existing, ok := paneByWindow[p.Window]; ok {
+			// When multiple panes exist in a window (e.g. remain-on-exit keeps
+			// dead panes), prefer the alive one to avoid false StatusDead.
+			if existing.Dead && !p.Dead {
+				paneByWindow[p.Window] = p
+			}
+			// If both are alive (or both are dead), keep the first-seen pane.
+			continue
+		}
 		paneByWindow[p.Window] = p
 	}
 
 	syncSession := func(sess *Session) {
 		wName := sess.WindowName()
 		w, found := windowByName[wName]
+		// For remote sessions (Host != ""), also check mirror window name (rm-).
+		if !found && sess.Host != "" {
+			mirrorName := MirrorWindowName(sess.ID)
+			w, found = windowByName[mirrorName]
+		}
 		if !found {
 			sess.Status = StatusOrphan
 			sess.TmuxWindow = ""
