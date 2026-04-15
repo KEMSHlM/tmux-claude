@@ -335,6 +335,87 @@ func TestStore_WorkerRoleRoundTrip(t *testing.T) {
 	assert.Equal(t, session.RoleWorker, all[0].Role)
 }
 
+// --- Profile field tests ---
+
+func TestStore_Load_MissingProfileFieldDefaultsToEmpty(t *testing.T) {
+	t.Parallel()
+	// v2 state.json written before the Profile field existed must load
+	// without error, and sessions must have Profile == "" (builtin default).
+	legacy := `{
+  "version": 2,
+  "projects": [{
+    "id": "proj-1",
+    "name": "project",
+    "path": "/tmp/project",
+    "created_at": "2024-01-01T00:00:00Z",
+    "updated_at": "2024-01-01T00:00:00Z",
+    "sessions": [{
+      "id": "abc-123",
+      "name": "test",
+      "path": "/tmp/project",
+      "created_at": "2024-01-01T00:00:00Z",
+      "updated_at": "2024-01-01T00:00:00Z"
+    }]
+  }]
+}`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
+	require.NoError(t, os.WriteFile(path, []byte(legacy), 0o600))
+
+	store := session.NewStore(path)
+	require.NoError(t, store.Load())
+
+	all := store.All()
+	require.Len(t, all, 1)
+	assert.Equal(t, "", all[0].Profile)
+}
+
+func TestStore_ProfileRoundTrip(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
+
+	store := session.NewStore(path)
+	sess := newTestSession("id-p", "with-profile", "/project")
+	sess.Profile = "opus"
+	store.Add(sess, "")
+	require.NoError(t, store.Save())
+
+	store2 := session.NewStore(path)
+	require.NoError(t, store2.Load())
+
+	all := store2.All()
+	require.Len(t, all, 1)
+	assert.Equal(t, "opus", all[0].Profile)
+}
+
+func TestStore_ProfileOmittedWhenEmpty(t *testing.T) {
+	t.Parallel()
+	// Profile="" must not emit "profile" key in JSON (omitempty).
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
+
+	store := session.NewStore(path)
+	sess := newTestSession("id-1", "default-profile", "/project")
+	// Profile left as zero value
+	store.Add(sess, "")
+	require.NoError(t, store.Save())
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	var sf map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(data, &sf))
+	var projects []map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(sf["projects"], &projects))
+	require.Len(t, projects, 1)
+	var sessions []map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(projects[0]["sessions"], &sessions))
+	require.Len(t, sessions, 1)
+	_, hasProfile := sessions[0]["profile"]
+	assert.False(t, hasProfile, "profile key should be absent when empty (omitempty)")
+}
+
 // --- FindProjectForSession tests ---
 
 func TestStore_FindProjectForSession_RegularSession(t *testing.T) {

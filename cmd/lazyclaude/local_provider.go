@@ -14,6 +14,7 @@ import (
 	"github.com/any-context/lazyclaude/internal/core/choice"
 	"github.com/any-context/lazyclaude/internal/core/tmux"
 	"github.com/any-context/lazyclaude/internal/daemon"
+	"github.com/any-context/lazyclaude/internal/profile"
 	"github.com/any-context/lazyclaude/internal/session"
 	"github.com/charmbracelet/x/ansi"
 )
@@ -60,14 +61,12 @@ func (p *localDaemonProvider) Sessions() ([]daemon.SessionInfo, error) {
 }
 
 func (p *localDaemonProvider) Create(path string) error {
-	if path == "." {
-		abs, err := filepath.Abs(".")
-		if err != nil {
-			return err
-		}
-		path = abs
+	var err error
+	path, err = resolveLocalPath(path)
+	if err != nil {
+		return err
 	}
-	_, err := p.mgr.Create(context.Background(), path)
+	_, err = p.mgr.Create(context.Background(), path)
 	return err
 }
 
@@ -218,6 +217,50 @@ func (p *localDaemonProvider) CreateWorkerSession(name, prompt, projectRoot stri
 
 func (p *localDaemonProvider) ConnectionState() daemon.ConnectionState {
 	return daemon.Connected
+}
+
+// Profiles returns the local profile list loaded from
+// $HOME/.lazyclaude/config.json.
+//
+// It implements the daemon.profileFetcher interface so that
+// CompositeProvider.Profiles(ctx, "") delegates here for the local host.
+//
+// Returns (profiles, daemonErrStr, transportErr). transportErr is always nil
+// (file I/O failures are encoded in daemonErrStr). On config-absent, profiles
+// contains the builtin default and daemonErrStr is empty. On parse error,
+// profiles is nil and daemonErrStr contains the human-readable description.
+func (p *localDaemonProvider) Profiles(_ context.Context) ([]daemon.ProfileDefAPI, string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Sprintf("resolve home dir: %v", err), nil
+	}
+	configPath := filepath.Join(home, ".lazyclaude", "config.json")
+	_, profiles, loadErr := profile.Load(configPath)
+	if loadErr != nil {
+		return nil, loadErr.Error(), nil
+	}
+
+	apiProfiles := make([]daemon.ProfileDefAPI, len(profiles))
+	for i, pd := range profiles {
+		apiProfiles[i] = daemon.ProfileDefAPI{
+			Name:        pd.Name,
+			Command:     pd.Command,
+			Description: pd.Description,
+			Default:     pd.Default,
+			Builtin:     pd.Builtin,
+		}
+		if len(pd.Args) > 0 {
+			apiProfiles[i].Args = make([]string, len(pd.Args))
+			copy(apiProfiles[i].Args, pd.Args)
+		}
+		if len(pd.Env) > 0 {
+			apiProfiles[i].Env = make(map[string]string, len(pd.Env))
+			for k, v := range pd.Env {
+				apiProfiles[i].Env[k] = v
+			}
+		}
+	}
+	return apiProfiles, "", nil
 }
 
 // sessionToDaemonInfo converts a session.Session to daemon.SessionInfo.

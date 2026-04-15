@@ -70,6 +70,9 @@ type fakeSessionCreator struct {
 	projectPath string // returned by FindProjectForSession
 	result      *server.SessionCreateResult
 	err         error
+	// fields populated by CreateWorkerSession for assertion
+	lastProfile string
+	lastOptions string
 }
 
 func (f *fakeSessionCreator) FindProjectForSession(id string) *server.SessionProjectInfo {
@@ -79,7 +82,9 @@ func (f *fakeSessionCreator) FindProjectForSession(id string) *server.SessionPro
 	return &server.SessionProjectInfo{Path: f.projectPath}
 }
 
-func (f *fakeSessionCreator) CreateWorkerSession(ctx context.Context, name, prompt, projectRoot string) (*server.SessionCreateResult, error) {
+func (f *fakeSessionCreator) CreateWorkerSession(ctx context.Context, name, prompt, projectRoot, profile, options string) (*server.SessionCreateResult, error) {
+	f.lastProfile = profile
+	f.lastOptions = options
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -310,6 +315,35 @@ func TestMsgCreate_local_with_prompt(t *testing.T) {
 	sent := mock.SentKeys[target]
 	require.GreaterOrEqual(t, len(sent), 1, "prompt should be sent via SendKeysLiteral")
 	assert.Contains(t, sent[0], "Fix the bug")
+}
+
+func TestMsgCreate_worker_profile_propagated(t *testing.T) {
+	t.Parallel()
+	creator := &fakeSessionCreator{
+		projectPath: "/project",
+		result: &server.SessionCreateResult{
+			ID:     "sess-profile",
+			Name:   "feat-x",
+			Role:   "worker",
+			Path:   "/project/.lazyclaude/worktrees/feat-x",
+			Window: "@9",
+		},
+	}
+	_, port, _ := startTestServerWithCreator(t, nil, creator)
+
+	resp := msgCreate(t, port, "test-token", map[string]string{
+		"from":    "pm-id",
+		"name":    "feat-x",
+		"type":    "worker",
+		"prompt":  "Implement feature X",
+		"profile": "opus",
+		"options": "--dangerously-skip-permissions",
+	})
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	assert.Equal(t, "opus", creator.lastProfile)
+	assert.Equal(t, "--dangerously-skip-permissions", creator.lastOptions)
 }
 
 func TestMsgCreate_creation_error(t *testing.T) {

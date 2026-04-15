@@ -7,6 +7,7 @@ import (
 
 	"github.com/any-context/lazyclaude/internal/core/event"
 	"github.com/any-context/lazyclaude/internal/core/model"
+	"github.com/any-context/lazyclaude/internal/gui/chooser"
 	"github.com/any-context/lazyclaude/internal/gui/keydispatch"
 	"github.com/any-context/lazyclaude/internal/gui/keyhandler"
 	"github.com/any-context/lazyclaude/internal/gui/keymap"
@@ -71,6 +72,22 @@ type SessionProvider interface {
 	ListWorktrees(projectRoot string) ([]WorktreeInfo, error)
 	CreatePMSession(projectRoot string) error
 	CreateWorkerSession(name, prompt, projectRoot string) error
+
+	// Profile-aware create methods (Phase 2a). profile is the profile name
+	// (empty string resolves to the effective default). options is a
+	// space-separated list of extra CLI arguments.
+	// Remote sessions fall back to the non-opts behaviour until Phase 2b.
+	CreateWithOpts(path, profile, options string) error
+	CreateAtPaneCWDWithOpts(profile, options string) error
+	CreatePMSessionWithOpts(projectRoot, profile, options string) error
+	CreateWorktreeWithOpts(name, prompt, projectRoot, profile, options string) error
+	ResumeWorktreeWithOpts(worktreePath, prompt, projectRoot, profile, options string) error
+
+	// ProfileItems returns the current list of chooser items for the profile
+	// selector, re-reading the user config and syncing it into the session
+	// manager so that the GUI and backend always share the same profile list.
+	// Falls back to the builtin default when config is absent or invalid.
+	ProfileItems() []chooser.Item
 }
 
 // WorktreeInfo describes an existing worktree for the chooser.

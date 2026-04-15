@@ -89,12 +89,16 @@ func (c *Client) SendMessage(ctx context.Context, from, to, msgType, body string
 }
 
 // CreateSession creates a new session via POST /msg/create.
-func (c *Client) CreateSession(ctx context.Context, from, name, sessionType, prompt string) (*MsgCreateResponse, error) {
+// profile selects a named launch profile (empty resolves to effective default).
+// options is a space-separated list of extra flags passed to the claude invocation.
+func (c *Client) CreateSession(ctx context.Context, from, name, sessionType, prompt, profile, options string) (*MsgCreateResponse, error) {
 	payload := msgCreateRequest{
-		From:   from,
-		Name:   name,
-		Type:   sessionType,
-		Prompt: prompt,
+		From:    from,
+		Name:    name,
+		Type:    sessionType,
+		Prompt:  prompt,
+		Profile: profile,
+		Options: options,
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {

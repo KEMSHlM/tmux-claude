@@ -5,11 +5,16 @@ import (
 	"sync"
 	"time"
 
+	"os"
+	"path/filepath"
+
 	"github.com/any-context/lazyclaude/internal/core/config"
 	"github.com/any-context/lazyclaude/internal/core/model"
 	"github.com/any-context/lazyclaude/internal/daemon"
 	"github.com/any-context/lazyclaude/internal/gui"
+	"github.com/any-context/lazyclaude/internal/gui/chooser"
 	"github.com/any-context/lazyclaude/internal/notify"
+	"github.com/any-context/lazyclaude/internal/profile"
 	"github.com/any-context/lazyclaude/internal/session"
 )
 
@@ -19,14 +24,18 @@ import (
 // daemon/CompositeProvider.
 type sessionCommander interface {
 	Create(target OperationTarget) error
+	CreateWithOpts(target OperationTarget, profile, options string) error
 	Delete(id string) error
 	Rename(id, newName string) error
 	LaunchLazygit(target OperationTarget) error
 	CreateWorktree(target OperationTarget, name, prompt string) error
+	CreateWorktreeWithOpts(target OperationTarget, name, prompt, profile, options string) error
 	ResumeWorktree(target OperationTarget, wtPath, prompt string) error
+	ResumeWorktreeWithOpts(target OperationTarget, wtPath, prompt, profile, options string) error
 	ResumeSession(target OperationTarget, id, prompt, name string) error
 	ListWorktrees(target OperationTarget) ([]gui.WorktreeInfo, error)
 	CreatePMSession(target OperationTarget) error
+	CreatePMSessionWithOpts(target OperationTarget, profile, options string) error
 	CreateWorkerSession(target OperationTarget, name, prompt string) error
 }
 
@@ -163,6 +172,15 @@ func (a *guiCompositeAdapter) Create(path string) error {
 	return a.commands.Create(a.resolveTarget(path))
 }
 
+func (a *guiCompositeAdapter) CreateWithOpts(path, profile, options string) error {
+	host := a.resolveHost()
+	if host != "" {
+		// Remote: fall back to non-opts path (Phase 2b adds remote profile support).
+		return a.commands.Create(a.resolveTarget(path))
+	}
+	return a.commands.CreateWithOpts(a.resolveTarget(path), profile, options)
+}
+
 // CreateAtPaneCWD implements the N key: create a session in the lazyclaude
 // pane's CWD. Host routing is pane-based, so we use pendingHost directly
 // instead of resolveHost(): the cursor's tree node must not influence where
@@ -173,6 +191,18 @@ func (a *guiCompositeAdapter) CreateAtPaneCWD() error {
 		Host:        a.readPendingHost(),
 		ProjectRoot: ".",
 	})
+}
+
+func (a *guiCompositeAdapter) CreateAtPaneCWDWithOpts(profile, options string) error {
+	target := OperationTarget{
+		Host:        a.readPendingHost(),
+		ProjectRoot: ".",
+	}
+	if target.Host != "" {
+		// Remote: fall back to non-opts path (Phase 2b adds remote profile support).
+		return a.commands.Create(target)
+	}
+	return a.commands.CreateWithOpts(target, profile, options)
 }
 
 // resolveRemotePath maps a local path to the remote daemon's CWD when
@@ -310,8 +340,26 @@ func (a *guiCompositeAdapter) CreateWorktree(name, prompt, projectRoot string) e
 	return a.commands.CreateWorktree(a.resolveTarget(projectRoot), name, prompt)
 }
 
+func (a *guiCompositeAdapter) CreateWorktreeWithOpts(name, prompt, projectRoot, profile, options string) error {
+	target := a.resolveTarget(projectRoot)
+	if target.Host != "" {
+		// Remote: fall back to non-opts path (Phase 2b adds remote profile support).
+		return a.commands.CreateWorktree(target, name, prompt)
+	}
+	return a.commands.CreateWorktreeWithOpts(target, name, prompt, profile, options)
+}
+
 func (a *guiCompositeAdapter) ResumeWorktree(worktreePath, prompt, projectRoot string) error {
 	return a.commands.ResumeWorktree(a.resolveTarget(projectRoot), worktreePath, prompt)
+}
+
+func (a *guiCompositeAdapter) ResumeWorktreeWithOpts(worktreePath, prompt, projectRoot, profile, options string) error {
+	target := a.resolveTarget(projectRoot)
+	if target.Host != "" {
+		// Remote: fall back to non-opts path (Phase 2b adds remote profile support).
+		return a.commands.ResumeWorktree(target, worktreePath, prompt)
+	}
+	return a.commands.ResumeWorktreeWithOpts(target, worktreePath, prompt, profile, options)
 }
 
 func (a *guiCompositeAdapter) ResumeSession(id, prompt, name, projectRoot string) error {
@@ -326,8 +374,48 @@ func (a *guiCompositeAdapter) CreatePMSession(projectRoot string) error {
 	return a.commands.CreatePMSession(a.resolveTarget(projectRoot))
 }
 
+func (a *guiCompositeAdapter) CreatePMSessionWithOpts(projectRoot, profile, options string) error {
+	target := a.resolveTarget(projectRoot)
+	if target.Host != "" {
+		// Remote: fall back to non-opts path (Phase 2b adds remote profile support).
+		return a.commands.CreatePMSession(target)
+	}
+	return a.commands.CreatePMSessionWithOpts(target, profile, options)
+}
+
 func (a *guiCompositeAdapter) CreateWorkerSession(name, prompt, projectRoot string) error {
 	return a.commands.CreateWorkerSession(a.resolveTarget(projectRoot), name, prompt)
+}
+
+// ProfileItems re-reads ~/.lazyclaude/config.json and syncs the profile list
+// into the session Manager, then returns chooser.Item values for the GUI.
+// This ensures the GUI and Manager always share the same profile snapshot,
+// even if config.json was edited while the app is running.
+// Falls back to the builtin default when config is absent or invalid.
+func (a *guiCompositeAdapter) ProfileItems() []chooser.Item {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return []chooser.Item{{Label: profile.BuiltinDefaultName, Default: true, Data: profile.BuiltinDefaultName}}
+	}
+	configPath := filepath.Join(home, ".lazyclaude", "config.json")
+	_, profs, loadErr := profile.Load(configPath)
+	if loadErr != nil || len(profs) == 0 {
+		// Clear manager state so backend resolution matches the builtin-only UI.
+		a.localMgr.SetProfiles(nil)
+		return []chooser.Item{{Label: profile.BuiltinDefaultName, Default: true, Data: profile.BuiltinDefaultName}}
+	}
+	// Sync newly read profiles into the Manager so backend resolution matches.
+	a.localMgr.SetProfiles(profs)
+	defProfile, _ := profile.ResolveDefault(profs)
+	items := make([]chooser.Item, len(profs))
+	for i, p := range profs {
+		items[i] = chooser.Item{
+			Label:   p.Name,
+			Default: p.Name == defProfile.Name,
+			Data:    p.Name,
+		}
+	}
+	return items
 }
 
 // resolveTarget builds an OperationTarget from a project root path.

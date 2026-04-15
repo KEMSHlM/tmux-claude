@@ -66,6 +66,25 @@ lazyclaude は、全セッションを一覧表示し、権限プロンプトを
 - PM が Worker のプルリクエストをレビューし、構造化されたフィードバックを送信
 - 各 Worker はロール、タスク、通信方法を含むシステムプロンプトを受け取る
 
+**プロファイル選択**
+- `$HOME/.lazyclaude/config.json` に複数の `claude` 起動プロファイル（モデル、引数、環境変数）を定義
+- セッション作成時（`n`、`N`、`w`、`W`、`P`）にプロファイルと追加オプションをダイアログで選択
+- `lazyclaude msg create --profile <name> --options "..."` で起動する Worker もプロファイルを継承
+- プロファイルはホスト別に解決：リモートセッションは daemon 側の `$HOME/.lazyclaude/config.json` を参照
+- `lazyclaude profile list` で一覧表示（`-v` で ARGS/ENV、`--json` でスクリプト用）
+
+最小構成の `$HOME/.lazyclaude/config.json`:
+
+```json
+{
+  "version": 1,
+  "profiles": [
+    {"name": "opus", "command": "claude", "args": ["--model=claude-opus-4-6"], "default": true},
+    {"name": "sonnet", "command": "claude"}
+  ]
+}
+```
+
 **インフラ**
 - `display-popup` 経由の tmux プラグイン統合（`Ctrl+\` でトグル）
 - SSH リモートセッション（通知用の自動リバーストンネル）

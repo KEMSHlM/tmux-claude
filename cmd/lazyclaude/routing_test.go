@@ -62,12 +62,27 @@ func (m *mockCommands) LaunchLazygit(target OperationTarget) error {
 	return nil
 }
 
+func (m *mockCommands) CreateWithOpts(target OperationTarget, _, _ string) error {
+	m.createCalls = append(m.createCalls, target)
+	return nil
+}
+
 func (m *mockCommands) CreateWorktree(target OperationTarget, name, prompt string) error {
 	m.createWorktreeCalls = append(m.createWorktreeCalls, worktreeCall{Target: target, Name: name, Prompt: prompt})
 	return nil
 }
 
+func (m *mockCommands) CreateWorktreeWithOpts(target OperationTarget, name, prompt, _, _ string) error {
+	m.createWorktreeCalls = append(m.createWorktreeCalls, worktreeCall{Target: target, Name: name, Prompt: prompt})
+	return nil
+}
+
 func (m *mockCommands) ResumeWorktree(target OperationTarget, wtPath, prompt string) error {
+	m.resumeWorktreeCalls = append(m.resumeWorktreeCalls, worktreeCall{Target: target, Name: wtPath, Prompt: prompt})
+	return nil
+}
+
+func (m *mockCommands) ResumeWorktreeWithOpts(target OperationTarget, wtPath, prompt, _, _ string) error {
 	m.resumeWorktreeCalls = append(m.resumeWorktreeCalls, worktreeCall{Target: target, Name: wtPath, Prompt: prompt})
 	return nil
 }
@@ -82,6 +97,11 @@ func (m *mockCommands) ListWorktrees(target OperationTarget) ([]gui.WorktreeInfo
 }
 
 func (m *mockCommands) CreatePMSession(target OperationTarget) error {
+	m.createPMCalls = append(m.createPMCalls, target)
+	return nil
+}
+
+func (m *mockCommands) CreatePMSessionWithOpts(target OperationTarget, _, _ string) error {
 	m.createPMCalls = append(m.createPMCalls, target)
 	return nil
 }
@@ -501,4 +521,30 @@ func TestRouting_R_Rename_RemoteSession(t *testing.T) {
 	sess := f.mgr.Store().FindByID(id)
 	require.NotNil(t, sess)
 	assert.Equal(t, "new-remote-name", sess.Name, "local store must reflect the new name")
+}
+
+// --- N (CreateWithOpts) path-resolution regression --------------------------
+
+// TestCreateWithOpts_DotPath_StoresAbsPath verifies that passing "." as the
+// project root (the N-key pane-CWD path) results in a session whose Path
+// field is an absolute directory, not the literal string ".".
+// Regression: before the fix, CreateWithOpts passed "." directly to
+// localMgr.CreateOpts and the manager stored it verbatim in state.json,
+// which broke project-group matching.
+func TestCreateWithOpts_DotPath_StoresAbsPath(t *testing.T) {
+	t.Parallel()
+	f := newSessionCmdFixture(t)
+
+	target := OperationTarget{Host: "", ProjectRoot: "."}
+	err := f.svc.CreateWithOpts(target, "", "")
+	require.NoError(t, err)
+
+	sessions := f.mgr.Store().All()
+	require.Len(t, sessions, 1, "exactly one session should have been created")
+
+	path := sessions[0].Path
+	assert.True(t, filepath.IsAbs(path),
+		"session Path must be absolute, got %q", path)
+	assert.NotEqual(t, ".", path,
+		"session Path must not be the literal '.' string")
 }

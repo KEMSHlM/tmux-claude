@@ -21,6 +21,7 @@ import (
 	"github.com/any-context/lazyclaude/internal/gui"
 	"github.com/any-context/lazyclaude/internal/mcp"
 	"github.com/any-context/lazyclaude/internal/plugin"
+	"github.com/any-context/lazyclaude/internal/profile"
 	"github.com/any-context/lazyclaude/internal/server"
 	"github.com/any-context/lazyclaude/internal/session"
 	"github.com/jesseduffield/gocui"
@@ -78,6 +79,16 @@ func newRootCmd() *cobra.Command {
 			if err := mgr.Load(context.Background()); err != nil {
 				// Non-fatal: tmux might not be running
 				fmt.Fprintf(os.Stderr, "warning: %v\n", err)
+			}
+
+			// Install profile list so that profile-aware session creation methods
+			// (CreateOpts, CreateWorktreeOpts, etc.) can resolve named profiles.
+			// Non-fatal: absent or malformed config.json falls back to builtin default.
+			if home, err := os.UserHomeDir(); err == nil {
+				configPath := filepath.Join(home, ".lazyclaude", "config.json")
+				if _, profs, err := profile.Load(configPath); err == nil && len(profs) > 0 {
+					mgr.SetProfiles(profs)
+				}
 			}
 
 			// Skip Claude onboarding dialogs (JSON file I/O only, no subprocess)
@@ -366,8 +377,8 @@ func newRootCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().BoolVar(&debug, "debug", false, "enable debug logging")
-	cmd.Flags().StringVar(&logFile, "log-file", "/tmp/lazyclaude/debug.log", "log file path (used with --debug)")
+	cmd.PersistentFlags().BoolVar(&debug, "debug", false, "enable debug logging")
+	cmd.PersistentFlags().StringVar(&logFile, "log-file", "/tmp/lazyclaude/debug.log", "log file path (used with --debug)")
 
 	cmd.AddCommand(newServerCmd())
 	cmd.AddCommand(newSetupCmd())
@@ -375,6 +386,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newMsgCmd())
 	cmd.AddCommand(newDaemonCmd())
 	cmd.AddCommand(newAskpassCmd())
+	cmd.AddCommand(newProfileCmd())
 
 	return cmd
 }
@@ -486,8 +498,14 @@ func (a *sessionCreatorAdapter) FindProjectForSession(id string) *server.Session
 	return &server.SessionProjectInfo{Path: p.Path}
 }
 
-func (a *sessionCreatorAdapter) CreateWorkerSession(ctx context.Context, name, prompt, projectRoot string) (*server.SessionCreateResult, error) {
-	sess, err := a.mgr.CreateWorkerSession(ctx, name, prompt, projectRoot)
+func (a *sessionCreatorAdapter) CreateWorkerSession(ctx context.Context, name, prompt, projectRoot, profile, options string) (*server.SessionCreateResult, error) {
+	sess, err := a.mgr.CreateWorkerSessionOpts(ctx, session.WorkerOpts{
+		Name:        name,
+		Prompt:      prompt,
+		ProjectRoot: projectRoot,
+		Profile:     profile,
+		Options:     options,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("create worker session: %w", err)
 	}

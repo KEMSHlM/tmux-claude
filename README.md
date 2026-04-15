@@ -66,6 +66,25 @@ lazyclaude solves this with a single TUI that shows all sessions at a glance, ro
 - PM reviews Worker pull requests and sends structured feedback
 - Each Worker receives a system prompt with its role, task, and communication instructions
 
+**Profile Selection**
+- Define multiple `claude` launch profiles in `$HOME/.lazyclaude/config.json` (model, args, env)
+- Choose a profile on session creation (`n`, `N`, `w`, `W`, `P`) with an inline options input
+- Workers spawned via `lazyclaude msg create --profile <name> --options "..."` inherit the chosen profile
+- Profiles resolve per host: remote sessions use the daemon's `$HOME/.lazyclaude/config.json`
+- List profiles with `lazyclaude profile list` (`-v` for ARGS/ENV, `--json` for scripting)
+
+Minimal `$HOME/.lazyclaude/config.json`:
+
+```json
+{
+  "version": 1,
+  "profiles": [
+    {"name": "opus", "command": "claude", "args": ["--model=claude-opus-4-6"], "default": true},
+    {"name": "sonnet", "command": "claude"}
+  ]
+}
+```
+
 **Infrastructure**
 - tmux plugin integration via `display-popup` (`Ctrl+\` to toggle)
 - SSH remote sessions with automatic reverse tunnel for notifications
