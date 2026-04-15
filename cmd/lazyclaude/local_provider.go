@@ -61,14 +61,12 @@ func (p *localDaemonProvider) Sessions() ([]daemon.SessionInfo, error) {
 }
 
 func (p *localDaemonProvider) Create(path string) error {
-	if path == "." {
-		abs, err := filepath.Abs(".")
-		if err != nil {
-			return err
-		}
-		path = abs
+	var err error
+	path, err = resolveLocalPath(path)
+	if err != nil {
+		return err
 	}
-	_, err := p.mgr.Create(context.Background(), path)
+	_, err = p.mgr.Create(context.Background(), path)
 	return err
 }
 

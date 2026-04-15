@@ -18,6 +18,18 @@ func absWorkingDir() (string, error) {
 	return filepath.Abs(".")
 }
 
+// resolveLocalPath converts the literal "." to an absolute path so that
+// sessions are stored with their actual working directory rather than "."
+// All other paths are returned unchanged.
+// This mirrors the conversion in localDaemonProvider.Create and ensures
+// *Opts paths go through the same normalisation.
+func resolveLocalPath(path string) (string, error) {
+	if path == "." {
+		return filepath.Abs(".")
+	}
+	return path, nil
+}
+
 // OperationTarget identifies where a session command should execute.
 // Host == "" means local; non-empty means route to the remote daemon.
 type OperationTarget struct {
@@ -210,8 +222,12 @@ func (s *SessionCommandService) completeRemoteCreate(placeholderID string, targe
 // CreateWithOpts creates a new local session with profile and options.
 func (s *SessionCommandService) CreateWithOpts(target OperationTarget, profile, options string) error {
 	// Local only: remote falls back to Create (handled at guiCompositeAdapter level).
+	path, err := resolveLocalPath(target.ProjectRoot)
+	if err != nil {
+		return fmt.Errorf("resolve path: %w", err)
+	}
 	ctx := context.Background()
-	_, err := s.localMgr.CreateOpts(ctx, target.ProjectRoot, profile, options)
+	_, err = s.localMgr.CreateOpts(ctx, path, profile, options)
 	return err
 }
 
@@ -226,11 +242,15 @@ func (s *SessionCommandService) CreateWorktree(target OperationTarget, name, pro
 // CreateWorktreeWithOpts creates a worktree session with profile and options.
 func (s *SessionCommandService) CreateWorktreeWithOpts(target OperationTarget, name, prompt, profile, options string) error {
 	// Local only: remote falls back to CreateWorktree (handled at guiCompositeAdapter level).
+	path, err := resolveLocalPath(target.ProjectRoot)
+	if err != nil {
+		return fmt.Errorf("resolve path: %w", err)
+	}
 	ctx := context.Background()
-	_, err := s.localMgr.CreateWorktreeOpts(ctx, session.WorktreeOpts{
+	_, err = s.localMgr.CreateWorktreeOpts(ctx, session.WorktreeOpts{
 		Name:        name,
 		Prompt:      prompt,
-		ProjectRoot: target.ProjectRoot,
+		ProjectRoot: path,
 		Profile:     profile,
 		Options:     options,
 	})
@@ -248,11 +268,15 @@ func (s *SessionCommandService) ResumeWorktree(target OperationTarget, wtPath, p
 // ResumeWorktreeWithOpts resumes a worktree session with profile and options.
 func (s *SessionCommandService) ResumeWorktreeWithOpts(target OperationTarget, wtPath, prompt, profile, options string) error {
 	// Local only: remote falls back to ResumeWorktree (handled at guiCompositeAdapter level).
+	path, err := resolveLocalPath(target.ProjectRoot)
+	if err != nil {
+		return fmt.Errorf("resolve path: %w", err)
+	}
 	ctx := context.Background()
-	_, err := s.localMgr.ResumeWorktreeOpts(ctx, session.ResumeOpts{
+	_, err = s.localMgr.ResumeWorktreeOpts(ctx, session.ResumeOpts{
 		WorktreePath: wtPath,
 		Prompt:       prompt,
-		ProjectRoot:  target.ProjectRoot,
+		ProjectRoot:  path,
 		Profile:      profile,
 		Options:      options,
 	})
@@ -300,9 +324,13 @@ func (s *SessionCommandService) CreatePMSession(target OperationTarget) error {
 func (s *SessionCommandService) CreatePMSessionWithOpts(target OperationTarget, profile, options string) error {
 	debugLog("SessionCommandService.CreatePMSessionWithOpts: projectRoot=%q profile=%q", target.ProjectRoot, profile)
 	// Local only: remote falls back to CreatePMSession (handled at guiCompositeAdapter level).
+	path, err := resolveLocalPath(target.ProjectRoot)
+	if err != nil {
+		return fmt.Errorf("resolve path: %w", err)
+	}
 	ctx := context.Background()
-	_, err := s.localMgr.CreatePMSessionOpts(ctx, session.PMOpts{
-		ProjectRoot: target.ProjectRoot,
+	_, err = s.localMgr.CreatePMSessionOpts(ctx, session.PMOpts{
+		ProjectRoot: path,
 		Profile:     profile,
 		Options:     options,
 	})
