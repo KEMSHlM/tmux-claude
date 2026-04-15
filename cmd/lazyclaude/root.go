@@ -377,8 +377,8 @@ func newRootCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().BoolVar(&debug, "debug", false, "enable debug logging")
-	cmd.Flags().StringVar(&logFile, "log-file", "/tmp/lazyclaude/debug.log", "log file path (used with --debug)")
+	cmd.PersistentFlags().BoolVar(&debug, "debug", false, "enable debug logging")
+	cmd.PersistentFlags().StringVar(&logFile, "log-file", "/tmp/lazyclaude/debug.log", "log file path (used with --debug)")
 
 	cmd.AddCommand(newServerCmd())
 	cmd.AddCommand(newSetupCmd())

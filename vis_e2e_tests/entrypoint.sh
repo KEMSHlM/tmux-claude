@@ -40,6 +40,44 @@ case "$TAPE_NAME" in
         git add go.mod
         git commit -q -m "init"
         ;;
+    # profile: ローカル profile chooser の動作確認
+    profile)
+        cd /app
+        git config --global user.email "test@test.com"
+        git config --global user.name "test"
+        git init -q
+        git add go.mod
+        git commit -q -m "init"
+        # $HOME/.lazyclaude/config.json を配置
+        mkdir -p /root/.lazyclaude
+        cat > /root/.lazyclaude/config.json <<'EOF'
+{
+  "version": 1,
+  "profiles": [
+    {"name": "opus", "command": "claude", "args": ["--model=claude-opus-4-6"], "default": true},
+    {"name": "sonnet", "command": "claude"}
+  ]
+}
+EOF
+        ;;
+    # ssh_profile: リモート profile chooser の動作確認
+    ssh_profile)
+        ssh -o ConnectTimeout=10 remote 'tmux -L lazyclaude kill-server 2>/dev/null; rm -rf /tmp/lazyclaude-* /tmp/tmux-*/lazyclaude ~/.local/share/lazyclaude/state.json 2>/dev/null; true'
+        if [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+            ssh -o ConnectTimeout=10 remote "echo 'export CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}' >> /root/.bashrc"
+        fi
+        ssh -o ConnectTimeout=10 remote 'mkdir -p /root/app/test-app && cd /root/app/test-app && git init -q && git commit -q --allow-empty -m init 2>/dev/null; true'
+        # リモートホストに config.json を配置
+        ssh -o ConnectTimeout=10 remote 'mkdir -p /root/.lazyclaude && cat > /root/.lazyclaude/config.json' <<'EOF'
+{
+  "version": 1,
+  "profiles": [
+    {"name": "gpu", "command": "claude", "default": true},
+    {"name": "cpu", "command": "claude"}
+  ]
+}
+EOF
+        ;;
     # ssh_worktree_pm: SSH経由でw/W/Pキーの動作確認
     # ユーザー環境の模擬: 既存セッションがありlazyclaude tmuxセッションが存在する状態
     ssh_msg)
