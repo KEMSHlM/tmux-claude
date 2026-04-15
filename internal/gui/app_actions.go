@@ -536,27 +536,6 @@ func (a *App) CreateSessionAtCWD() {
 	})
 }
 
-// createSession is the shared implementation used in tests and legacy paths.
-// localPath is the fallback directory for non-SSH sessions.
-func (a *App) createSession(localPath string) {
-	if a.sessions == nil || a.HasActiveDialog() {
-		return
-	}
-	debugLog("createSession: path=%q", localPath)
-	go func() {
-		err := a.sessions.Create(localPath)
-		a.gui.Update(func(g *gocui.Gui) error {
-			if err != nil {
-				a.showError(g, fmt.Sprintf("Error: %v", err))
-			} else {
-				a.setStatus(g, "Session created")
-				a.moveCursorToLastSession()
-			}
-			return nil
-		})
-	}()
-}
-
 // moveCursorToLastSession moves the cursor to the last session node in the
 // tree. Used after session creation to select the newly created session.
 // Re-syncs the plugin/MCP panels so their remoteDisabled flags and
