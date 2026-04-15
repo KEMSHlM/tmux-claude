@@ -51,6 +51,7 @@ type Session struct {
 	UpdatedAt time.Time `json:"updated_at"`
 	Flags     []string  `json:"flags,omitempty"`
 	Role      Role      `json:"role,omitempty"`
+	Profile   string    `json:"profile,omitempty"`
 
 	// Runtime state (not persisted)
 	TmuxWindow string `json:"-"`
