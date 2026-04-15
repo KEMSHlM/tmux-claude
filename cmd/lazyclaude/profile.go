@@ -55,8 +55,9 @@ func newProfileListCmd() *cobra.Command {
 				return fmt.Errorf("%s: %w", configPath, err)
 			}
 
-			// Emit warnings about multiple default markers before any output.
-			_, warnings := profile.ResolveDefault(profiles)
+			// Resolve the effective default once; warnings come as a second
+			// return value from the same call.
+			defaultProf, warnings := profile.ResolveDefault(profiles)
 			for _, w := range warnings {
 				fmt.Fprintln(cmd.ErrOrStderr(), "warning:", w)
 			}
@@ -65,8 +66,9 @@ func newProfileListCmd() *cobra.Command {
 				return renderProfilesJSON(cmd, profiles)
 			}
 
-			defaultProf, _ := profile.ResolveDefault(profiles)
-			renderProfilesTable(cmd, profiles, defaultProf, verbose)
+			if err := renderProfilesTable(cmd, profiles, defaultProf, verbose); err != nil {
+				return fmt.Errorf("render table: %w", err)
+			}
 
 			fmt.Fprintf(cmd.OutOrStdout(), "\nConfig: %s\n", configPath)
 			fmt.Fprintln(cmd.OutOrStdout(), "Use `-v` for full details, or `--json` for JSON output.")
@@ -97,7 +99,7 @@ func renderProfilesJSON(cmd *cobra.Command, profiles []profile.ProfileDef) error
 	return enc.Encode(entries)
 }
 
-func renderProfilesTable(cmd *cobra.Command, profiles []profile.ProfileDef, defaultProf profile.ProfileDef, verbose bool) {
+func renderProfilesTable(cmd *cobra.Command, profiles []profile.ProfileDef, defaultProf profile.ProfileDef, verbose bool) error {
 	tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 	if verbose {
 		fmt.Fprintln(tw, "NAME\tDEFAULT\tCOMMAND\tDESCRIPTION\tARGS\tENV")
@@ -124,7 +126,7 @@ func renderProfilesTable(cmd *cobra.Command, profiles []profile.ProfileDef, defa
 			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", p.Name, defMark, p.Command, desc)
 		}
 	}
-	tw.Flush()
+	return tw.Flush()
 }
 
 // envString converts an env map to a deterministic KEY=VALUE string.
