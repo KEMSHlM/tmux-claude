@@ -492,6 +492,39 @@ func TestCompositeProvider_Profiles_UnknownHost(t *testing.T) {
 	}
 }
 
+func TestCompositeProvider_Profiles_LocalHost(t *testing.T) {
+	// When host == "", Profiles() must delegate to the local provider if it
+	// implements profileFetcher.
+	localFetcher := &stubProfileProvider{
+		stubProvider: stubProvider{connSt: Connected},
+		profiles:     []ProfileDefAPI{{Name: "default", Command: "claude", Builtin: true}},
+	}
+	cp := NewCompositeProvider(localFetcher, nil)
+
+	got, errStr, err := cp.Profiles(context.Background(), "")
+	if err != nil {
+		t.Fatalf("unexpected transport error: %v", err)
+	}
+	if errStr != "" {
+		t.Errorf("unexpected errStr: %q", errStr)
+	}
+	if len(got) != 1 || got[0].Name != "default" {
+		t.Errorf("got profiles=%v, want [{default ...}]", got)
+	}
+}
+
+func TestCompositeProvider_Profiles_LocalHostNotFetcher(t *testing.T) {
+	// When the local provider does not implement profileFetcher, Profiles("")
+	// should return an error.
+	local := &stubProvider{connSt: Connected}
+	cp := NewCompositeProvider(local, nil)
+
+	_, _, err := cp.Profiles(context.Background(), "")
+	if err == nil {
+		t.Fatal("expected error when local provider does not support profiles")
+	}
+}
+
 func TestCompositeProvider_Profiles_NotFetcher(t *testing.T) {
 	local := &stubProvider{connSt: Connected}
 	cp := NewCompositeProvider(local, nil)

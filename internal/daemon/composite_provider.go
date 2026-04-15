@@ -104,9 +104,13 @@ type CompositeProvider struct {
 	// Entries are stored with Host already populated (set in Sessions()).
 	staleCache map[string][]SessionInfo
 
-	// profilesCache caches the last successful profile fetch per host.
-	// profilesError caches the last daemon-reported error string per host.
-	// A nil slice with no error entry means "not yet fetched".
+	// profilesCache stores the most recent profile fetch result per host. The
+	// value is non-nil on success and nil when the daemon reported a config
+	// error. profilesError stores the corresponding error string (empty on
+	// success). A host absent from profilesCache means "not yet fetched".
+	// Error responses are cached for the lifetime of the connection; callers
+	// must RemoveRemote + AddRemote to trigger a re-fetch after the remote
+	// config is repaired.
 	profilesCache map[string][]ProfileDefAPI
 	profilesError map[string]string
 }
@@ -217,22 +221,29 @@ type profileFetcher interface {
 	Profiles(ctx context.Context) ([]ProfileDefAPI, string, error)
 }
 
-// Profiles returns the remote profile list for the given host. The result is
-// cached after the first successful fetch; subsequent calls return the cached
-// value without a network round-trip.
+// Profiles returns the profile list for the given host. The result is cached
+// after the first fetch; subsequent calls return the cached value without a
+// network round-trip (see profilesCache comment for cache lifetime semantics).
+//
+// When host is "" the local provider is queried directly (no mutex involved;
+// the local provider is immutable after construction). Remote hosts use the
+// dual-lock pattern (RLock collect → Unlock → Lock apply) with provider
+// pointer re-check to guard against concurrent RemoveRemote.
 //
 // Returns (profiles, daemonErrStr, transportErr):
 //   - daemonErrStr is the error string reported by the daemon (e.g. malformed
 //     config.json) and is empty on success.
 //   - transportErr is a transport/HTTP error and is nil on success.
-//
-// If no remote provider is registered for host, a transport error is returned.
-// If the provider does not implement profileFetcher, a transport error is
-// returned.
-//
-// Concurrency: dual-lock pattern (RLock collect → Unlock → Lock apply) with
-// provider pointer re-check to guard against concurrent RemoveRemote.
 func (c *CompositeProvider) Profiles(ctx context.Context, host string) ([]ProfileDefAPI, string, error) {
+	// Local path: bypass the remote cache for the local provider.
+	if host == "" {
+		pf, ok := c.local.(profileFetcher)
+		if !ok {
+			return nil, "", fmt.Errorf("local provider does not support profiles")
+		}
+		return pf.Profiles(ctx)
+	}
+
 	// Fast path: return cached value if available.
 	c.mu.RLock()
 	if cached, ok := c.profilesCache[host]; ok {

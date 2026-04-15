@@ -222,12 +222,15 @@ func (p *localDaemonProvider) ConnectionState() daemon.ConnectionState {
 }
 
 // Profiles returns the local profile list loaded from
-// $HOME/.lazyclaude/config.json. Implements daemon.profileFetcher so that
-// CompositeProvider.Profiles("") can serve local profiles consistently.
+// $HOME/.lazyclaude/config.json.
 //
-// Returns (profiles, daemonErrStr, transportErr). On config-absent or
-// parse-error, daemonErrStr is set and profiles may be nil (parse error) or
-// the builtin-only slice (absent).
+// It implements the daemon.profileFetcher interface so that
+// CompositeProvider.Profiles(ctx, "") delegates here for the local host.
+//
+// Returns (profiles, daemonErrStr, transportErr). transportErr is always nil
+// (file I/O failures are encoded in daemonErrStr). On config-absent, profiles
+// contains the builtin default and daemonErrStr is empty. On parse error,
+// profiles is nil and daemonErrStr contains the human-readable description.
 func (p *localDaemonProvider) Profiles(_ context.Context) ([]daemon.ProfileDefAPI, string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
