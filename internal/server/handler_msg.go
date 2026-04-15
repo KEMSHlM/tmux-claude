@@ -20,7 +20,9 @@ type SessionCreator interface {
 	// FindProjectForSession returns the project owning the given session ID.
 	FindProjectForSession(id string) *SessionProjectInfo
 	// CreateWorkerSession creates a git worktree worker session.
-	CreateWorkerSession(ctx context.Context, name, prompt, projectRoot string) (*SessionCreateResult, error)
+	// profile selects a named launch profile (empty string resolves to the
+	// effective default). options is a space-separated list of extra flags.
+	CreateWorkerSession(ctx context.Context, name, prompt, projectRoot, profile, options string) (*SessionCreateResult, error)
 	// CreateLocalSession creates a plain session at projectPath.
 	CreateLocalSession(ctx context.Context, name, projectPath string) (*SessionCreateResult, error)
 	// ResumeSession resumes a session by ID with a worktree name fallback
@@ -71,10 +73,12 @@ type SessionInfo struct {
 }
 
 type msgCreateRequest struct {
-	From   string `json:"from"`
-	Name   string `json:"name"`
-	Type   string `json:"type"`   // "worker" or "local"
-	Prompt string `json:"prompt"` // optional
+	From    string `json:"from"`
+	Name    string `json:"name"`
+	Type    string `json:"type"`              // "worker" or "local"
+	Prompt  string `json:"prompt"`            // optional
+	Profile string `json:"profile,omitempty"` // optional; empty resolves to effective default
+	Options string `json:"options,omitempty"` // optional; space-separated extra flags
 }
 
 // handleMsgCreate handles POST /msg/create.
@@ -129,7 +133,7 @@ func (s *Server) handleMsgCreate(w http.ResponseWriter, r *http.Request) {
 
 	switch req.Type {
 	case "worker":
-		result, err = sc.CreateWorkerSession(ctx, req.Name, req.Prompt, project.Path)
+		result, err = sc.CreateWorkerSession(ctx, req.Name, req.Prompt, project.Path, req.Profile, req.Options)
 	case "local":
 		result, err = sc.CreateLocalSession(ctx, req.Name, project.Path)
 	}

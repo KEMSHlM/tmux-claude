@@ -375,6 +375,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newMsgCmd())
 	cmd.AddCommand(newDaemonCmd())
 	cmd.AddCommand(newAskpassCmd())
+	cmd.AddCommand(newProfileCmd())
 
 	return cmd
 }
@@ -486,8 +487,14 @@ func (a *sessionCreatorAdapter) FindProjectForSession(id string) *server.Session
 	return &server.SessionProjectInfo{Path: p.Path}
 }
 
-func (a *sessionCreatorAdapter) CreateWorkerSession(ctx context.Context, name, prompt, projectRoot string) (*server.SessionCreateResult, error) {
-	sess, err := a.mgr.CreateWorkerSession(ctx, name, prompt, projectRoot)
+func (a *sessionCreatorAdapter) CreateWorkerSession(ctx context.Context, name, prompt, projectRoot, profile, options string) (*server.SessionCreateResult, error) {
+	sess, err := a.mgr.CreateWorkerSessionOpts(ctx, session.WorkerOpts{
+		Name:        name,
+		Prompt:      prompt,
+		ProjectRoot: projectRoot,
+		Profile:     profile,
+		Options:     options,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("create worker session: %w", err)
 	}
