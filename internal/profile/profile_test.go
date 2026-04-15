@@ -289,6 +289,21 @@ func TestResolveDefault_NoDefaultReturnsBuiltin(t *testing.T) {
 	}
 }
 
+func TestResolveDefault_UserDefinedDefaultName_OverridesBuiltin(t *testing.T) {
+	t.Parallel()
+	profiles := []ProfileDef{
+		{Name: "opus", Command: "claude"},
+		{Name: BuiltinDefaultName, Command: "my-claude"},
+	}
+	got, warns := ResolveDefault(profiles)
+	if got.Name != BuiltinDefaultName || got.Command != "my-claude" || got.Builtin {
+		t.Errorf("ResolveDefault got=%+v, want user-defined \"default\" (my-claude, not builtin)", got)
+	}
+	if len(warns) != 0 {
+		t.Errorf("warns=%v, want none", warns)
+	}
+}
+
 func TestResolveDefault_SingleDefault(t *testing.T) {
 	t.Parallel()
 	profiles := []ProfileDef{

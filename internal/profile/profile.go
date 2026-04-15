@@ -169,10 +169,11 @@ func Validate(p ProfileDef) error {
 	return nil
 }
 
-// ResolveDefault returns the first profile with Default=true in `profiles`.
-// Additional default:true entries are reported via warning strings so that
-// callers can surface them in debug logs without affecting control flow.
-// When no profile is marked default, the built-in default is returned.
+// ResolveDefault picks the default profile using the following precedence:
+//  1. The first profile with Default=true. Additional default:true entries
+//     produce a warning so callers can surface them in debug logs.
+//  2. A profile literally named "default" (user override of the built-in).
+//  3. The built-in default ({name: "default", command: "claude"}).
 func ResolveDefault(profiles []ProfileDef) (ProfileDef, []string) {
 	var (
 		chosen     ProfileDef
@@ -191,16 +192,21 @@ func ResolveDefault(profiles []ProfileDef) (ProfileDef, []string) {
 		}
 		otherNames = append(otherNames, p.Name)
 	}
-	if !found {
-		return BuiltinDefault(), nil
+	if found {
+		if len(otherNames) > 0 {
+			warnings = append(warnings, fmt.Sprintf(
+				"multiple profiles marked default: using %q, ignoring %s",
+				chosen.Name, strings.Join(quoteAll(otherNames), ", "),
+			))
+		}
+		return chosen, warnings
 	}
-	if len(otherNames) > 0 {
-		warnings = append(warnings, fmt.Sprintf(
-			"multiple profiles marked default: using %q, ignoring %s",
-			chosen.Name, strings.Join(quoteAll(otherNames), ", "),
-		))
+	for _, p := range profiles {
+		if p.Name == BuiltinDefaultName {
+			return p, nil
+		}
 	}
-	return chosen, warnings
+	return BuiltinDefault(), nil
 }
 
 func quoteAll(ss []string) []string {
