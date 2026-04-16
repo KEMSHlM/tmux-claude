@@ -938,6 +938,7 @@ func (a *App) closeWorktreeDialog(g *gocui.Gui) {
 	a.dialog.ActiveField = ""
 	a.dialog.ProfileItems = nil
 	a.dialog.OptionsText = ""
+	a.dialog.ParentID = ""
 	g.DeleteView("worktree-branch")
 	g.DeleteView("worktree-prompt")
 	g.DeleteView("worktree-profile-chooser")
@@ -994,6 +995,7 @@ func (a *App) showWorktreeChooser(g *gocui.Gui, items []WorktreeInfo) bool {
 func (a *App) closeWorktreeChooser(g *gocui.Gui) {
 	a.dialog.Kind = DialogNone
 	a.dialog.WorktreeItems = nil
+	a.dialog.ParentID = ""
 	g.DeleteView("worktree-chooser")
 	if _, err := g.SetCurrentView("sessions"); err != nil && !isUnknownView(err) {
 		_ = err
@@ -1172,6 +1174,7 @@ func (a *App) closeWorktreeResumePrompt(g *gocui.Gui) {
 	a.dialog.SelectedPath = ""
 	a.dialog.ProfileItems = nil
 	a.dialog.OptionsText = ""
+	a.dialog.ParentID = ""
 	g.DeleteView("worktree-resume-prompt")
 	g.DeleteView("worktree-resume-hint")
 	g.DeleteView("worktree-resume-profile-chooser")
@@ -1328,6 +1331,7 @@ func (a *App) closeProfileDialog(g *gocui.Gui) {
 	a.dialog.OptionsText = ""
 	a.dialog.ProfileConfirmKind = ""
 	a.dialog.ProfileSessionPath = ""
+	a.dialog.ParentID = ""
 	g.DeleteView("profile-chooser")
 	g.DeleteView("profile-options")
 	g.DeleteView("profile-hint")

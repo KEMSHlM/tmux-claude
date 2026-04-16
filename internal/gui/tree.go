@@ -72,10 +72,16 @@ func BuildTreeNodes(projects []ProjectItem, pmCollapsed map[string]bool) []TreeN
 	return nodes
 }
 
+// maxTreeDepth caps recursion to prevent stack overflow from cyclic ParentID data.
+const maxTreeDepth = 20
+
 // appendSessionTree recursively appends sessions and their children to the
 // node list. parentID identifies which children to add at this level;
 // depth tracks the nesting for indentation.
 func appendSessionTree(nodes *[]TreeNode, projectID string, childrenOf map[string][]*SessionItem, parentID string, depth int, pmCollapsed map[string]bool) {
+	if depth > maxTreeDepth {
+		return
+	}
 	children := childrenOf[parentID]
 	for _, s := range children {
 		// Heap-allocate a copy to avoid mutating the caller-owned slice element.
