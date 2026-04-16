@@ -89,7 +89,16 @@ func CreateWorktreeWithRunner(ctx context.Context, runner GitRunner, projectRoot
 	if err == nil {
 		return nil
 	}
-	// Branch may already exist — try without -b.
+	// Branch may already exist — try without -b. When the existing branch is
+	// reused, git checks it out at the worktree path; startPoint is not
+	// applicable here (git worktree add does not accept a start-point without
+	// -b). If a startPoint was requested, the caller intended a fresh branch;
+	// falling back to an unrelated existing branch would silently violate that
+	// intent, so we fail instead.
+	if startPoint != "" {
+		return fmt.Errorf("cannot create branch %q from %q (branch already exists?): %s",
+			branch, startPoint, strings.TrimSpace(string(out)))
+	}
 	existingArgs := []string{"git", "worktree", "add", wtPath, branch}
 	out2, err2 := runner.Run(ctx, projectRoot, existingArgs...)
 	if err2 != nil {
