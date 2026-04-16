@@ -16,6 +16,7 @@ lazyclaude msg create --from %s --name <worker-name> --type worker --prompt "<in
 
 Optional flags: `--profile <name>` selects a launch profile (empty uses the effective default).
 `--options "--flag1 --flag2"` appends extra flags to the claude invocation (space-separated).
+`--parent <pm-session-id>` assigns a parent PM (defaults to `--from` if it is a PM session).
 
 ### Resume a terminated Worker session
 
@@ -23,7 +24,7 @@ Optional flags: `--profile <name>` selects a launch profile (empty uses the effe
 lazyclaude sessions resume <session-id> --name <worker-name> [--prompt "<new task>"]
 ```
 
-Respawns a dead session with the same ID. The `--name` flag specifies the worktree directory name (required when the session has been garbage-collected from state.json). Claude Code conversation history is preserved via `--resume`.
+Respawns a dead session with the same ID. The `--name` flag specifies the branch name (e.g. `feat/login`; `/` is allowed). Required when the session has been garbage-collected from state.json. Claude Code conversation history is preserved via `--resume`.
 
 ### Fallback: tmux send-keys
 

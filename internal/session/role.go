@@ -155,15 +155,28 @@ func BuildPMPrompt(ctx context.Context, projectRoot, sessionID, workerList strin
 // BuildWorkerPrompt generates the system prompt injected into a Worker session at launch.
 // The final prompt is composed of worker.md (role-specific, custom-searchable) +
 // base.md (shared communication reference, always embedded).
-func BuildWorkerPrompt(ctx context.Context, worktreePath, projectRoot, sessionID string) string {
+//
+// parentPMID is the session ID of the parent PM. When non-empty, the worker
+// prompt includes the PM's ID as the review_request target. When empty (no PM),
+// the target placeholder is replaced with "<pm-session-id>" so the template
+// remains valid but the worker must discover the PM ID from context.
+func BuildWorkerPrompt(ctx context.Context, worktreePath, projectRoot, sessionID, parentPMID string) string {
 	roleTmpl := resolvePrompt(projectRoot, worktreePath, userHomeDir(), "worker.md", prompts.DefaultWorker(), localFileReader())
 	baseTmpl := prompts.DefaultBase()
+
+	// Determine the review_request target: parent PM ID if known, otherwise
+	// a placeholder that signals the worker has no assigned PM.
+	reviewTarget := parentPMID
+	if reviewTarget == "" {
+		reviewTarget = "<pm-session-id>"
+	}
 
 	role := fmt.Sprintf(roleTmpl,
 		projectRoot,  // NEVER modify ... must remain untouched
 		worktreePath, // Worktree path line
 		sessionID,    // Session ID line
 		sessionID,    // msg send --from (review_request)
+		reviewTarget, // msg send target (PM session ID)
 	)
 	base := fmt.Sprintf(baseTmpl,
 		sessionID, // msg create --from (spawn)

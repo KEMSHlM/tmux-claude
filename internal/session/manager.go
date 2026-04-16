@@ -637,7 +637,7 @@ func (m *Manager) launchWorktreeSession(ctx context.Context, args launchWorktree
 		workerList := collectWorkerList(m.store, args.ProjectRoot)
 		systemPrompt = BuildPMPrompt(ctx, args.ProjectRoot, id, workerList)
 	} else {
-		systemPrompt = BuildWorkerPrompt(ctx, args.WtPath, args.ProjectRoot, id)
+		systemPrompt = BuildWorkerPrompt(ctx, args.WtPath, args.ProjectRoot, id, args.ParentID)
 	}
 
 	sess := Session{

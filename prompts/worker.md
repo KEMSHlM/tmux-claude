@@ -15,7 +15,7 @@ You do not need to poll for messages — they arrive automatically.
 
 ### Send a review request to the PM:
 ```bash
-lazyclaude msg send --from %s --type review_request <pm-session-id> "<description of changes>"
+lazyclaude msg send --from %s --type review_request %s "<description of changes>"
 ```
 
 ## Workflow
