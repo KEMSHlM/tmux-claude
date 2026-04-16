@@ -71,8 +71,9 @@ type fakeSessionCreator struct {
 	result      *server.SessionCreateResult
 	err         error
 	// fields populated by CreateWorkerSession for assertion
-	lastProfile string
-	lastOptions string
+	lastProfile  string
+	lastOptions  string
+	lastParentID string
 }
 
 func (f *fakeSessionCreator) FindProjectForSession(id string) *server.SessionProjectInfo {
@@ -82,9 +83,10 @@ func (f *fakeSessionCreator) FindProjectForSession(id string) *server.SessionPro
 	return &server.SessionProjectInfo{Path: f.projectPath}
 }
 
-func (f *fakeSessionCreator) CreateWorkerSession(ctx context.Context, name, prompt, projectRoot, profile, options string) (*server.SessionCreateResult, error) {
+func (f *fakeSessionCreator) CreateWorkerSession(ctx context.Context, name, prompt, projectRoot, profile, options, parentID string) (*server.SessionCreateResult, error) {
 	f.lastProfile = profile
 	f.lastOptions = options
+	f.lastParentID = parentID
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -98,7 +100,7 @@ func (f *fakeSessionCreator) CreateLocalSession(ctx context.Context, name, proje
 	return f.result, nil
 }
 
-func (f *fakeSessionCreator) ResumeSession(ctx context.Context, id, prompt, name string) (*server.SessionCreateResult, error) {
+func (f *fakeSessionCreator) ResumeSession(ctx context.Context, id, prompt, name, parentID string) (*server.SessionCreateResult, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -344,6 +346,33 @@ func TestMsgCreate_worker_profile_propagated(t *testing.T) {
 
 	assert.Equal(t, "opus", creator.lastProfile)
 	assert.Equal(t, "--dangerously-skip-permissions", creator.lastOptions)
+}
+
+func TestMsgCreate_worker_parentID_propagated(t *testing.T) {
+	t.Parallel()
+	creator := &fakeSessionCreator{
+		projectPath: "/project",
+		result: &server.SessionCreateResult{
+			ID:     "sess-child",
+			Name:   "feat-child",
+			Role:   "worker",
+			Path:   "/project/.lazyclaude/worktrees/feat-child",
+			Window: "@10",
+		},
+	}
+	_, port, _ := startTestServerWithCreator(t, nil, creator)
+
+	resp := msgCreate(t, port, "test-token", map[string]string{
+		"from":      "pm-id",
+		"name":      "feat-child",
+		"type":      "worker",
+		"prompt":    "Implement child",
+		"parent_id": "pm-id",
+	})
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	assert.Equal(t, "pm-id", creator.lastParentID)
 }
 
 func TestMsgCreate_creation_error(t *testing.T) {

@@ -331,8 +331,8 @@ func TestAPIVersion_Constant(t *testing.T) {
 	if health.APIVersion != APIVersion {
 		t.Errorf("health.api_version=%d, want constant APIVersion=%d", health.APIVersion, APIVersion)
 	}
-	if APIVersion != 4 {
-		t.Errorf("APIVersion constant=%d, want 4 (Phase 2b bump)", APIVersion)
+	if APIVersion != 5 {
+		t.Errorf("APIVersion constant=%d, want 5 (P2-D parent flag)", APIVersion)
 	}
 }
 

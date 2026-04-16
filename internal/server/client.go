@@ -91,14 +91,16 @@ func (c *Client) SendMessage(ctx context.Context, from, to, msgType, body string
 // CreateSession creates a new session via POST /msg/create.
 // profile selects a named launch profile (empty resolves to effective default).
 // options is a space-separated list of extra flags passed to the claude invocation.
-func (c *Client) CreateSession(ctx context.Context, from, name, sessionType, prompt, profile, options string) (*MsgCreateResponse, error) {
+// parentID is the ID of the parent PM session (empty means root-level).
+func (c *Client) CreateSession(ctx context.Context, from, name, sessionType, prompt, profile, options, parentID string) (*MsgCreateResponse, error) {
 	payload := msgCreateRequest{
-		From:    from,
-		Name:    name,
-		Type:    sessionType,
-		Prompt:  prompt,
-		Profile: profile,
-		Options: options,
+		From:     from,
+		Name:     name,
+		Type:     sessionType,
+		Prompt:   prompt,
+		Profile:  profile,
+		Options:  options,
+		ParentID: parentID,
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {
@@ -130,11 +132,13 @@ func (c *Client) CreateSession(ctx context.Context, from, name, sessionType, pro
 }
 
 // ResumeSession resumes a session via POST /msg/resume.
-func (c *Client) ResumeSession(ctx context.Context, id, prompt, name string) (*MsgResumeResponse, error) {
+// parentID overrides the stored parent (empty preserves the existing value).
+func (c *Client) ResumeSession(ctx context.Context, id, prompt, name, parentID string) (*MsgResumeResponse, error) {
 	payload := msgResumeRequest{
-		ID:     id,
-		Prompt: prompt,
-		Name:   name,
+		ID:       id,
+		Prompt:   prompt,
+		Name:     name,
+		ParentID: parentID,
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {

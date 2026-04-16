@@ -53,8 +53,9 @@ func newSessionsCmd() *cobra.Command {
 
 func newSessionsResumeCmd() *cobra.Command {
 	var (
-		name   string
-		prompt string
+		name     string
+		prompt   string
+		parentID string
 	)
 
 	cmd := &cobra.Command{
@@ -71,7 +72,7 @@ func newSessionsResumeCmd() *cobra.Command {
 			}
 
 			client := server.NewClient(disc.Port, disc.Token)
-			result, err := client.ResumeSession(cmd.Context(), sessionID, prompt, name)
+			result, err := client.ResumeSession(cmd.Context(), sessionID, prompt, name, parentID)
 			if err != nil {
 				return fmt.Errorf("resume session: %w", err)
 			}
@@ -88,6 +89,7 @@ func newSessionsResumeCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&name, "name", "", "worktree name (required for GC'd sessions)")
 	cmd.Flags().StringVar(&prompt, "prompt", "", "initial prompt for the resumed session")
+	cmd.Flags().StringVar(&parentID, "parent", "", "parent PM session ID")
 
 	return cmd
 }

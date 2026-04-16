@@ -22,7 +22,9 @@ import (
 //   - 4: adds GET /profiles for remote profile discovery. Adds Profile and
 //        Options fields to session/worktree/msg create requests so that the
 //        caller can select a launch profile and append extra flags.
-const APIVersion = 4
+//   - 5: adds ParentID field to session/worktree/msg create and resume
+//        requests for hierarchical PM session tracking.
+const APIVersion = 5
 
 // --- Session CRUD ---
 
@@ -40,6 +42,8 @@ type SessionCreateRequest struct {
 	// Options is a space-separated list of extra flags appended to the claude
 	// invocation.
 	Options string `json:"options,omitempty"`
+	// ParentID is the ID of the parent PM session. Empty means root-level.
+	ParentID string `json:"parent_id,omitempty"`
 }
 
 // SessionCreateResponse is returned after a session is created.
@@ -154,6 +158,8 @@ type WorktreeCreateRequest struct {
 	// Options is a space-separated list of extra flags appended to the claude
 	// invocation.
 	Options string `json:"options,omitempty"`
+	// ParentID is the ID of the parent PM session. Empty means root-level.
+	ParentID string `json:"parent_id,omitempty"`
 }
 
 // WorktreeCreateResponse is returned after a worktree is created.
@@ -176,6 +182,8 @@ type WorktreeResumeRequest struct {
 	// Options is a space-separated list of extra flags appended to the claude
 	// invocation.
 	Options string `json:"options,omitempty"`
+	// ParentID is the ID of the parent PM session. Empty means root-level.
+	ParentID string `json:"parent_id,omitempty"`
 }
 
 // WorktreeResumeResponse is returned after a worktree session is resumed.
@@ -191,9 +199,10 @@ type WorktreeResumeResponse struct {
 // for sessions that have been GC'd from state.json but whose worktree directory
 // still exists on disk.
 type SessionResumeRequest struct {
-	ID     string `json:"id"`
-	Prompt string `json:"prompt,omitempty"`
-	Name   string `json:"name,omitempty"` // branch name (for GC'd sessions); "/" is allowed
+	ID       string `json:"id"`
+	Prompt   string `json:"prompt,omitempty"`
+	Name     string `json:"name,omitempty"` // branch name (for GC'd sessions); "/" is allowed
+	ParentID string `json:"parent_id,omitempty"`
 }
 
 // SessionResumeResponse is returned after a session is resumed.
@@ -251,6 +260,8 @@ type MsgCreateRequest struct {
 	// Options is a space-separated list of extra flags appended to the claude
 	// invocation.
 	Options string `json:"options,omitempty"`
+	// ParentID is the ID of the parent PM session. Empty means root-level.
+	ParentID string `json:"parent_id,omitempty"`
 }
 
 // MsgCreateResponse is returned after a new session is created via messaging.

@@ -586,15 +586,16 @@ func (rp *RemoteProvider) resumeWorktreeResp(worktreePath, prompt, projectRoot s
 	}, nil
 }
 
-func (rp *RemoteProvider) ResumeSession(id, prompt, name string) error {
+func (rp *RemoteProvider) ResumeSession(id, prompt, name, parentID string) error {
 	client, err := rp.conn.Client()
 	if err != nil {
 		return fmt.Errorf("resume session: %w", err)
 	}
 	resp, err := client.ResumeSession(context.Background(), SessionResumeRequest{
-		ID:     id,
-		Prompt: prompt,
-		Name:   name,
+		ID:       id,
+		Prompt:   prompt,
+		Name:     name,
+		ParentID: parentID,
 	})
 	if err != nil {
 		return fmt.Errorf("resume session: %w", err)

@@ -78,6 +78,7 @@ func newMsgCreateCmd() *cobra.Command {
 		from        string
 		profileName string
 		options     string
+		parentID    string
 	)
 
 	cmd := &cobra.Command{
@@ -99,7 +100,13 @@ func newMsgCreateCmd() *cobra.Command {
 
 			client := server.NewClient(disc.Port, disc.Token)
 
-			result, err := client.CreateSession(cmd.Context(), from, name, createType, prompt, profileName, options)
+			// Sugar: when --parent is not specified and --from is a PM session,
+			// automatically use --from as parentID.
+			if parentID == "" && from != "" && from != "cli" {
+				parentID = resolveParentFromSender(cmd, client, from)
+			}
+
+			result, err := client.CreateSession(cmd.Context(), from, name, createType, prompt, profileName, options, parentID)
 			if err != nil {
 				return fmt.Errorf("create session: %w", err)
 			}
@@ -121,6 +128,23 @@ func newMsgCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&from, "from", "cli", "caller session ID")
 	cmd.Flags().StringVar(&profileName, "profile", "", "launch profile name (empty uses effective default)")
 	cmd.Flags().StringVar(&options, "options", "", "extra flags passed to the claude invocation (space-separated)")
+	cmd.Flags().StringVar(&parentID, "parent", "", "parent PM session ID (auto-detected from --from if omitted)")
 
 	return cmd
+}
+
+// resolveParentFromSender checks whether the --from session has role "pm"
+// and returns its ID as the implicit parent. Returns "" if the session is
+// not a PM or if the lookup fails (best-effort).
+func resolveParentFromSender(cmd *cobra.Command, client *server.Client, from string) string {
+	sessions, err := client.Sessions(cmd.Context())
+	if err != nil {
+		return ""
+	}
+	for _, s := range sessions {
+		if s.ID == from && s.Role == "pm" {
+			return from
+		}
+	}
+	return ""
 }

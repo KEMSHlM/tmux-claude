@@ -495,6 +495,7 @@ func (m *Manager) ResumeWorktreeOpts(ctx context.Context, opts ResumeOpts) (*Ses
 		SkipGitAdd:  true,
 		Profile:     opts.Profile,
 		ExtraFlags:  splitOptions(opts.Options),
+		preCheck:    m.parentIDPreCheck(opts.ParentID, opts.ProjectRoot),
 	})
 }
 
@@ -1129,7 +1130,7 @@ func (m *Manager) CreatePMSession(ctx context.Context, projectRoot string) (*Ses
 //
 // Only local worktree/worker sessions can be resumed. Remote sessions and PM
 // sessions are rejected because they require different launch semantics.
-func (m *Manager) ResumeSession(ctx context.Context, id, prompt, name string) (*Session, error) {
+func (m *Manager) ResumeSession(ctx context.Context, id, prompt, name, parentID string) (*Session, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -1165,13 +1166,22 @@ func (m *Manager) ResumeSession(ctx context.Context, id, prompt, name string) (*
 		savedOld := *old
 		m.store.Remove(id)
 
+		// Use provided parentID if non-empty; otherwise preserve old session's parent.
+		effectiveParentID := old.ParentID
+		if parentID != "" {
+			if err := m.validateParentID(parentID, projectRoot); err != nil {
+				return nil, fmt.Errorf("validate parent: %w", err)
+			}
+			effectiveParentID = parentID
+		}
+
 		result, launchErr := m.launchWorktreeSession(ctx, launchWorktreeArgs{
 			Name:        old.Name,
 			WtPath:      old.Path,
 			UserPrompt:  prompt,
 			ProjectRoot: projectRoot,
 			Role:        old.Role,
-			ParentID:    old.ParentID,
+			ParentID:    effectiveParentID,
 			SessionID:   id,
 			Resume:      true,
 			Profile:     old.Profile,
@@ -1220,12 +1230,20 @@ func (m *Manager) ResumeSession(ctx context.Context, id, prompt, name string) (*
 		return nil, fmt.Errorf("worktree directory not found: %s", wtPath)
 	}
 
+	// Validate parentID before launching (GC'd session path has no preCheck).
+	if parentID != "" {
+		if err := m.validateParentID(parentID, projectRoot); err != nil {
+			return nil, fmt.Errorf("validate parent: %w", err)
+		}
+	}
+
 	return m.launchWorktreeSession(ctx, launchWorktreeArgs{
 		Name:        name,
 		WtPath:      wtPath,
 		UserPrompt:  prompt,
 		ProjectRoot: projectRoot,
 		Role:        RoleWorker,
+		ParentID:    parentID,
 		SessionID:   id,
 		Resume:      true,
 	})

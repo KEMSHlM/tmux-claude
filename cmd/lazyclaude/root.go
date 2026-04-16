@@ -498,13 +498,14 @@ func (a *sessionCreatorAdapter) FindProjectForSession(id string) *server.Session
 	return &server.SessionProjectInfo{Path: p.Path}
 }
 
-func (a *sessionCreatorAdapter) CreateWorkerSession(ctx context.Context, name, prompt, projectRoot, profile, options string) (*server.SessionCreateResult, error) {
+func (a *sessionCreatorAdapter) CreateWorkerSession(ctx context.Context, name, prompt, projectRoot, profile, options, parentID string) (*server.SessionCreateResult, error) {
 	sess, err := a.mgr.CreateWorkerSessionOpts(ctx, session.WorkerOpts{
 		Name:        name,
 		Prompt:      prompt,
 		ProjectRoot: projectRoot,
 		Profile:     profile,
 		Options:     options,
+		ParentID:    parentID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create worker session: %w", err)
@@ -518,8 +519,8 @@ func (a *sessionCreatorAdapter) CreateWorkerSession(ctx context.Context, name, p
 	}, nil
 }
 
-func (a *sessionCreatorAdapter) ResumeSession(ctx context.Context, id, prompt, name string) (*server.SessionCreateResult, error) {
-	sess, err := a.mgr.ResumeSession(ctx, id, prompt, name)
+func (a *sessionCreatorAdapter) ResumeSession(ctx context.Context, id, prompt, name, parentID string) (*server.SessionCreateResult, error) {
+	sess, err := a.mgr.ResumeSession(ctx, id, prompt, name, parentID)
 	if err != nil {
 		return nil, fmt.Errorf("resume session: %w", err)
 	}

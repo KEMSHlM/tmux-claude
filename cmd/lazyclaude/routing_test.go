@@ -362,7 +362,7 @@ func (f *fakeRemoteAPI) Rename(id, newName string) error {
 	return nil
 }
 
-func (f *fakeRemoteAPI) ResumeSession(id, prompt, name string) error {
+func (f *fakeRemoteAPI) ResumeSession(id, prompt, name, parentID string) error {
 	return nil
 }
 

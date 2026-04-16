@@ -79,7 +79,7 @@ func (f *fakeRemoteSessionAPI) Rename(id, newName string) error {
 	return nil
 }
 
-func (f *fakeRemoteSessionAPI) ResumeSession(id, prompt, name string) error {
+func (f *fakeRemoteSessionAPI) ResumeSession(id, prompt, name, parentID string) error {
 	return nil
 }
 
@@ -163,7 +163,7 @@ func (f *fakeSessionProvider) ResumeWorktree(worktreePath, prompt, projectRoot s
 	return f.postCreate(f.host, projectRoot, resp)
 }
 
-func (f *fakeSessionProvider) ResumeSession(id, prompt, name string) error {
+func (f *fakeSessionProvider) ResumeSession(id, prompt, name, parentID string) error {
 	return nil
 }
 

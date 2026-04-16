@@ -54,7 +54,7 @@ type SessionActioner interface {
 type WorktreeProvider interface {
 	CreateWorktree(name, prompt, projectRoot string) error
 	ResumeWorktree(worktreePath, prompt, projectRoot string) error
-	ResumeSession(id, prompt, name string) error
+	ResumeSession(id, prompt, name, parentID string) error
 	ListWorktrees(projectRoot string) ([]WorktreeInfo, error)
 }
 
@@ -401,12 +401,12 @@ func (c *CompositeProvider) ResumeWorktree(worktreePath, prompt, projectRoot, ho
 }
 
 // ResumeSession resumes a session by ID, routing by host.
-func (c *CompositeProvider) ResumeSession(id, prompt, name, host string) error {
+func (c *CompositeProvider) ResumeSession(id, prompt, name, parentID, host string) error {
 	p, err := c.providerForHost(host)
 	if err != nil {
 		return err
 	}
-	return p.ResumeSession(id, prompt, name)
+	return p.ResumeSession(id, prompt, name, parentID)
 }
 
 // ListWorktrees lists worktrees, routing by host.

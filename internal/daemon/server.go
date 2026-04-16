@@ -237,12 +237,14 @@ func (s *DaemonServer) handleSessionCreate(w http.ResponseWriter, r *http.Reques
 			ProjectRoot: req.ProjectRoot,
 			Profile:     req.Profile,
 			Options:     req.Options,
+			ParentID:    req.ParentID,
 		})
 	case "pm":
 		sess, err = s.mgr.CreatePMSessionOpts(ctx, session.PMOpts{
 			ProjectRoot: req.ProjectRoot,
 			Profile:     req.Profile,
 			Options:     req.Options,
+			ParentID:    req.ParentID,
 		})
 	case "worker":
 		sess, err = s.mgr.CreateWorkerSessionOpts(ctx, session.WorkerOpts{
@@ -251,6 +253,7 @@ func (s *DaemonServer) handleSessionCreate(w http.ResponseWriter, r *http.Reques
 			ProjectRoot: req.ProjectRoot,
 			Profile:     req.Profile,
 			Options:     req.Options,
+			ParentID:    req.ParentID,
 		})
 	default:
 		http.Error(w, "invalid session_type", http.StatusBadRequest)
@@ -393,6 +396,7 @@ func (s *DaemonServer) handleWorktreeCreate(w http.ResponseWriter, r *http.Reque
 		ProjectRoot: req.ProjectRoot,
 		Profile:     req.Profile,
 		Options:     req.Options,
+		ParentID:    req.ParentID,
 	})
 	if err != nil {
 		s.log.Printf("worktree/create: %v", err)
@@ -422,6 +426,7 @@ func (s *DaemonServer) handleWorktreeResume(w http.ResponseWriter, r *http.Reque
 		ProjectRoot:  req.ProjectRoot,
 		Profile:      req.Profile,
 		Options:      req.Options,
+		ParentID:     req.ParentID,
 	})
 	if err != nil {
 		s.log.Printf("worktree/resume: %v", err)
@@ -450,7 +455,7 @@ func (s *DaemonServer) handleSessionResume(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	sess, err := s.mgr.ResumeSession(r.Context(), req.ID, req.Prompt, req.Name)
+	sess, err := s.mgr.ResumeSession(r.Context(), req.ID, req.Prompt, req.Name, req.ParentID)
 	if err != nil {
 		s.log.Printf("session/resume: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -577,12 +582,14 @@ func (s *DaemonServer) handleMsgCreate(w http.ResponseWriter, r *http.Request) {
 			ProjectRoot: project.Path,
 			Profile:     req.Profile,
 			Options:     req.Options,
+			ParentID:    req.ParentID,
 		})
 	case "pm":
 		sess, err = s.mgr.CreatePMSessionOpts(ctx, session.PMOpts{
 			ProjectRoot: project.Path,
 			Profile:     req.Profile,
 			Options:     req.Options,
+			ParentID:    req.ParentID,
 		})
 	default:
 		http.Error(w, "type must be worker or pm", http.StatusBadRequest)

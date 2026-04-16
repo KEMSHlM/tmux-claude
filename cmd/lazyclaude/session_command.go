@@ -45,7 +45,7 @@ type remoteSessionAPI interface {
 	CreateSession(path string) (*daemon.SessionCreateResponse, error)
 	Delete(id string) error
 	Rename(id, newName string) error
-	ResumeSession(id, prompt, name string) error
+	ResumeSession(id, prompt, name, parentID string) error
 }
 
 // SessionCommandService encapsulates all session create/delete/rename
@@ -288,7 +288,9 @@ func (s *SessionCommandService) ResumeSession(target OperationTarget, id, prompt
 	if err := s.prepareRemote(&target); err != nil {
 		return err
 	}
-	return s.cp.ResumeSession(id, prompt, name, target.Host)
+	// ParentID is empty here (GUI path); the existing session's ParentID is
+	// preserved by Manager.ResumeSession when parentID == "".
+	return s.cp.ResumeSession(id, prompt, name, "", target.Host)
 }
 
 // ListWorktrees lists worktrees on the appropriate host.

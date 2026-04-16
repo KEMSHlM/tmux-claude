@@ -22,12 +22,14 @@ type SessionCreator interface {
 	// CreateWorkerSession creates a git worktree worker session.
 	// profile selects a named launch profile (empty string resolves to the
 	// effective default). options is a space-separated list of extra flags.
-	CreateWorkerSession(ctx context.Context, name, prompt, projectRoot, profile, options string) (*SessionCreateResult, error)
+	// parentID is the ID of the parent PM session (empty means root-level).
+	CreateWorkerSession(ctx context.Context, name, prompt, projectRoot, profile, options, parentID string) (*SessionCreateResult, error)
 	// CreateLocalSession creates a plain session at projectPath.
 	CreateLocalSession(ctx context.Context, name, projectPath string) (*SessionCreateResult, error)
 	// ResumeSession resumes a session by ID with a worktree name fallback
 	// for sessions that have been GC'd from state.json.
-	ResumeSession(ctx context.Context, id, prompt, name string) (*SessionCreateResult, error)
+	// parentID overrides the stored parent (empty preserves the existing value).
+	ResumeSession(ctx context.Context, id, prompt, name, parentID string) (*SessionCreateResult, error)
 }
 
 // SessionProjectInfo is the minimal project data needed by the handler.
@@ -73,12 +75,13 @@ type SessionInfo struct {
 }
 
 type msgCreateRequest struct {
-	From    string `json:"from"`
-	Name    string `json:"name"`
-	Type    string `json:"type"`              // "worker" or "local"
-	Prompt  string `json:"prompt"`            // optional
-	Profile string `json:"profile,omitempty"` // optional; empty resolves to effective default
-	Options string `json:"options,omitempty"` // optional; space-separated extra flags
+	From     string `json:"from"`
+	Name     string `json:"name"`
+	Type     string `json:"type"`                // "worker" or "local"
+	Prompt   string `json:"prompt"`              // optional
+	Profile  string `json:"profile,omitempty"`   // optional; empty resolves to effective default
+	Options  string `json:"options,omitempty"`    // optional; space-separated extra flags
+	ParentID string `json:"parent_id,omitempty"` // optional; parent PM session ID
 }
 
 // handleMsgCreate handles POST /msg/create.
@@ -133,8 +136,8 @@ func (s *Server) handleMsgCreate(w http.ResponseWriter, r *http.Request) {
 
 	switch req.Type {
 	case "worker":
-		// profile and options are worker-only; they are ignored for other session types.
-		result, err = sc.CreateWorkerSession(ctx, req.Name, req.Prompt, project.Path, req.Profile, req.Options)
+		// profile, options, and parentID are worker-only; they are ignored for other session types.
+		result, err = sc.CreateWorkerSession(ctx, req.Name, req.Prompt, project.Path, req.Profile, req.Options, req.ParentID)
 	case "local":
 		// TODO(phase-2b): extend CreateLocalSession with profile/options when daemon route adds support.
 		result, err = sc.CreateLocalSession(ctx, req.Name, project.Path)
@@ -310,9 +313,10 @@ type MsgResumeResponse struct {
 }
 
 type msgResumeRequest struct {
-	ID     string `json:"id"`
-	Prompt string `json:"prompt,omitempty"`
-	Name   string `json:"name,omitempty"` // worktree name (for GC'd sessions)
+	ID       string `json:"id"`
+	Prompt   string `json:"prompt,omitempty"`
+	Name     string `json:"name,omitempty"`      // worktree name (for GC'd sessions)
+	ParentID string `json:"parent_id,omitempty"` // optional; parent PM session ID
 }
 
 // handleMsgResume handles POST /msg/resume.
@@ -352,7 +356,7 @@ func (s *Server) handleMsgResume(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	result, err := sc.ResumeSession(ctx, req.ID, req.Prompt, req.Name)
+	result, err := sc.ResumeSession(ctx, req.ID, req.Prompt, req.Name, req.ParentID)
 	if err != nil {
 		s.log.Printf("msg/resume: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
