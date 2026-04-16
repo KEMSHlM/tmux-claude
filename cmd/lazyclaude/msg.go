@@ -142,7 +142,7 @@ func resolveParentFromSender(cmd *cobra.Command, client *server.Client, from str
 		return ""
 	}
 	for _, s := range sessions {
-		if s.ID == from && strings.EqualFold(s.Role, "pm") {
+		if s.ID == from && s.Role == "pm" {
 			return from
 		}
 	}
