@@ -145,7 +145,7 @@ type AttachResponse struct {
 
 // WorktreeCreateRequest creates a new git worktree and session.
 type WorktreeCreateRequest struct {
-	Name        string `json:"name"`
+	Name        string `json:"name"` // branch name (e.g. "feat/login"); "/" is allowed
 	Prompt      string `json:"prompt,omitempty"`
 	ProjectRoot string `json:"project_root"`
 	// Profile selects a launch profile by name. Empty string resolves to the
@@ -193,7 +193,7 @@ type WorktreeResumeResponse struct {
 type SessionResumeRequest struct {
 	ID     string `json:"id"`
 	Prompt string `json:"prompt,omitempty"`
-	Name   string `json:"name,omitempty"` // worktree name (for GC'd sessions)
+	Name   string `json:"name,omitempty"` // branch name (for GC'd sessions); "/" is allowed
 }
 
 // SessionResumeResponse is returned after a session is resumed.
@@ -242,7 +242,7 @@ type MsgSendResponse struct {
 // MsgCreateRequest creates a new worker session and sends an initial message.
 type MsgCreateRequest struct {
 	From   string `json:"from"`
-	Name   string `json:"name"`
+	Name   string `json:"name"` // branch name (e.g. "feat/login"); "/" is allowed
 	Type   string `json:"type"` // "worker", "pm"
 	Prompt string `json:"prompt"`
 	// Profile selects a launch profile by name. Empty string resolves to the

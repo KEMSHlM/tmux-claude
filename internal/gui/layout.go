@@ -840,7 +840,7 @@ func (a *App) showWorktreeDialog(g *gocui.Gui) bool {
 	if err != nil && !isUnknownView(err) {
 		return false
 	}
-	v.Title = " Branch "
+	v.Title = " Branch (e.g. feat/login) "
 	v.Editable = true
 	v.Editor = gocui.DefaultEditor
 	v.Clear()
